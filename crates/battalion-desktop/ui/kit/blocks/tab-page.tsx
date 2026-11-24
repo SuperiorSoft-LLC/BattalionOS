@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) SuperiorSoft LLC
-// Shared shell for every non-CLI tab: title row with actions, then a scrolling body. In the kit (WEBUI-1) so a web UI
-// plugin's tab is framed exactly like the app's own.
+// Shared shell for every non-CLI tab: title row with actions, then a scrolling body. In the kit so every
+// tab built on it is framed alike.
 import type { ReactNode } from "react";
 import { ScrollArea } from "../components/scroll-area";
 

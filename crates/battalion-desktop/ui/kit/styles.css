@@ -3,11 +3,11 @@
 @import "tailwindcss";
 /* The kit's own classes: a workspace package sits in node_modules, which Tailwind does not scan by itself. */
 @source "./";
-/* Animations and shadcn's state variants, shared with web UI plugins (WEBUI-1). */
+/* Animations and shadcn's state variants, shared. */
 @import "./extensions.css";
 @import "@fontsource-variable/geist";
 
-/* Theme tokens and the dark variant, shared with web UI plugins (WEBUI-1). */
+/* Theme tokens and the dark variant, shared. */
 @import "./theme.css";
 
 /* Light tones: Theme.kt LightTones. */

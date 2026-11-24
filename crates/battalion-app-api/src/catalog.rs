@@ -67,6 +67,8 @@ pub enum CatalogError {
     NoKey(String),
     NoChannel(String),
     InsecureUrl { id: String, url: String },
+    /// The entry says it is another kind of thing (`kind` is set and is not `app`).
+    NotAnApp { id: String, kind: String },
 }
 impl std::fmt::Display for CatalogError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -79,6 +81,7 @@ impl std::fmt::Display for CatalogError {
             NoKey(i) => write!(f, "app '{i}' has no public key"),
             NoChannel(i) => write!(f, "app '{i}' has no channel"),
             InsecureUrl { id, url } => write!(f, "app '{id}' channel url '{url}' is not https or file"),
+            NotAnApp { id, kind } => write!(f, "'{id}' is not an app (its kind is '{kind}'); the Armory lists apps only, so it is skipped"),
         }
     }
 }
@@ -142,6 +145,10 @@ impl Catalog {
         let mut seen = std::collections::BTreeSet::new();
         for raw in v.get("apps").and_then(|a| a.as_array()).cloned().unwrap_or_default() {
             let label = raw.get("id").and_then(|i| i.as_str()).unwrap_or("?").to_string();
+            if let Some(kind) = raw.get("kind").and_then(|k| k.as_str()).filter(|k| *k != "app") {
+                bad.push((label.clone(), CatalogError::NotAnApp { id: label, kind: kind.to_string() }));
+                continue;
+            }
             match serde_json::from_value::<CatalogApp>(raw) {
                 Err(e) => bad.push((label, CatalogError::NotJson(e.to_string()))),
                 Ok(a) => match a.check() {

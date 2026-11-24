@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) SuperiorSoft LLC
 // Where the kit's floating parts (dialogs, selects, menus, tooltips) render: document.body, unless an ancestor names
-// another element with <PortalContainer>. The app gives each web UI plugin its own portal root (WEBUI-1), so a plugin's
-// dialog sits inside the plugin's style scope like the rest of it.
+// another element with <PortalContainer>. A page that needs its dialogs inside its own
+// style scope names its own root.
 import { createContext, useContext, type ReactNode } from "react";
 
 const PortalContainerContext = createContext<HTMLElement | null>(null);

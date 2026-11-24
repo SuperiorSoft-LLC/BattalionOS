@@ -161,6 +161,11 @@ impl Armory {
 
     /// Read `app.json` of an unpacked package and hold it to what was asked for.
     pub(crate) fn check_manifest(&self, dir: &Path, id: &str, version: &str) -> Result<Manifest> {
+        // Only the root is looked at. A package whose root manifest is another kind's is no app;
+        // whatever else a package holds in its own folders is the app's business, not read here.
+        if !dir.join("app.json").is_file() && dir.join("module.json").is_file() {
+            return Err(ArmoryError::NotAnApp("its root manifest is module.json, but an app's is app.json; BattalionOS installs apps only".into()));
+        }
         let text = std::fs::read_to_string(dir.join("app.json")).map_err(|e| ArmoryError::Manifest(format!("app.json: {e}")))?;
         let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| match e {
             ManifestError::ContractNotSupported { os, min, max } => ArmoryError::ContractNotSupported { id: id.into(), os, min, max },

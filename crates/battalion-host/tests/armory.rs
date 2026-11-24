@@ -99,11 +99,13 @@ struct Pkg {
     display: Option<&'static str>,
     icon: Option<&'static str>,
     on_exit: Option<&'static str>,
+    /// Name of the manifest file at the package root (tests of refusals only).
+    root_manifest: &'static str,
 }
 
 impl Pkg {
     fn new(id: &'static str, version: &'static str) -> Pkg {
-        Pkg { id, version, mode: "normal", schema: 1, init: false, contract: (1, 1), min_os: None, manifest_id: None, extra: vec![], signer: 7, sha_wrong: false, ready_ms: 5000, display: None, icon: None, on_exit: None }
+        Pkg { id, version, mode: "normal", schema: 1, init: false, contract: (1, 1), min_os: None, manifest_id: None, extra: vec![], signer: 7, sha_wrong: false, ready_ms: 5000, display: None, icon: None, on_exit: None, root_manifest: "app.json" }
     }
 }
 
@@ -152,7 +154,7 @@ impl World {
         }
         let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        w.start_file("app.json", opts).unwrap();
+        w.start_file(p.root_manifest, opts).unwrap();
         w.write_all(manifest.to_string().as_bytes()).unwrap();
         w.start_file(exec, opts).unwrap();
         w.write_all(&std::fs::read(demo_exe()).unwrap()).unwrap();
@@ -417,6 +419,51 @@ fn one_bad_catalog_entry_does_not_hide_the_rest() {
     let l = w.armory().catalog().unwrap();
     assert_eq!(l.apps.len(), 1);
     assert_eq!(l.rejected.len(), 1);
+}
+
+#[test]
+fn a_package_with_another_kinds_root_manifest_is_refused() {
+    let w = World::new("notapp");
+    w.publish(&Pkg { root_manifest: "module.json", ..Pkg::new("odd-one", "1.0.0") });
+    let err = w.armory().install("odd-one", "stable").expect_err("module.json is not app.json");
+    assert!(matches!(err, ArmoryError::NotAnApp(_)), "got {err:?}");
+    let msg = err.to_string();
+    assert!(msg.contains("not an app") && msg.contains("module.json") && msg.contains("app.json"), "{msg}");
+    assert!(w.absent("odd-one") && w.staging_is_empty());
+}
+
+#[test]
+fn a_catalog_entry_that_is_not_an_app_is_skipped_and_reported() {
+    let w = World::new("catkind");
+    w.publish(&Pkg::new("good-one", "1.0.0"));
+    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(w.catalog_path()).unwrap()).unwrap();
+    let mut other = v["apps"][0].clone();
+    other["id"] = serde_json::json!("other-kind");
+    other["kind"] = serde_json::json!("module");
+    v["apps"].as_array_mut().unwrap().push(other);
+    std::fs::write(w.catalog_path(), v.to_string()).unwrap();
+    let l = w.armory().catalog().unwrap();
+    assert_eq!(l.apps.len(), 1);
+    assert_eq!(l.apps[0].app.id, "good-one");
+    assert_eq!(l.rejected.len(), 1);
+    assert_eq!(l.rejected[0].0, "other-kind");
+    assert!(l.rejected[0].1.contains("not an app") && l.rejected[0].1.contains("'module'"), "{}", l.rejected[0].1);
+    assert!(matches!(w.armory().find("other-kind"), Err(ArmoryError::NotInCatalog(_))));
+}
+
+#[test]
+fn a_folder_inside_the_package_is_the_apps_own_and_opaque_to_the_os() {
+    let w = World::new("opaque");
+    // A nested folder with a manifest of the other kind: not read, so it neither refuses nor shows.
+    let own = ["plug", "ins"].concat();
+    let extra = vec![(format!("{own}/x/module.json"), b"{ this is not even json".to_vec()), (format!("{own}/x/a.bin"), vec![1u8; 10])];
+    w.publish(&Pkg { extra, ..Pkg::new("own-one", "1.0.0") });
+    let a = w.armory();
+    a.install("own-one", "stable").unwrap();
+    let all = a.installed().unwrap();
+    assert_eq!(all.len(), 1);
+    let shown = format!("{all:?}");
+    assert!(!shown.contains("module.json") && !shown.to_lowercase().contains(&own), "the OS listed the app's own folder: {shown}");
 }
 
 // ---- update -------------------------------------------------------------------------------

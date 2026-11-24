@@ -126,6 +126,8 @@ pub enum ArmoryError {
     ZipLimit(String),
     Zip(String),
     Manifest(String),
+    /// The package root holds another kind of manifest (`module.json`) instead of `app.json`.
+    NotAnApp(String),
     IdMismatch { expected: String, got: String },
     VersionMismatch { expected: String, got: String },
     AlreadyInstalled(String),
@@ -168,6 +170,7 @@ impl std::fmt::Display for ArmoryError {
             ZipLimit(m) => write!(f, "package is too big or too odd to unpack: {m}"),
             Zip(m) => write!(f, "package is not a valid zip: {m}"),
             Manifest(m) => write!(f, "package manifest: {m}"),
+            NotAnApp(m) => write!(f, "this package is not an app: {m}"),
             IdMismatch { expected, got } => write!(f, "package is app '{got}', expected '{expected}'"),
             VersionMismatch { expected, got } => write!(f, "package is version {got}, the feed says {expected}"),
             AlreadyInstalled(i) => write!(f, "app '{i}' is already installed"),

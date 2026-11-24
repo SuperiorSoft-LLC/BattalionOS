@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Copyright (c) SuperiorSoft LLC */
-/* The kit's theme tokens and variants, with no output of their own: styles.css builds the app with them, and a web UI
-   plugin (WEBUI-1, @infantry/ui-plugin-api/theme.css) builds its utilities with the same ones, so its classes match. */
+/* The kit's theme tokens and variants, with no output of their own: styles.css builds the app with them, and other
+   builds can use the same ones, so their classes match. */
 
 /* Theme follows the .dark class on <html> (dark is the default, see lib/theme.tsx). */
 @custom-variant dark (&:is(.dark *));
