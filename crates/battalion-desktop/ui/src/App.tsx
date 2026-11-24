@@ -5,8 +5,8 @@ import { RefusalBanner } from "../kit";
 import { Armory } from "./Armory";
 import { Desktop } from "./Desktop";
 import { FirstRun } from "./FirstRun";
-import { errText, type Os } from "./os";
-import { appView, desktopIds, initial, reduce, runInstall, showFirstRun, taskItems } from "./store";
+import { errText, type ArmoryOp, type Os } from "./os";
+import { appView, desktopIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun, taskItems } from "./store";
 import { Taskbar } from "./Taskbar";
 
 export function App({ os }: { os: Os }) {
@@ -33,7 +33,12 @@ export function App({ os }: { os: Os }) {
   useEffect(() => {
     void loadInstalled();
     void loadCatalog();
-    return os.onChange(() => void loadInstalled());
+    const offChange = os.onChange(() => void loadInstalled());
+    const offProgress = os.onProgress((p) => dispatch({ type: "progress", p }));
+    return () => {
+      offChange();
+      offProgress();
+    };
   }, [os, loadInstalled, loadCatalog]);
 
   const open = useCallback(
@@ -50,22 +55,31 @@ export function App({ os }: { os: Os }) {
     [os, m, loadInstalled],
   );
   const install = useCallback((id: string) => void runInstall(os, dispatch, id, errText), [os]);
+  const op = useCallback(
+    (id: string, kind: ArmoryOp) => {
+      const run = { update: os.update, rollback: os.rollback, remove: os.remove, install: os.install }[kind];
+      void runOp({ run: (i) => run(i), listApps: () => os.listApps() }, dispatch, id, kind, errText).then((ok) => ok && void loadCatalog());
+    },
+    [os, loadCatalog],
+  );
   const exit = useCallback(() => void os.exit().catch((e) => setNotice(`Could not exit: ${errText(e)}`)), [os]);
 
   const ids = useMemo(() => desktopIds(m), [m]);
   const view = useCallback((id: string) => appView(m, id), [m]);
+  const label = useCallback((id: string) => labelOf(m, id), [m]);
+  const icon = useCallback((id: string) => iconOf(m, id), [m]);
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <div className="px-3 pt-2 empty:hidden">
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
-      <Desktop ids={ids} view={view} onOpen={(id) => void open(id)}>
+      <Desktop ids={ids} view={view} label={label} icon={icon} onOpen={(id) => void open(id)}>
         {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
-        {armory && <Armory m={m} a={{ install, open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
+        {armory && <Armory m={m} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={taskItems(m)} installedIds={ids} onOpen={(id) => void open(id)} onArmory={() => setArmory(true)} onExit={exit} />
+      <Taskbar items={taskItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onArmory={() => setArmory(true)} onExit={exit} />
     </div>
   );
 }

@@ -4,6 +4,7 @@
 
 use crate::access::{authorize_app, authorize_shell, caller_of, Caller};
 use crate::host::{open_app_window, Host};
+use battalion_host::armory::{info::catalog_icon, RemoveOptions, UpdateOptions};
 use battalion_host::supervisor::AppStatus;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -33,7 +34,10 @@ pub async fn os_list_apps(window: WebviewWindow, host: State<'_, Host>) -> R<Val
     authorize_shell(window.label(), "os_list_apps").map_err(|e| e.to_string())?;
     let a = host.armory.clone();
     let list = blocking(move || a.installed()).await?.map_err(|e| e.to_string())?;
-    Ok(json!(list.iter().map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel})).collect::<Vec<_>>()))
+    Ok(json!(list
+        .iter()
+        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous}))
+        .collect::<Vec<_>>()))
 }
 
 #[tauri::command]
@@ -89,20 +93,91 @@ pub async fn os_close_app_window(window: WebviewWindow, app: AppHandle, id: Stri
 pub async fn os_catalog(window: WebviewWindow, host: State<'_, Host>) -> R<Value> {
     authorize_shell(window.label(), "os_catalog").map_err(|e| e.to_string())?;
     let a = host.armory.clone();
-    let l = blocking(move || a.catalog()).await?.map_err(|e| e.to_string())?;
+    // The offered version needs each app's feed: read here, off the UI thread; a feed that cannot be read is just "no version".
+    let (l, offered) = blocking(move || {
+        let l = a.catalog()?;
+        let offered: Vec<Option<String>> = l.apps.iter().map(|e| a.offered(e, "stable")).collect();
+        Ok::<_, battalion_host::armory::ArmoryError>((l, offered))
+    })
+    .await?
+    .map_err(|e| e.to_string())?;
     Ok(json!({
-        "apps": l.apps.iter().map(|e| json!({"id": e.app.id, "source": e.source, "compatible": e.compatible})).collect::<Vec<_>>(),
+        "apps": l.apps.iter().zip(offered).map(|(e, v)| json!({
+            "id": e.app.id, "name": e.app.name, "publisher": e.app.publisher, "summary": e.app.summary,
+            "icon": catalog_icon(e.app.icon.as_deref()), "version": v, "source": e.source, "compatible": e.compatible
+        })).collect::<Vec<_>>(),
         "rejected": l.rejected, "sourceErrors": l.source_errors, "fromCache": l.from_cache
     }))
 }
 
 #[tauri::command]
-pub async fn os_install_app(window: WebviewWindow, host: State<'_, Host>, id: String, channel: Option<String>) -> R<Value> {
+pub async fn os_install_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, channel: Option<String>) -> R<Value> {
     authorize_shell(window.label(), "os_install_app").map_err(|e| e.to_string())?;
     let a = host.armory.clone();
     let ch = channel.unwrap_or_else(|| "stable".into());
-    blocking(move || a.install(&id, &ch)).await?.map_err(|e| e.to_string())?;
+    let id2 = id.clone();
+    let r = blocking(move || a.install(&id, &ch)).await?.map_err(|e| e.to_string());
+    announce(&app, &host, &id2).await;
+    r?;
     Ok(json!({"ok": true}))
+}
+
+/// Tell every window that app `id` changed: the shell reloads its list.
+async fn announce(app: &AppHandle, host: &Host, id: &str) {
+    let a = host.armory.clone();
+    let want = id.to_string();
+    let state = blocking(move || a.installed().ok().and_then(|l| l.into_iter().find(|x| x.id == want)).map(|x| x.state)).await.ok().flatten();
+    let _ = app.emit(crate::events::APP_STATE, json!({"id": id, "state": state}));
+}
+
+/// Update app `id` on its channel. Only that app is stopped and started again; the OS and every other app keep running.
+#[tauri::command]
+pub async fn os_update_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<Value> {
+    authorize_shell(window.label(), "os_update_app").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    let id2 = id.clone();
+    let r = blocking(move || a.update(&id, &UpdateOptions::default())).await?.map_err(|e| e.to_string());
+    announce(&app, &host, &id2).await;
+    let u = r?;
+    Ok(json!({"id": u.id, "from": u.from, "to": u.to}))
+}
+
+/// Go back to the previous version of app `id` (refused when the state schema changed).
+#[tauri::command]
+pub async fn os_rollback_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<Value> {
+    authorize_shell(window.label(), "os_rollback_app").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    let id2 = id.clone();
+    let r = blocking(move || a.rollback(&id)).await?.map_err(|e| e.to_string());
+    announce(&app, &host, &id2).await;
+    let u = r?;
+    Ok(json!({"id": u.id, "from": u.from, "to": u.to}))
+}
+
+/// Remove app `id`: its window closes, its process stops, its versions go. Its state folder stays.
+#[tauri::command]
+pub async fn os_remove_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<Value> {
+    authorize_shell(window.label(), "os_remove_app").map_err(|e| e.to_string())?;
+    let label = crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    if let Some(w) = app.get_webview_window(&label) {
+        w.close().map_err(|e| e.to_string())?;
+    }
+    host.servers.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+    let a = host.armory.clone();
+    let id2 = id.clone();
+    let r = blocking(move || a.remove(&id, &RemoveOptions::default())).await?.map_err(|e| e.to_string());
+    announce(&app, &host, &id2).await;
+    r?;
+    Ok(json!({"ok": true}))
+}
+
+/// End the OS process only. Running apps are let go (or stopped, when their manifest says `onOsExit: stop`)
+/// by the exit handler in main.rs; the next start adopts the rest.
+#[tauri::command]
+pub async fn os_exit(window: WebviewWindow, app: AppHandle) -> R<()> {
+    authorize_shell(window.label(), "os_exit").map_err(|e| e.to_string())?;
+    app.exit(0);
+    Ok(())
 }
 
 #[tauri::command]

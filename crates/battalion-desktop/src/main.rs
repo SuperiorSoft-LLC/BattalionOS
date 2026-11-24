@@ -36,9 +36,19 @@ fn main() {
             os_catalog,
             os_install_app,
             os_open_login,
-            os_login_done
+            os_login_done,
+            os_update_app,
+            os_rollback_app,
+            os_remove_app,
+            os_exit
         ])
         .setup(|app| {
+            // Armory progress goes to every window as an event; the shell shows it.
+            let handle = app.handle().clone();
+            let sink: battalion_host::armory::ProgressSink = std::sync::Arc::new(move |p| {
+                let _ = tauri::Emitter::emit(&handle, battalion_desktop::events::ARMORY_PROGRESS, p);
+            });
+            app.state::<Host>().armory.set_progress_sink(Some(sink));
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("BattalionOS")
                 .inner_size(1200.0, 800.0)
@@ -48,10 +58,12 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("build battalion-desktop");
     app.run(|handle, ev| {
-        // The OS exits: let go of the apps (they keep running per their manifest), do not stop them.
+        // The OS exits: apps keep running (the next start adopts them) unless their manifest says `onOsExit: stop`.
         if let tauri::RunEvent::Exit = ev {
             if let Some(h) = handle.try_state::<Host>() {
-                h.sup.release_all();
+                for (id, e) in h.armory.exit_os() {
+                    eprintln!("stop {id} at exit: {e}");
+                }
             }
         }
     });

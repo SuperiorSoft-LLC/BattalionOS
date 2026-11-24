@@ -35,29 +35,39 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 | Command | Args | Who | Returns |
 |---|---|---|---|
 | `os_window_info` | | any | `{label, app}` (`app` is the id or null) |
-| `os_list_apps` | | main | `[{id, version, state, channel}]` |
+| `os_list_apps` | | main | `[{id, version, state, channel, name, icon, available, previous}]`: `name` from the installed manifest; `icon` its icon file as a `data:` URL (null when there is none, it is over 256 KiB or it is not a png, svg, jpg, webp, gif or ico); `available` the newer version the last feed read offered, or null (no network at this call); `previous` the version a rollback goes back to, or null |
 | `os_app_status` | `id` | main, `app-<id>` | `{id, state, pid, url, paused, restarts, lastError}` |
 | `os_app_health` | `id` | main, `app-<id>` | health, as text |
 | `os_start_app` | `id` | main | status |
 | `os_stop_app` | `id` | main | status |
 | `os_open_app_window` | `id` | main | nothing; opens or focuses `app-<id>` |
 | `os_close_app_window` | `id` | main, `app-<id>` | nothing; the app process keeps running |
-| `os_catalog` | | main | `{apps:[{id,source,compatible}], rejected, sourceErrors, fromCache}` |
+| `os_catalog` | | main | `{apps:[{id, source, compatible, name, publisher, summary, icon, version}], rejected, sourceErrors, fromCache}`: `icon` only when the catalog gives a `data:image/` or `https:` URL; `version` is what the app's stable feed offers (null when the feed cannot be read) |
 | `os_install_app` | `id`, `channel?` (default `stable`) | main | `{ok}` |
 | `os_open_login` | | main | nothing |
 | `os_login_done` | | login | nothing; closes the login window, emits `os://login-changed` |
 
-Not yet commands (a later ticket adds them under the same rules): update, rollback, remove.
+| `os_update_app` | `id` | main | `{id, from, to}`; refused: up to date, busy app, bad signature, other key. Stops and starts only this app |
+| `os_rollback_app` | `id` | main | `{id, from, to}`; refused when there is no previous version or the state schema changed |
+| `os_remove_app` | `id` | main | `{ok}`; closes the app's window, stops it, deletes its versions; its state folder stays |
+| `os_exit` | | main | nothing; ends the OS process only (see Lifetime) |
+
+Added by BOS-10b. Every command above runs the Armory action on a blocking thread and, when it ends
+(done or failed), emits `os://app-state`. Errors are the Armory's own text, shown with a Retry.
 
 ## Events (emitted to all windows)
 
 | Event | Payload |
 |---|---|
-| `os://app-state` | reserved: `{id, state}` when the supervisor reports a change |
+| `os://app-state` | `{id, state}` after `os_install_app`, `os_update_app`, `os_rollback_app` and `os_remove_app` end (`state` is null for a removed app) |
+| `os://armory-progress` | `{id, op, stage, bytes, total, percent}`: `op` is `install`, `update`, `rollback` or `remove`; `stage` is the step (`download`, `verify`, `unpack`, `place`, `init`, `stop`, `switch`, `start`, `done`, `mark`, `delete`, `forget`); `bytes`, `total` and `percent` (0-100) only while `stage` is `download`, else null |
 | `os://app-window-closed` | the app id |
 | `os://login-changed` | `true` |
 
 ## Lifetime
 
 App exit = its window closes; the app's process keeps running under the supervisor (per manifest).
-OS exit calls `Supervisor::release_all`: apps are let go, not stopped. At start the OS calls `adopt_all`.
+`os_exit` (the shell's Exit) ends the OS process only, app windows included. The exit handler calls
+`Armory::exit_os`: apps are let go, not stopped, and the next start calls `adopt_all`. An app whose
+manifest says `"onOsExit": "stop"` is stopped first; `"keep"` (the default) lets it run on.
+A window closed by hand never exits the OS while another window is open.

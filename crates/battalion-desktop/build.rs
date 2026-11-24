@@ -14,6 +14,10 @@ const COMMANDS: &[&str] = &[
     "os_install_app",
     "os_open_login",
     "os_login_done",
+    "os_update_app",
+    "os_rollback_app",
+    "os_remove_app",
+    "os_exit",
 ];
 
 fn main() {

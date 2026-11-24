@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 // The taskbar: Start on the left, one button per live app (running dot, badge when it failed). The Start menu lists the installed
 // apps, opens the Armory and exits BattalionOS.
-import { AppWindow, Boxes, LayoutGrid, Power } from "lucide-react";
+import { Boxes, LayoutGrid, Power } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Separator } from "../kit";
-import { appLabel, type TaskItem } from "./store";
+import { AppIcon } from "./AppIcon";
+import type { TaskItem } from "./store";
 
-export function Taskbar({ items, installedIds, onOpen, onArmory, onExit }: { items: TaskItem[]; installedIds: string[]; onOpen: (id: string) => void; onArmory: () => void; onExit: () => void }) {
+export function Taskbar({ items, installedIds, label, icon, onOpen, onArmory, onExit }: { items: TaskItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onArmory: () => void; onExit: () => void }) {
   const [start, setStart] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -37,7 +38,7 @@ export function Taskbar({ items, installedIds, onOpen, onArmory, onExit }: { ite
           {installedIds.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">Nothing installed yet.</div>}
           {installedIds.map((id) => (
             <Button key={id} variant="ghost" className="justify-start" role="menuitem" onClick={pick(() => onOpen(id))}>
-              <AppWindow /> {appLabel(id)}
+              <AppIcon icon={icon(id)} className="size-4" /> {label(id)}
             </Button>
           ))}
           <Separator />
@@ -51,9 +52,9 @@ export function Taskbar({ items, installedIds, onOpen, onArmory, onExit }: { ite
       </Button>
       <Separator orientation="vertical" className="mx-1 h-6" />
       {items.map((t) => (
-        <Button key={t.id} variant="ghost" size="sm" className="relative flex-col gap-0 pb-1" onClick={() => onOpen(t.id)} aria-label={`${appLabel(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}`}>
+        <Button key={t.id} variant="ghost" size="sm" className="relative flex-col gap-0 pb-1" onClick={() => onOpen(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}`}>
           <span className="flex items-center gap-1.5">
-            <AppWindow /> {appLabel(t.id)}
+            <AppIcon icon={icon(t.id)} className="size-4" /> {label(t.id)}
             {t.badge && <Badge variant="destructive">!</Badge>}
           </span>
           {t.running && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ok" data-running="true" aria-hidden />}

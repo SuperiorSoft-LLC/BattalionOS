@@ -36,6 +36,10 @@ pub struct Manifest {
     pub cli: Vec<CliSpec>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// What happens to the running app when BattalionOS exits: `keep` (default; it runs on and the
+    /// next start adopts it) or `stop`.
+    #[serde(default, rename = "onOsExit")]
+    pub on_os_exit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -115,6 +119,7 @@ pub enum ManifestError {
     /// The OS speaks a contract outside the app's range.
     ContractNotSupported { os: u32, min: u32, max: u32 },
     BadMinOs(String),
+    BadOnOsExit(String),
     /// A path that is absolute, has `..`, a drive, or an empty segment.
     UnsafePath { field: &'static str, path: String },
     EmptyExec(&'static str),
@@ -136,6 +141,7 @@ impl std::fmt::Display for ManifestError {
             BadContractRange { min, max } => write!(f, "contract range {min}..{max} is empty or starts at 0"),
             ContractNotSupported { os, min, max } => write!(f, "app needs contract {min}..{max}, this OS speaks {os}"),
             BadMinOs(v) => write!(f, "minOs '{v}' is not major.minor.patch"),
+            BadOnOsExit(v) => write!(f, "onOsExit '{v}' is not 'keep' or 'stop'"),
             UnsafePath { field, path } => write!(f, "{field} path '{path}' leaves the package"),
             EmptyExec(w) => write!(f, "{w} has no exec"),
             BadCliName(n) => write!(f, "cli name '{n}' is not allowed"),
@@ -197,6 +203,11 @@ impl Manifest {
         if let Some(v) = &self.min_os {
             if Version::parse(v).is_none() {
                 return Err(BadMinOs(v.clone()));
+            }
+        }
+        if let Some(v) = &self.on_os_exit {
+            if v != "keep" && v != "stop" {
+                return Err(BadOnOsExit(v.clone()));
             }
         }
         let check = |field: &'static str, p: &str| {

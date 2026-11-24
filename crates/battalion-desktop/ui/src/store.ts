@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 // The shell's state, pure so every app state, offline and failed install are tested without a window. One owner: the model; the views
 // only read it through the selectors below. Nothing here names an app.
-import type { AppStateName, Catalog, InstalledApp } from "./os";
+import type { AppStateName, ArmoryOp, ArmoryProgress, Catalog, InstalledApp } from "./os";
 
 export type InstallPhase = { kind: "installing" } | { kind: "failed"; error: string };
+/** An update, rollback or remove of this session: running, or failed with the text the Armory gave (Retry runs it again). */
+export type OpPhase = { kind: "working"; op: ArmoryOp } | { kind: "failed"; op: ArmoryOp; error: string };
 
 export interface Model {
   /** False until the first installed list arrives (the desktop shows a loading state, not the first-run card). */
@@ -15,10 +17,13 @@ export interface Model {
   catalogError: string | null;
   catalogLoading: boolean;
   installs: Record<string, InstallPhase>;
+  ops: Record<string, OpPhase>;
+  /** The last progress report per app while its action runs. */
+  progress: Record<string, ArmoryProgress>;
   firstRunDismissed: boolean;
 }
 
-export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, firstRunDismissed: false };
+export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, ops: {}, progress: {}, firstRunDismissed: false };
 
 export type Action =
   | { type: "installed-loaded"; apps: InstalledApp[] }
@@ -29,7 +34,17 @@ export type Action =
   | { type: "install-started"; id: string }
   | { type: "install-done"; id: string }
   | { type: "install-failed"; id: string; error: string }
+  | { type: "op-started"; id: string; op: ArmoryOp }
+  | { type: "op-done"; id: string }
+  | { type: "op-failed"; id: string; op: ArmoryOp; error: string }
+  | { type: "op-dismissed"; id: string }
+  | { type: "progress"; p: ArmoryProgress }
   | { type: "dismiss-first-run" };
+
+const without = <T,>(r: Record<string, T>, id: string): Record<string, T> => {
+  const { [id]: _gone, ...rest } = r;
+  return rest;
+};
 
 export function reduce(m: Model, a: Action): Model {
   switch (a.type) {
@@ -44,13 +59,20 @@ export function reduce(m: Model, a: Action): Model {
     case "catalog-failed":
       return { ...m, catalogError: a.error, catalogLoading: false };
     case "install-started":
-      return { ...m, installs: { ...m.installs, [a.id]: { kind: "installing" } } };
-    case "install-done": {
-      const { [a.id]: _gone, ...rest } = m.installs;
-      return { ...m, installs: rest };
-    }
+      return { ...m, installs: { ...m.installs, [a.id]: { kind: "installing" } }, progress: without(m.progress, a.id) };
+    case "install-done":
+      return { ...m, installs: without(m.installs, a.id), progress: without(m.progress, a.id) };
     case "install-failed":
-      return { ...m, installs: { ...m.installs, [a.id]: { kind: "failed", error: a.error } } };
+      return { ...m, installs: { ...m.installs, [a.id]: { kind: "failed", error: a.error } }, progress: without(m.progress, a.id) };
+    case "op-started":
+      return { ...m, ops: { ...m.ops, [a.id]: { kind: "working", op: a.op } }, progress: without(m.progress, a.id) };
+    case "op-done":
+    case "op-dismissed":
+      return { ...m, ops: without(m.ops, a.id), progress: without(m.progress, a.id) };
+    case "op-failed":
+      return { ...m, ops: { ...m.ops, [a.id]: { kind: "failed", op: a.op, error: a.error } }, progress: without(m.progress, a.id) };
+    case "progress":
+      return { ...m, progress: { ...m.progress, [a.p.id]: a.p } };
     case "dismiss-first-run":
       return { ...m, firstRunDismissed: true };
   }
@@ -65,6 +87,18 @@ export type AppView =
   | { kind: "installed"; running: boolean; version: string };
 
 const STAGE: Partial<Record<AppStateName, string>> = { downloading: "Downloading", verifying: "Verifying", initialising: "Setting up", updating: "Updating", removing: "Removing" };
+/** The journal's step names, as the Armory reports them, in words. */
+const STEP: Record<string, string> = { download: "Downloading", verify: "Verifying", unpack: "Unpacking", place: "Placing files", init: "Setting up", stop: "Stopping", switch: "Switching version", start: "Starting", done: "Done", mark: "Removing", delete: "Removing files", forget: "Finishing" };
+const mb = (n: number) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0);
+
+/** What the progress bar and its caption show: the stage in words and the percent (null = no measure, a moving bar). */
+export function progressOf(m: Model, id: string): { text: string; percent: number | null } | null {
+  const p = m.progress[id];
+  if (!p) return null;
+  const text = STEP[p.stage] ?? p.stage;
+  const known = p.percent != null;
+  return { text: known && p.total ? `${text}: ${mb(p.bytes ?? 0)} of ${mb(p.total)} MB (${p.percent}%)` : text, percent: known ? p.percent! : null };
+}
 const RUNNING: AppStateName[] = ["running", "starting", "stopping"];
 
 export function appView(m: Model, id: string): AppView {
@@ -73,8 +107,9 @@ export function appView(m: Model, id: string): AppView {
   const inst = m.installed.find((a) => a.id === id);
   if (inst?.state === "failed") return { kind: "failed", error: "The app failed. Install it again to repair it." };
   const stage = inst ? STAGE[inst.state] : undefined;
-  if (stage) return { kind: "installing", stage };
-  if (phase?.kind === "installing") return { kind: "installing", stage: "Installing" };
+  const live = m.progress[id] ? STEP[m.progress[id]!.stage] : undefined;
+  if (stage) return { kind: "installing", stage: live ?? stage };
+  if (phase?.kind === "installing") return { kind: "installing", stage: live ?? "Installing" };
   if (inst && inst.state !== "absent") return { kind: "installed", running: RUNNING.includes(inst.state), version: inst.version };
   const entry = m.catalog?.apps.find((c) => c.id === id);
   if (entry && !entry.compatible) return { kind: "incompatible" };
@@ -115,6 +150,15 @@ export const showFirstRun = (m: Model): boolean => m.loaded && !m.listError && d
 /** "battalion-notes" -> "Battalion Notes": the catalog carries ids only, so the label is derived from the id. */
 export const appLabel = (id: string): string => id.split("-").filter(Boolean).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(" ");
 
+/** What the Armory shows for an app: its name from the installed manifest, else the catalog, else a label made of the id. */
+export const labelOf = (m: Model, id: string): string => m.installed.find((a) => a.id === id)?.name || m.catalog?.apps.find((a) => a.id === id)?.name || appLabel(id);
+/** Its icon (a data URL or an https URL), or null for the generic glyph. */
+export const iconOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.icon || m.catalog?.apps.find((a) => a.id === id)?.icon || null;
+/** The newer version on offer for an installed app, or null. */
+export const availableOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.available ?? null;
+/** The version a rollback goes back to, or null. */
+export const previousOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.previous ?? null;
+
 /** The install flow ("it auto installs then should appear on the desktop"): install, then reload the installed list so the icon appears. */
 export interface Flow { install(id: string): Promise<void>; listApps(): Promise<InstalledApp[]> }
 export async function runInstall(f: Flow, dispatch: (a: Action) => void, id: string, errText: (e: unknown) => string): Promise<boolean> {
@@ -132,4 +176,24 @@ export async function runInstall(f: Flow, dispatch: (a: Action) => void, id: str
   }
   dispatch({ type: "install-done", id });
   return true;
+}
+
+/** Update, rollback or remove: run it, reload the installed list, and keep the error for Retry when it fails. Only this app's phase changes. */
+export interface OpFlow { run(id: string, op: ArmoryOp): Promise<void>; listApps(): Promise<InstalledApp[]> }
+export async function runOp(f: OpFlow, dispatch: (a: Action) => void, id: string, op: ArmoryOp, errText: (e: unknown) => string): Promise<boolean> {
+  dispatch({ type: "op-started", id, op });
+  let ok = true;
+  try {
+    await f.run(id, op);
+  } catch (e) {
+    ok = false;
+    dispatch({ type: "op-failed", id, op, error: errText(e) });
+  }
+  try {
+    dispatch({ type: "installed-loaded", apps: await f.listApps() });
+  } catch (e) {
+    if (ok) dispatch({ type: "installed-failed", error: errText(e) });
+  }
+  if (ok) dispatch({ type: "op-done", id });
+  return ok;
 }

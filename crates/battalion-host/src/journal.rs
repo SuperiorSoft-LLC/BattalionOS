@@ -37,6 +37,8 @@ pub struct Pending {
 pub struct Journal {
     path: PathBuf,
     next_tx: u64,
+    /// (app, op) of the action this journal began, for progress reports.
+    who: Option<(String, String)>,
 }
 
 impl Journal {
@@ -52,7 +54,7 @@ impl Journal {
             })
             .max()
             .map_or(1, |m| m + 1);
-        Ok(Journal { path, next_tx })
+        Ok(Journal { path, next_tx, who: None })
     }
 
     fn append(&self, e: &JournalEntry) -> io::Result<()> {
@@ -66,8 +68,13 @@ impl Journal {
     pub fn begin(&mut self, app: &str, op: &str, detail: &str) -> io::Result<u64> {
         let tx = self.next_tx;
         self.append(&JournalEntry::Begin { tx, app: app.into(), op: op.into(), detail: detail.into() })?;
+        self.who = Some((app.into(), op.into()));
         self.next_tx += 1;
         Ok(tx)
+    }
+    /// (app, op) of the action begun on this journal.
+    pub fn who(&self) -> Option<(&str, &str)> {
+        self.who.as_ref().map(|(a, o)| (a.as_str(), o.as_str()))
     }
     pub fn step(&self, tx: u64, step: &str) -> io::Result<()> {
         self.append(&JournalEntry::Step { tx, step: step.into() })

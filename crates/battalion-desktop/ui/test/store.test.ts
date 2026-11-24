@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import { describe, expect, it } from "vitest";
 import type { AppStateName, Catalog, InstalledApp } from "../src/os";
-import { appLabel, appView, browseIds, desktopIds, initial, type Model, offline, reduce, runInstall, showFirstRun, taskItems } from "../src/store";
+import { appLabel, appView, availableOf, browseIds, desktopIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems } from "../src/store";
 
 const app = (id: string, state: AppStateName): InstalledApp => ({ id, version: "1.0.0", state, channel: "stable" });
 const cat = (over: Partial<Catalog> = {}): Catalog => ({ apps: [{ id: "notes", source: "s", compatible: true }, { id: "old-one", source: "s", compatible: false }], rejected: [], sourceErrors: [], fromCache: false, ...over });
@@ -101,4 +101,68 @@ describe("browse", () => {
     expect(browseIds(m)).toEqual(["old-one", "notes"]);
   });
   it("labels from the id", () => expect(appLabel("battalion-notes")).toBe("Battalion Notes"));
+});
+
+describe("names, icons and versions", () => {
+  const named: InstalledApp = { ...app("notes", "installed"), name: "Notes", icon: "data:image/png;base64,AA==", available: "1.2.0", previous: "0.9.0" };
+  it("shows the manifest name and icon, then the catalog's, then a label from the id", () => {
+    const m = reduce(withInstalled(named), { type: "catalog-loaded", catalog: cat({ apps: [{ id: "other", source: "s", compatible: true, name: "Other App", icon: "https://x.example/i.png" }, { id: "plain", source: "s", compatible: true }] }) });
+    expect(labelOf(m, "notes")).toBe("Notes");
+    expect(iconOf(m, "notes")).toBe("data:image/png;base64,AA==");
+    expect(labelOf(m, "other")).toBe("Other App");
+    expect(iconOf(m, "other")).toBe("https://x.example/i.png");
+    expect(labelOf(m, "plain")).toBe("Plain");
+    expect(iconOf(m, "plain")).toBeNull();
+  });
+  it("knows the version on offer and the one a rollback goes to", () => {
+    const m = withInstalled(named, app("b", "installed"));
+    expect([availableOf(m, "notes"), previousOf(m, "notes"), availableOf(m, "b"), previousOf(m, "b")]).toEqual(["1.2.0", "0.9.0", null, null]);
+  });
+});
+
+describe("progress", () => {
+  it("reads a download as a percent and the other steps as a moving bar", () => {
+    let m = reduce(initial, { type: "install-started", id: "notes" });
+    m = reduce(m, { type: "progress", p: { id: "notes", op: "install", stage: "download", bytes: 5242880, total: 10485760, percent: 50 } });
+    expect(progressOf(m, "notes")).toEqual({ text: "Downloading: 5.0 of 10 MB (50%)", percent: 50 });
+    expect(appView(m, "notes")).toEqual({ kind: "installing", stage: "Downloading" });
+    m = reduce(m, { type: "progress", p: { id: "notes", op: "install", stage: "verify" } });
+    expect(progressOf(m, "notes")).toEqual({ text: "Verifying", percent: null });
+    expect(progressOf(m, "other")).toBeNull();
+  });
+  it("is dropped when the action ends or fails", () => {
+    const p = { id: "notes", op: "update", stage: "stop" } as const;
+    for (const end of [{ type: "op-done", id: "notes" }, { type: "op-failed", id: "notes", op: "update", error: "x" }, { type: "install-done", id: "notes" }] as const) {
+      expect(reduce(reduce(initial, { type: "progress", p }), end).progress).toEqual({});
+    }
+  });
+});
+
+describe("update, rollback and remove", () => {
+  const upd = (id: string): InstalledApp => ({ ...app(id, "running"), available: "2.0.0" });
+  it("a successful update reloads the list and clears the phase", async () => {
+    let m: Model = withInstalled(upd("notes"));
+    const ok = await runOp({ run: async () => {}, listApps: async () => [{ ...app("notes", "running"), version: "2.0.0" }] }, (a) => { m = reduce(m, a); }, "notes", "update", err);
+    expect(ok).toBe(true);
+    expect(m.ops).toEqual({});
+    expect(m.installed[0]!.version).toBe("2.0.0");
+  });
+  it("a failed update keeps the Armory's text for Retry and touches no other app", async () => {
+    let m: Model = withInstalled(upd("notes"), app("other", "running"));
+    const before = m.installed[1];
+    const ok = await runOp({ run: async () => { throw "update failed (rolled back): never got ready"; }, listApps: async () => m.installed }, (a) => { m = reduce(m, a); }, "notes", "update", err);
+    expect(ok).toBe(false);
+    expect(m.ops).toEqual({ notes: { kind: "failed", op: "update", error: "update failed (rolled back): never got ready" } });
+    expect(m.installed[1]).toBe(before);
+    expect(appView(m, "other").kind).toBe("installed");
+    m = reduce(m, { type: "op-started", id: "notes", op: "update" });
+    expect(m.ops.notes).toEqual({ kind: "working", op: "update" });
+    m = reduce(m, { type: "op-dismissed", id: "notes" });
+    expect(m.ops).toEqual({});
+  });
+  it("a removed app leaves the desktop once the list reloads", async () => {
+    let m: Model = withInstalled(app("notes", "stopped"), app("other", "running"));
+    await runOp({ run: async () => {}, listApps: async () => [app("other", "running")] }, (a) => { m = reduce(m, a); }, "notes", "remove", err);
+    expect(desktopIds(m)).toEqual(["other"]);
+  });
 });

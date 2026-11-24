@@ -22,14 +22,18 @@
 //! setting in `os.json` under `"armory"` ([`Settings`]) with a default.
 
 pub mod catalog;
+pub mod exit;
+pub mod info;
 pub mod install;
 pub mod package;
+pub mod progress;
 pub mod recover;
 pub mod remove;
 pub mod update;
 
 pub use catalog::{CatalogEntry, Listing};
 pub use install::{Installed, InstalledApp};
+pub use progress::{Progress, ProgressSink};
 pub use recover::Recovered;
 pub use remove::RemoveOptions;
 pub use update::{Available, UpdateOptions, Updated};
@@ -234,6 +238,7 @@ pub struct Armory {
     pub(crate) fetcher: Arc<dyn Fetcher>,
     pub(crate) settings: Settings,
     pub(crate) os_version: Version,
+    pub(crate) sink: std::sync::Mutex<Option<ProgressSink>>,
 }
 
 impl Armory {
@@ -247,7 +252,7 @@ impl Armory {
 
     pub fn with_parts(paths: Paths, sup: Supervisor, os_version: &str, settings: Settings, fetcher: Arc<dyn Fetcher>) -> Armory {
         let os_version = Version::parse(os_version).unwrap_or(Version { parts: [0, 0, 0], pre: None });
-        Armory { paths, sup, fetcher, settings, os_version }
+        Armory { paths, sup, fetcher, settings, os_version, sink: std::sync::Mutex::new(None) }
     }
 
     pub fn settings(&self) -> &Settings {
@@ -271,6 +276,9 @@ impl Armory {
     /// `crash-points` feature ends the process at once, with no cleanup, like a power cut.
     pub(crate) fn step(&self, j: &crate::journal::Journal, tx: u64, name: &str) -> Result<()> {
         j.step(tx, name)?;
+        if let Some((app, op)) = j.who() {
+            self.report(Progress::stage(app, op, name));
+        }
         self.point(name);
         Ok(())
     }

@@ -30,6 +30,14 @@ pub struct InstalledApp {
     pub version: String,
     pub state: String,
     pub channel: Option<String>,
+    /// From the installed version's manifest.
+    pub name: Option<String>,
+    /// The manifest's icon file as a `data:` url; `None` when there is none or it cannot be read.
+    pub icon: Option<String>,
+    /// The version the last feed read (cached, no network) offers, when it is newer.
+    pub available: Option<String>,
+    /// The version a rollback would go back to, when one is kept.
+    pub previous: Option<String>,
 }
 
 impl Armory {
@@ -61,7 +69,10 @@ impl Armory {
             let id = e.file_name().to_string_lossy().to_string();
             if let Ok(Some(cur)) = self.load_current(&id) {
                 let channel = self.load_meta(&id).map(|m| m.channel);
-                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel });
+                let (name, icon) = self.card_of(&id, &cur.version);
+                let previous = cur.previous.clone().filter(|v| self.paths.version_dir(&id, v).is_ok_and(|d| d.join("app.json").is_file()));
+                let available = self.cached_newer(&id, &cur.version, channel.as_deref());
+                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous });
             }
         }
         out.sort_by(|a, b| a.id.cmp(&b.id));
@@ -111,7 +122,7 @@ impl Armory {
         let cur_path = self.paths.current_json(id)?;
         let key = app.public_key.trim().to_string();
         let mut cur = Current { version: feed.version.clone(), previous: None, state: AppState::Absent, public_key: key.clone() };
-        let (dir, manifest) = self.fetch_and_check(app, feed, plat, &key, &mut |step| {
+        let (dir, manifest) = self.fetch_and_check(app, feed, plat, &key, "install", &mut |step| {
             self.step(j, tx, step)?;
             match step {
                 "download" => cur.transition(&cur_path, AppState::Downloading)?,

@@ -52,6 +52,12 @@ fn bad_manifests_are_refused_by_reason() {
     assert_eq!(refuse(|v| v["contract"] = json!({"min": 0, "max": 1})), ManifestError::BadContractRange { min: 0, max: 1 });
     assert_eq!(refuse(|v| v["contract"] = json!({"min": 2, "max": 3})), ManifestError::ContractNotSupported { os: 1, min: 2, max: 3 });
     assert_eq!(refuse(|v| v["minOs"] = json!("new")), ManifestError::BadMinOs("new".into()));
+    assert_eq!(refuse(|v| v["onOsExit"] = json!("kill")), ManifestError::BadOnOsExit("kill".into()));
+    for ok in ["keep", "stop"] {
+        let mut v = good();
+        v["onOsExit"] = json!(ok);
+        assert!(Manifest::parse(&v.to_string(), P, CONTRACT).is_ok());
+    }
     assert_eq!(refuse(|v| v["permissions"] = json!(["root"])), ManifestError::UnknownPermission("root".into()));
     assert_eq!(refuse(|v| v["cli"] = json!([{"name": "Bad Name", "exec": "bin/x"}])), ManifestError::BadCliName("Bad Name".into()));
     assert_eq!(refuse(|v| v["process"][P]["exec"] = json!(" ")), ManifestError::EmptyExec("process"));

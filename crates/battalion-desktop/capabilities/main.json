@@ -5,6 +5,7 @@
   "permissions": [
     "allow-os-window-info", "allow-os-list-apps", "allow-os-app-status", "allow-os-app-health",
     "allow-os-start-app", "allow-os-stop-app", "allow-os-open-app-window", "allow-os-close-app-window",
-    "allow-os-catalog", "allow-os-install-app", "allow-os-open-login", "core:window:allow-close"
+    "allow-os-catalog", "allow-os-install-app", "allow-os-open-login",
+    "allow-os-update-app", "allow-os-rollback-app", "allow-os-remove-app", "allow-os-exit", "core:window:allow-close"
   ]
 }

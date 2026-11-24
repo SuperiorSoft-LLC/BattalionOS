@@ -34,7 +34,7 @@ impl Armory {
     fn catalog_cache(&self, source: &str) -> PathBuf {
         self.paths.catalog_dir().join(format!("{}.json", cache_name(source)))
     }
-    fn feed_cache(&self, id: &str, channel: &str) -> PathBuf {
+    pub(crate) fn feed_cache(&self, id: &str, channel: &str) -> PathBuf {
         self.paths.catalog_dir().join("feeds").join(format!("{id}-{}.json", cache_name(channel)))
     }
 

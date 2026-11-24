@@ -91,7 +91,7 @@ impl Armory {
 
         let (j, tx) = self.begin_tx(id, "update", &format!("{old}|{new}"))?;
         // Everything up to `place` leaves the running app alone.
-        let staged = self.fetch_and_check(&entry.app, &feed, &plat, &key, &mut |s| self.step(&j, tx, s));
+        let staged = self.fetch_and_check(&entry.app, &feed, &plat, &key, "update", &mut |s| self.step(&j, tx, s));
         let (dir, manifest) = match staged {
             Ok(x) => x,
             Err(e) => {
@@ -222,15 +222,19 @@ impl Armory {
         if !matches!(cur.state, AppState::Stopped | AppState::Running | AppState::Failed(_)) {
             return Err(ArmoryError::WrongState(format!("app '{id}' is {}", cur.state.name())));
         }
+        self.report(Progress::stage(id, "rollback", "stop"));
         if was_running {
             self.sup.stop(id).map_err(|e| ArmoryError::WrongState(e.to_string()))?;
         }
+        self.report(Progress::stage(id, "rollback", "switch"));
         let back = Current { version: prev.clone(), previous: Some(cur.version.clone()), state: AppState::Stopped, public_key: cur.public_key.clone() };
         store::write_json(&cur_path, &back)?;
         store::write_json(&meta_path(&self.paths, id)?, &Meta { previous_state_schema: Some(meta.state_schema), ..meta })?;
         if was_running {
+            self.report(Progress::stage(id, "rollback", "start"));
             self.sup.start(id).map_err(|e| ArmoryError::UpdateFailed { reason: e.to_string(), rolled_back: false })?;
         }
+        self.report(Progress::stage(id, "rollback", "done"));
         Ok(Updated { id: id.into(), from: cur.version, to: prev })
     }
 

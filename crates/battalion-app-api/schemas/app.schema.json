@@ -17,6 +17,7 @@
       "properties": { "min": { "type": "integer", "minimum": 1 }, "max": { "type": "integer", "minimum": 1 } }
     },
     "minOs": { "type": "string" },
+    "onOsExit": { "enum": ["keep", "stop"] },
     "process": {
       "type": "object",
       "additionalProperties": {

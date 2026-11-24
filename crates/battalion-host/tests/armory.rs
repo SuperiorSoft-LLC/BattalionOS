@@ -96,11 +96,14 @@ struct Pkg {
     signer: u8,
     sha_wrong: bool,
     ready_ms: u64,
+    display: Option<&'static str>,
+    icon: Option<&'static str>,
+    on_exit: Option<&'static str>,
 }
 
 impl Pkg {
     fn new(id: &'static str, version: &'static str) -> Pkg {
-        Pkg { id, version, mode: "normal", schema: 1, init: false, contract: (1, 1), min_os: None, manifest_id: None, extra: vec![], signer: 7, sha_wrong: false, ready_ms: 5000 }
+        Pkg { id, version, mode: "normal", schema: 1, init: false, contract: (1, 1), min_os: None, manifest_id: None, extra: vec![], signer: 7, sha_wrong: false, ready_ms: 5000, display: None, icon: None, on_exit: None }
     }
 }
 
@@ -130,13 +133,19 @@ impl World {
         let mut process = serde_json::json!({ platform_key(): { "exec": exec, "args": ["--mode", p.mode], "readyTimeoutMs": p.ready_ms, "stopTimeoutMs": 3000 } });
         process[platform_key()]["args"] = serde_json::json!(["--mode", p.mode]);
         let mut manifest = serde_json::json!({
-            "manifest": 1, "id": p.manifest_id.unwrap_or(p.id), "name": p.id, "version": p.version,
+            "manifest": 1, "id": p.manifest_id.unwrap_or(p.id), "name": p.display.unwrap_or(p.id), "version": p.version,
             "contract": { "min": p.contract.0, "max": p.contract.1 },
             "process": process,
             "state": { "schema": p.schema }
         });
         if p.init {
             manifest["init"] = serde_json::json!({ "exec": exec, "args": ["--init"] });
+        }
+        if let Some(i) = p.icon {
+            manifest["icon"] = serde_json::json!(i);
+        }
+        if let Some(e) = p.on_exit {
+            manifest["onOsExit"] = serde_json::json!(e);
         }
         if let Some(m) = p.min_os {
             manifest["minOs"] = serde_json::json!(m);
@@ -641,4 +650,123 @@ fn killed_at_each_remove_step_the_removal_is_finished_and_state_stays() {
         assert!(w.paths.data_dir("kr-one").unwrap().join("keep.txt").is_file(), "{at}: state lost");
         assert_eq!(pending(&w), 0, "{at}");
     }
+}
+
+// ---- BOS-10b: names and icons, progress, exit ------------------------------------------------
+
+use battalion_host::armory::Progress;
+use std::sync::Mutex;
+
+fn listen(a: &Armory) -> Arc<Mutex<Vec<Progress>>> {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s2 = seen.clone();
+    a.set_progress_sink(Some(Arc::new(move |p: &Progress| s2.lock().unwrap().push(p.clone()))));
+    seen
+}
+
+#[test]
+fn a_list_carries_name_icon_version_and_the_version_on_offer() {
+    let w = World::new("cards");
+    let png = b"not-really-a-png".to_vec();
+    w.publish(&Pkg { display: Some("Demo Notes"), icon: Some("assets/icon.png"), extra: vec![("assets/icon.png".into(), png.clone())], ..Pkg::new("card-one", "1.0.0") });
+    let a = w.armory();
+    a.install("card-one", "stable").unwrap();
+    let i = &a.installed().unwrap()[0];
+    assert_eq!((i.name.as_deref(), i.version.as_str(), i.available.clone()), (Some("Demo Notes"), "1.0.0", None));
+    let want = format!("data:image/png;base64,{}", battalion_host::armory::info::base64(&png));
+    assert_eq!(i.icon.as_deref(), Some(want.as_str()));
+
+    // Nothing newer is known until a feed is read; then the cached feed names it, with no network.
+    w.publish(&Pkg { display: Some("Demo Notes"), ..Pkg::new("card-one", "1.1.0") });
+    assert_eq!(a.installed().unwrap()[0].available, None);
+    let listing = a.catalog().unwrap();
+    assert_eq!(a.offered(&listing.apps[0], "stable").as_deref(), Some("1.1.0"));
+    std::fs::remove_file(w.catalog_path()).unwrap();
+    assert_eq!(a.installed().unwrap()[0].available.as_deref(), Some("1.1.0"));
+}
+
+#[test]
+fn an_icon_over_the_size_cap_is_not_inlined() {
+    let w = World::new("icons");
+    w.publish(&Pkg { icon: Some("big.png"), extra: vec![("big.png".into(), vec![0u8; 300 * 1024])], ..Pkg::new("icon-big", "1.0.0") });
+    let a = w.armory();
+    a.install("icon-big", "stable").unwrap();
+    let i = &a.installed().unwrap()[0];
+    assert!(i.icon.is_none(), "over the size cap");
+    assert_eq!(i.name.as_deref(), Some("icon-big"));
+}
+
+#[test]
+fn install_reports_bytes_and_stages_in_order() {
+    let w = World::new("progress-install");
+    let zip = w.publish(&Pkg { init: true, ..Pkg::new("prog-one", "1.0.0") });
+    let a = w.armory();
+    let seen = listen(&a);
+    a.install("prog-one", "stable").unwrap();
+    let ev = seen.lock().unwrap().clone();
+    assert!(ev.iter().all(|p| p.id == "prog-one" && p.op == "install"));
+    let stages: Vec<&str> = ev.iter().map(|p| p.stage.as_str()).collect();
+    let order = ["download", "verify", "unpack", "place", "init"];
+    let mut at = 0;
+    for s in &stages {
+        let k = order.iter().position(|o| o == s).unwrap();
+        assert!(k >= at, "stage {s} came out of order: {stages:?}");
+        at = k;
+    }
+    assert_eq!(*stages.last().unwrap(), "init");
+    let last_bytes = ev.iter().rfind(|p| p.bytes.is_some()).expect("a byte report");
+    assert_eq!((last_bytes.bytes, last_bytes.total, last_bytes.percent), (Some(zip.len() as u64), Some(zip.len() as u64), Some(100)));
+}
+
+#[test]
+fn update_remove_and_rollback_report_their_stages() {
+    let w = World::new("progress-ops");
+    let a = running_v1(&w, "prog-two");
+    let seen = listen(&a);
+    w.publish(&Pkg::new("prog-two", "2.0.0"));
+    a.update("prog-two", &UpdateOptions::default()).unwrap();
+    a.rollback("prog-two").unwrap();
+    a.remove("prog-two", &RemoveOptions::default()).unwrap();
+    let ev = seen.lock().unwrap().clone();
+    let ops = |op: &str| ev.iter().filter(|p| p.op == op).map(|p| p.stage.clone()).collect::<Vec<_>>();
+    assert_eq!(ops("update").last().map(String::as_str), Some("done"));
+    assert!(ops("update").contains(&"download".to_string()) && ops("update").contains(&"switch".to_string()));
+    assert_eq!(ops("rollback"), ["stop", "switch", "start", "done"]);
+    assert_eq!(ops("remove"), ["stop", "mark", "delete", "forget"]);
+}
+
+#[test]
+fn updating_one_app_never_touches_another_app() {
+    let w = World::new("isolation");
+    let a = running_v1(&w, "iso-one");
+    w.publish(&Pkg::new("iso-two", "1.0.0"));
+    a.install("iso-two", "stable").unwrap();
+    a.sup().start("iso-two").unwrap();
+    let before = process_pid(&w, "iso-two");
+    w.publish(&Pkg::new("iso-one", "2.0.0"));
+    a.update("iso-one", &UpdateOptions::default()).unwrap();
+    a.remove("iso-one", &RemoveOptions::default()).unwrap();
+    assert_eq!(process_pid(&w, "iso-two"), before, "the other app kept its process");
+    assert_eq!(w.state("iso-two"), Some(AppState::Running));
+}
+
+#[test]
+fn the_os_exit_lets_apps_run_on_unless_the_manifest_says_stop() {
+    let w = World::new("exit");
+    w.publish(&Pkg::new("exit-keep", "1.0.0"));
+    let sup = Supervisor::with_settings(w.paths.clone(), fast());
+    let os = Armory::with_parts(w.paths.clone(), sup.clone(), "1.0.0", w.settings(), Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
+    os.install("exit-keep", "stable").unwrap();
+    w.publish(&Pkg { on_exit: Some("stop"), ..Pkg::new("exit-stop", "1.0.0") });
+    os.install("exit-stop", "stable").unwrap();
+    sup.start("exit-keep").unwrap();
+    sup.start("exit-stop").unwrap();
+    let keep_pid = sup.status("exit-keep").unwrap().pid;
+    assert_eq!(os.stop_on_exit_ids(), ["exit-stop"]);
+    assert!(os.exit_os().is_empty());
+    assert_eq!(w.state("exit-stop"), Some(AppState::Stopped));
+    assert_eq!(w.state("exit-keep"), Some(AppState::Running));
+    // The next OS start adopts the app it let go of: same process.
+    let next = Supervisor::with_settings(w.paths.clone(), fast());
+    assert_eq!(next.adopt("exit-keep").unwrap().and_then(|s| s.pid), keep_pid);
 }

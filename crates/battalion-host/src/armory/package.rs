@@ -10,6 +10,7 @@ use crate::supervisor::platform_key;
 use battalion_app_api::manifest::safe_rel_path;
 use battalion_app_api::{CatalogApp, Feed, FeedPlatform, Manifest, ManifestError, CONTRACT};
 use minisign_verify::{PublicKey, Signature};
+use progress::Progress;
 use std::io::Write;
 
 impl Armory {
@@ -26,15 +27,15 @@ impl Armory {
 
     /// Download into `dest`, never more than the feed's size, and check size and sha256.
     /// A connection that dies half way is an error and leaves nothing behind.
-    pub(crate) fn download(&self, plat: &FeedPlatform, dest: &Path) -> Result<()> {
-        let r = self.download_inner(plat, dest);
+    pub(crate) fn download(&self, plat: &FeedPlatform, dest: &Path, who: (&str, &str)) -> Result<()> {
+        let r = self.download_inner(plat, dest, who);
         if r.is_err() {
             let _ = std::fs::remove_file(dest);
         }
         r
     }
 
-    fn download_inner(&self, plat: &FeedPlatform, dest: &Path) -> Result<()> {
+    fn download_inner(&self, plat: &FeedPlatform, dest: &Path, who: (&str, &str)) -> Result<()> {
         let limit = self.settings.max_package_bytes;
         if plat.size > limit {
             return Err(ArmoryError::TooLarge { what: "package", limit });
@@ -46,6 +47,7 @@ impl Armory {
         let mut out = std::fs::File::create(dest)?;
         let mut sha = Sha256::new();
         let (mut buf, mut got) = (vec![0u8; 64 * 1024], 0u64);
+        let mut pace = progress::Pace::new();
         loop {
             let n = rd.read(&mut buf).map_err(|e| ArmoryError::Fetch { url: plat.url.clone(), reason: format!("connection lost after {got} bytes: {e}") })?;
             if n == 0 {
@@ -57,6 +59,9 @@ impl Armory {
             }
             sha.update(&buf[..n]);
             out.write_all(&buf[..n])?;
+            if let Some(p) = pace.tick(got, plat.size) {
+                self.report(Progress::bytes(who.0, who.1, p.0, p.1));
+            }
         }
         if got != plat.size {
             return Err(ArmoryError::SizeMismatch { expected: plat.size, got });
@@ -183,14 +188,14 @@ impl Armory {
 
     /// The whole check for one package: download, verify, unpack, manifest. Returns the unpacked
     /// folder inside staging and its manifest. Cleans its staging files on failure.
-    pub(crate) fn fetch_and_check(&self, app: &CatalogApp, feed: &Feed, plat: &FeedPlatform, key: &str, steps: &mut dyn FnMut(&str) -> Result<()>) -> Result<(PathBuf, Manifest)> {
+    pub(crate) fn fetch_and_check(&self, app: &CatalogApp, feed: &Feed, plat: &FeedPlatform, key: &str, op: &str, steps: &mut dyn FnMut(&str) -> Result<()>) -> Result<(PathBuf, Manifest)> {
         let tag = format!("{}-{}", app.id, feed.version);
         let part = self.paths.staging().join(format!("{tag}.zip.part"));
         let dir = self.paths.staging().join(format!("{tag}.dir"));
         let _ = remove_tree(&dir);
         let run = (|| {
             steps("download")?;
-            self.download(plat, &part)?;
+            self.download(plat, &part, (&app.id, op))?;
             steps("verify")?;
             self.verify_signature(&part, &plat.signature, key)?;
             steps("unpack")?;

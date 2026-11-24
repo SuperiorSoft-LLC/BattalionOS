@@ -62,7 +62,7 @@ fn every_command_checks_the_calling_window() {
 #[test]
 fn app_capability_grants_only_self_service_commands() {
     let app = read("capabilities/app.json");
-    for forbidden in ["os-start-app", "os-stop-app", "os-install-app", "os-list-apps", "os-catalog", "os-open-app-window", "os-open-login"] {
+    for forbidden in ["os-start-app", "os-stop-app", "os-install-app", "os-list-apps", "os-catalog", "os-open-app-window", "os-open-login", "os-update-app", "os-rollback-app", "os-remove-app", "os-exit"] {
         assert!(!app.contains(&format!("allow-{forbidden}\"")), "app windows must not be granted {forbidden}");
     }
 }
