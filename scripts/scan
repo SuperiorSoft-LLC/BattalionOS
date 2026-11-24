@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# BattalionOS publish scan. Fails (exit 1) on secrets, e-mail addresses, private
+# hosts/IPs, absolute user paths, or a commit author/committer that is not the noreply identity.
+# Usage: scripts/scan                 scan every tracked file (default)
+#        scripts/scan --range A..B    scan lines added in the range + author identities
+#        scripts/scan --pre-push      git pre-push mode (reads ref lines on stdin)
+set -u
+cd "$(git rev-parse --show-toplevel)"
+ZERO=0000000000000000000000000000000000000000
+ALLOW_ID='^[0-9]*\+?[A-Za-z0-9._-]+@users\.noreply\.github\.com$'
+fail=0
+report() { echo "SCAN FAIL [$1] $2"; fail=1; }
+
+# check_text <label> : reads "file:content" lines on stdin
+check_text() {
+  local f=$1
+  while IFS= read -r line; do
+    file=${line%%$'\t'*}; text=${line#*$'\t'}
+    if grep -Eq 'AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|(password|passwd|secret|token|api[_-]?key)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"' ]{8,}["'"'"']' <<<"$text"; then report secret "$file: $text"; fi
+    em=$(grep -Eo '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' <<<"$text" | grep -Eiv '@users\.noreply\.github\.com$|@example\.(com|org|net)$|^noreply@anthropic\.com$' | head -1)
+    [ -n "$em" ] && report email "$file: $em"
+    if grep -Eq '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254)\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' <<<"$text"; then report private-ip "$file: $text"; fi
+    if grep -Eiq '[A-Za-z0-9-]+\.(local|internal|lan|corp|home\.arpa)([^A-Za-z0-9-]|$)' <<<"$text"; then report private-host "$file: $text"; fi
+    if grep -Eq '[A-Za-z]:[\/]+Users[\/]+[A-Za-z0-9._-]+|/home/[a-z][A-Za-z0-9._-]*/|/Users/[A-Za-z][A-Za-z0-9._-]*/' <<<"$text" \
+       && ! grep -Eiq 'Users[\/]+(<[^>]*>|%[^%]*%|\$\{?[A-Za-z_]+\}?|you|user|username|public|default)([\/]|$)|/(home|Users)/(<[^>]*>|\$\{?[A-Za-z_]+\}?|you|user|username|runner)/' <<<"$text"; then report user-path "$file: $text"; fi
+  done
+}
+
+scan_tree() {
+  git ls-files -z | while IFS= read -r -d '' f; do
+    [ "$f" = scripts/scan ] && continue
+    grep -Iq . "$f" 2>/dev/null && grep -In '' "$f" | sed "s|^[0-9]*:|$f\t|"
+  done | check_text tree
+}
+scan_range() {
+  local r=$1
+  local d=$r; case $r in *..*) ;; *) d="4b825dc642cb6eb9a060e54bf8d69288fbee4904..$r";; esac
+  git diff --no-color -U0 "$d" -- . ':!scripts/scan' | awk -v OFS='\t' '/^\+\+\+ /{f=substr($2,3);next} /^\+/{print f, substr($0,2)}' | check_text range
+  git log --format='%H %ae %ce' "$r" | while read -r sha a c; do
+    for id in "$a" "$c"; do grep -Eq "$ALLOW_ID" <<<"$id" || report author "$sha identity $id"; done
+  done
+}
+
+main() {
+  case ${1:-tree} in
+    --range) scan_range "${2:?range}" ;;
+    --pre-push)
+      while read -r lref lsha rref rsha; do
+        [ "$lsha" = $ZERO ] && continue
+        if [ "$rsha" = $ZERO ]; then r=$lsha; else r="$rsha..$lsha"; fi
+        scan_range "$r"
+      done ;;
+    *) scan_tree ;;
+  esac
+}
+out=$(main "$@")
+[ -n "$out" ] && echo "$out"
+if grep -q '^SCAN FAIL' <<<"$out"; then echo "scan: FAILED"; exit 1; fi
+echo "scan: ok"
