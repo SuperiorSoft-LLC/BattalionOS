@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) SuperiorSoft LLC
-// @infantry/ui: the shadcn primitives and the shared blocks every surface builds from.
+// The shared UI kit: the shadcn primitives and the shared blocks every surface builds from.
 export * from "./components/avatar";
 export * from "./components/badge";
 export * from "./components/button";

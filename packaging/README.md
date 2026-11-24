@@ -37,3 +37,12 @@ pwsh packaging/test-msi.ps1          # installs it silently both ways and checks
 
 The template is `windows/main.wxs` (from the Infantry AI per-user template, cut down, plus the page); the plan
 component is `windows/first-run.wxs`.
+
+## First-install kit for Windows Sandbox
+
+`packaging/make-sandbox-kit.ps1` builds a folder (outside the repos) with a real app package, a local catalog and feed
+(`file:` urls, a throwaway public key), an MSI whose `first-run.json` points at that catalog (the committed file is
+swapped for the build only, then restored), and `bos-sandbox.wsb`. Double-click the `.wsb`: a clean Sandbox opens
+with the kit mapped read-only, `start.ps1` copies it to `C:\BattalionOSKit` and opens the folder, and you run the MSI.
+`check\bos-sandbox-check.wsb` does the same, then installs silently and writes results to a second, writable folder
+(`check.ps1`). `test-msi.ps1` refuses to run outside Windows Sandbox unless `-AllowHost` is given.

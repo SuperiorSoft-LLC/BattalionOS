@@ -1,8 +1,14 @@
 # SPDX-License-Identifier: MPL-2.0
 # Installs the BattalionOS MSI silently into a scratch folder, once with the Infantry AI box checked and once
 # unchecked, and checks the plan file, the dialog, the default and the uninstall. Per user, no admin.
-# Usage: pwsh packaging/test-msi.ps1 [-Msi path]   (build it first: packaging/README.md)
-param([string]$Msi = (Join-Path $PSScriptRoot '..\target\release\bundle\msi\BattalionOS_0.1.0_x64_en-US.msi'))
+# Usage: pwsh packaging/test-msi.ps1 [-Msi path] [-AllowHost]   (build it first: packaging/README.md)
+# It INSTALLS the MSI on the machine it runs on, so it refuses outside Windows Sandbox (user WDAGUtilityAccount)
+# unless -AllowHost is given.
+param([string]$Msi = (Join-Path $PSScriptRoot '..\target\release\bundle\msi\BattalionOS_0.1.0_x64_en-US.msi'), [switch]$AllowHost)
+if ($env:USERNAME -ne 'WDAGUtilityAccount' -and -not $AllowHost) {
+    [Console]::Error.WriteLine('refused: this script installs the MSI on this machine and this is not Windows Sandbox (user WDAGUtilityAccount). Run it in the Sandbox (see packaging/make-sandbox-kit.ps1), or pass -AllowHost to install here on purpose.')
+    exit 2
+}
 $ErrorActionPreference = 'Stop'
 $Msi = (Resolve-Path $Msi).Path
 $fail = 0
