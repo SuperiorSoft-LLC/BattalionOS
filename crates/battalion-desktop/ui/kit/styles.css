@@ -1,0 +1,286 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright (c) SuperiorSoft LLC */
+@import "tailwindcss";
+/* The kit's own classes: a workspace package sits in node_modules, which Tailwind does not scan by itself. */
+@source "./";
+/* Animations and shadcn's state variants, shared with web UI plugins (WEBUI-1). */
+@import "./extensions.css";
+@import "@fontsource-variable/geist";
+
+/* Theme tokens and the dark variant, shared with web UI plugins (WEBUI-1). */
+@import "./theme.css";
+
+/* Light tones: Theme.kt LightTones. */
+:root {
+  --radius: 0.5rem;
+  --background: #f4f5f7;
+  --foreground: #1a1c20;
+  --panel: #ffffff;
+  --raised: #e9ebef;
+  --card: #ffffff;
+  --card-foreground: #1a1c20;
+  --popover: #ffffff;
+  --popover-foreground: #1a1c20;
+  --primary: #dc2626;
+  --primary-foreground: #ffffff;
+  --secondary: #e9ebef;
+  --secondary-foreground: #1a1c20;
+  --muted: #e9ebef;
+  --muted-foreground: #5e6470;
+  --accent: #e9ebef;
+  --accent-foreground: #1a1c20;
+  --destructive: #dc2626;
+  --border: #d3d7de;
+  --input: #d3d7de;
+  --ring: #b45309;
+  --ok: #15803d;
+  --warn: #b45309;
+  --info: #2563eb;
+  --danger: #dc2626;
+  --diff-add: #dcfce7;
+  --diff-del: #fee2e2;
+  --chart-1: #dc2626;
+  --chart-2: #15803d;
+  --chart-3: #2563eb;
+  --chart-4: #b45309;
+  --chart-5: #5e6470;
+}
+
+/* Dark tones: Theme.kt DarkTones (default). */
+.dark {
+  --background: #0e0f12;
+  --foreground: #e6e7ea;
+  --panel: #15171b;
+  --raised: #1c1f25;
+  --card: #15171b;
+  --card-foreground: #e6e7ea;
+  --popover: #1c1f25;
+  --popover-foreground: #e6e7ea;
+  --primary: #ef4444;
+  --primary-foreground: #ffffff;
+  --secondary: #1c1f25;
+  --secondary-foreground: #e6e7ea;
+  --muted: #1c1f25;
+  --muted-foreground: #8b909a;
+  --accent: #262a31;
+  --accent-foreground: #e6e7ea;
+  --destructive: #ef4444;
+  --border: #262a31;
+  --input: #2e333b;
+  --ring: #f59e0b;
+  --ok: #4ade80;
+  --warn: #f59e0b;
+  --info: #60a5fa;
+  --danger: #ef4444;
+  --diff-add: #14532d;
+  --diff-del: #4c1d1d;
+  --chart-1: #ef4444;
+  --chart-2: #4ade80;
+  --chart-3: #60a5fa;
+  --chart-4: #f59e0b;
+  --chart-5: #8b909a;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+  /* Every clickable element shows the hand cursor; disabled ones show not-allowed. */
+  button,
+  a[href],
+  summary,
+  select,
+  label[for],
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="file"],
+  input[type="range"],
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"],
+  [role="option"],
+  [role="switch"],
+  [role="checkbox"],
+  [role="radio"],
+  [role="link"],
+  [role="treeitem"],
+  [data-slot="select-trigger"],
+  [data-clickable] {
+    cursor: pointer;
+  }
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  [aria-disabled="true"],
+  [data-disabled],
+  [data-clickable][data-disabled] {
+    cursor: not-allowed;
+  }
+  /* RUST-MOBILE-1: the visible height on a phone (the on-screen keyboard and browser bars shrink it), and no text boost. */
+  #root {
+    height: 100dvh;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  /* Touch: tap targets of at least 40px (layout.ts `tapTarget`), no double-tap zoom delay, inputs at 16px (no zoom). */
+  @media (pointer: coarse) {
+    button,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="option"],
+    [data-slot="select-trigger"] {
+      min-height: 40px;
+      touch-action: manipulation;
+    }
+    button:has(> svg:only-child) {
+      min-width: 40px;
+    }
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
+  html {
+    @apply font-sans;
+    font-size: 14px;
+  }
+  body {
+    @apply bg-background text-foreground antialiased overflow-hidden;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+  /* Thin scrollbars that match the panels. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+}
+
+@layer utilities {
+  /* Diagonal stripes: busy cards and indeterminate progress (SelectedStripes.kt). */
+  .stripes {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      color-mix(in oklab, var(--primary) 16%, transparent) 0 10px,
+      transparent 10px 20px
+    );
+  }
+  .stripes-info {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      var(--info) 0 6px,
+      color-mix(in oklab, var(--info) 35%, transparent) 6px 12px
+    );
+    background-size: 17px 17px;
+    animation: stripes-move 1s linear infinite;
+  }
+  @keyframes stripes-move {
+    to {
+      background-position: 17px 0;
+    }
+  }
+  /* Selected agent card: a low-contrast plaid (crossing horizontal and vertical bands, 28px period) that drifts, 3s per period. */
+  .selected-stripes {
+    position: absolute;
+    inset: -28px 0 0 -28px;
+    background-image:
+      repeating-linear-gradient(0deg, color-mix(in oklab, var(--primary) 10%, transparent) 0 8px, transparent 8px 28px),
+      repeating-linear-gradient(90deg, color-mix(in oklab, var(--primary) 10%, transparent) 0 8px, transparent 8px 28px);
+    will-change: transform;
+    animation: selected-stripes-move 3s linear infinite;
+  }
+  .selected-stripes-static {
+    animation: none;
+  }
+  [data-page-hidden] .selected-stripes {
+    animation-play-state: paused;
+  }
+  @keyframes selected-stripes-move {
+    to {
+      transform: translate(28px, 28px);
+    }
+  }
+  /* RUST-UI-2: busy = soft breathing dot, waiting = slower amber blink (RunPills.kt). */
+  .busy-pulse {
+    animation: busy-pulse 1.4s ease-in-out infinite;
+  }
+  .wait-pulse {
+    animation: busy-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes busy-pulse {
+    50% {
+      opacity: 0.35;
+      transform: scale(0.8);
+    }
+  }
+  /* Pixel avatar motion (compositor only: transform and opacity). */
+  .px-bob {
+    animation: px-bob 0.9s steps(2, jump-none) infinite;
+  }
+  .px-shake {
+    animation: px-shake 0.5s steps(2, jump-none) infinite;
+  }
+  .px-blink {
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: px-blink 4.2s infinite;
+  }
+  .px-float {
+    animation: px-float 2.8s ease-in-out infinite;
+  }
+  @keyframes px-bob {
+    50% {
+      transform: translateY(-6%);
+    }
+  }
+  @keyframes px-shake {
+    50% {
+      transform: translateX(6%);
+    }
+  }
+  @keyframes px-blink {
+    0%,
+    92%,
+    100% {
+      transform: scaleY(1);
+    }
+    95% {
+      transform: scaleY(0.1);
+    }
+  }
+  @keyframes px-float {
+    50% {
+      transform: translateY(-8%);
+      opacity: 0.55;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .px-bob,
+    .px-shake,
+    .px-blink,
+    .px-float,
+    .selected-stripes,
+    .stripes-info,
+    .busy-pulse,
+    .wait-pulse {
+      animation: none;
+    }
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}

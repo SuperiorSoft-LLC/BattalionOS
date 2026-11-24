@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "identifier": "org.battalionos.desktop",
   "build": {
-    "frontendDist": "./ui"
+    "beforeBuildCommand": "pnpm --dir ui install --frozen-lockfile && pnpm --dir ui build",
+    "frontendDist": "./ui/dist"
   },
   "app": {
     "withGlobalTauri": true,
