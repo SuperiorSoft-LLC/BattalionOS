@@ -3,10 +3,14 @@
 An **app** is what BattalionOS runs. This page says what an app is, who manages it, and what it is not.
 It is the one page where the other kind of extension is named, so the line between the two stays sharp.
 
+The chain is: **BattalionOS > apps > each app's plugins.**
+
 ## What an app is
 
-An app is a program with its own process, its own window and its own data folder. BattalionOS installs it,
-starts it, shows it, updates it, stops it and removes it. It does this with its own parts and nothing else:
+An app is a BattalionOS app. It is not an exe, and Windows or any other platform never starts it. It runs on its own
+thread, created, managed and ended by the OS, never shared with the OS or with another app. It opens inside the
+BattalionOS window and can be popped out. It has its own data folder. BattalionOS installs it, starts it, shows it,
+updates it, stops it and removes it, without restarting itself. It does this with its own parts and nothing else:
 
 - `battalion-app-api`: the contract an app and the OS speak (`app.json`, the catalog and feed formats).
 - `battalion-host`: the app manager (store, supervisor, Armory engine: catalog, package check, install, update, rollback, remove).
@@ -16,20 +20,20 @@ The OS names no app. In its code and docs an app is only "an app".
 
 ## Who manages it
 
-BattalionOS, always. It creates the app's own lane (its process), runs it there and ends it. No product built on
-BattalionOS installs, starts, lists or updates an app for it, and an app is never run through a plugin host.
+BattalionOS, always. It creates the app's own thread, runs the app on it and ends it. It installs, updates and
+removes apps without restarting itself. No product built on BattalionOS installs, starts, lists or updates an app
+for it, and an app is never run through a plugin host.
 
 ## Where plugins fit
 
-The chain is: **BattalionOS > apps > each app's plugins.**
+An app is like a plugin in that both extend something, and the OS toward its apps behaves as an app does toward its
+plugins (installs, updates and removes them without restarting itself), but the two are never the same thing. A
+**plugin** belongs to an app. Any app may have plugins, and only that app manages them: it installs, loads, lists and
+removes its own plugins, with its own manifest and its own host. BattalionOS does not know plugins exist and never
+manages them; nothing is shared between the OS's app manager and an app's plugin manager.
 
-An app is like a plugin in that both extend something, but an app has its own lane and the OS manages it. A
-**plugin** belongs to the app it extends, and only that app manages it: it installs, loads, lists and removes its
-own plugins, with its own manifest and its own host. Any app may have plugins, not only one. BattalionOS does not
-know plugins exist and never manages them; nothing is shared between the OS's app manager and an app's plugin manager.
-
-On threads: a plugin runs by default on its app's thread and may have its own where it needs one. An app always has
-its own, never shared with the OS or with another app.
+On threads: by default a plugin runs on its app's thread; it may have its own where needed. An app always has its own,
+never shared with the OS or with another app.
 
 | | App | Plugin |
 |---|---|---|
@@ -38,7 +42,7 @@ its own, never shared with the OS or with another app.
 | Manifest | `app.json` at the package root | `module.json` at the package root |
 | Package | `.bosapp` | The app's own package |
 | Where it is listed | The BattalionOS apps page and the Armory catalog | That app's own Plugins screen only |
-| Who starts it | The BattalionOS supervisor, in its own lane (process) | The app, inside itself |
+| Who starts it | BattalionOS, on the app's own thread | The app, inside itself |
 
 ## How the OS keeps the line
 
