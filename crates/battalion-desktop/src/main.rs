@@ -9,6 +9,10 @@ fn main() {
 
     let paths = Paths::from_env().unwrap_or_else(|| Paths::new(std::env::temp_dir().join("battalion-os")));
     let _ = paths.ensure();
+    // The installer's first-run.json may name the catalog; seed it before the Armory reads os.json.
+    if let Some(plan) = battalion_host::firstrun::plan_path_beside_exe() {
+        let _ = battalion_host::firstrun::seed_sources(&paths, &plan);
+    }
     let host = Host::new(paths);
     for (id, r) in host.sup.adopt_all() {
         if let Err(e) = r {
@@ -42,7 +46,8 @@ fn main() {
             os_update_app,
             os_rollback_app,
             os_remove_app,
-            os_exit
+            os_exit,
+            os_first_run_retry
         ])
         .setup(|app| {
             // Armory progress goes to every window as an event; the shell shows it.
@@ -51,6 +56,12 @@ fn main() {
                 let _ = tauri::Emitter::emit(&handle, battalion_desktop::events::ARMORY_PROGRESS, p);
             });
             app.state::<Host>().armory.set_progress_sink(Some(sink));
+            // First open: install what the installer asked for (its checkbox), in the background, with progress events.
+            let h2 = app.handle().clone();
+            std::thread::spawn(move || {
+                let host = h2.state::<Host>();
+                battalion_desktop::host::run_first_run(&h2, &host);
+            });
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("BattalionOS")
                 .inner_size(1200.0, 800.0)

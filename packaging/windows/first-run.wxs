@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- first-run.json goes beside the executable only when the "Infantry AI" checkbox is checked (INSTALL_INFANTRY = 1).
+     Referenced by the template through tauri.msi.conf.json (fragmentPaths + componentRefs). -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="FirstRunPlan" Guid="6B1C2D5E-0A7F-4E3B-9C41-5D8E2F7A1B90">
+                <Condition>INSTALL_INFANTRY = "1"</Condition>
+                <File Id="FirstRunJson" Name="first-run.json" Source="$(sys.SOURCEFILEDIR)..\first-run.json" KeyPath="yes"/>
+            </Component>
+        </DirectoryRef>
+    </Fragment>
+</Wix>

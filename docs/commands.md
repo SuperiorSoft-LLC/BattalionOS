@@ -82,3 +82,12 @@ App exit = its window closes; the app's process keeps running under the supervis
 `Armory::exit_os`: apps are let go, not stopped, and the next start calls `adopt_all`. An app whose
 manifest says `"onOsExit": "stop"` is stopped first; `"keep"` (the default) lets it run on.
 A window closed by hand never exits the OS while another window is open.
+
+Added by BOS-11 (first run). The installer lays `first-run.json` beside the executable only for the apps left checked; the OS
+installs them in the background on open and writes `first-run.state.json` (the done marker) in the OS home once every one is in.
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_first_run_retry` | | main | `{outcome}` (text); runs the first-run install again (Retry). Does nothing once the marker says done |
+
+Event `os://first-run` `{status, ids?, id?, error?}`: `start` (ids), `installed` (id), `done` (ids), `offline` or `failed` (id, error), `already-done`, `nothing`.

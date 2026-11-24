@@ -1,0 +1,16 @@
+{
+  "build": { "beforeBuildCommand": "" },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "publisher": "SuperiorSoft LLC",
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "wix": {
+        "template": "../../packaging/windows/main.wxs",
+        "fragmentPaths": ["../../packaging/windows/first-run.wxs"],
+        "componentRefs": ["FirstRunPlan"]
+      }
+    }
+  }
+}

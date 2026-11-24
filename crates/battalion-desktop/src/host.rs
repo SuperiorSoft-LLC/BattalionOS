@@ -74,3 +74,27 @@ pub fn open_app_window(app: &AppHandle, host: &Host, id: &str) -> Result<(), Str
 pub fn app_id_of_label(label: &str) -> Option<&str> {
     label.strip_prefix(APP_PREFIX)
 }
+
+/// First run: install the apps the installer chose (`first-run.json` beside the executable), once.
+/// Blocking; call it from a thread. Emits `os://first-run` and, per app, `os://app-state`.
+pub fn run_first_run(app: &AppHandle, host: &Host) -> battalion_host::firstrun::Outcome {
+    use battalion_host::firstrun::{self as fr, Event, Outcome};
+    let Some(plan) = fr::plan_path_beside_exe() else { return Outcome::NothingToDo };
+    let emit = |p: serde_json::Value| {
+        let _ = app.emit(events::FIRST_RUN, p);
+    };
+    fr::run(&host.armory, &plan, &mut |ev| match ev {
+        Event::Start(ids) => emit(serde_json::json!({"status": "start", "ids": ids})),
+        Event::AppInstalled(id) => {
+            emit(serde_json::json!({"status": "installed", "id": id}));
+            let _ = app.emit(events::APP_STATE, serde_json::json!({"id": id, "state": "stopped"}));
+        }
+        Event::Finished(o) => emit(match o {
+            Outcome::NothingToDo => serde_json::json!({"status": "nothing"}),
+            Outcome::AlreadyDone => serde_json::json!({"status": "already-done"}),
+            Outcome::Done(ids) => serde_json::json!({"status": "done", "ids": ids}),
+            Outcome::Offline { id, reason } => serde_json::json!({"status": "offline", "id": id, "error": reason}),
+            Outcome::Failed { id, reason } => serde_json::json!({"status": "failed", "id": id, "error": reason}),
+        }),
+    })
+}

@@ -1,0 +1,4 @@
+{
+  "sources": ["https://raw.githubusercontent.com/SuperiorSoft-LLC/battalionOS-apps/main/catalog.json"],
+  "apps": [{ "id": "infantry-ai", "channel": "stable" }]
+}

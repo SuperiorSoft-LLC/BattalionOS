@@ -8,3 +8,6 @@ pub const BADGE: &str = "os://badge";
 pub const LOGIN_CHANGED: &str = "os://login-changed";
 /// `{id, op, stage, bytes, total, percent}` while the Armory installs, updates, rolls back or removes an app.
 pub const ARMORY_PROGRESS: &str = "os://armory-progress";
+/// `{status, ids?, id?, error?}` while the first-run install of the apps the installer asked for runs. `status` is `start`
+/// (`ids`), `installed` (`id`), `done` (`ids`), `offline` or `failed` (`id`, `error`; Retry is `os_first_run_retry`), `already-done` or `nothing`.
+pub const FIRST_RUN: &str = "os://first-run";

@@ -277,3 +277,14 @@ pub async fn os_login_done(window: WebviewWindow, app: AppHandle) -> R<()> {
     let _ = app.emit(crate::events::LOGIN_CHANGED, true);
     window.close().map_err(|e| e.to_string())
 }
+
+/// Run the first-run install again (Retry after a failure or while offline). Returns the outcome as text; progress is
+/// the `os://first-run` event. A second call while one runs is refused by the Armory's own app lock, not queued.
+#[tauri::command]
+pub async fn os_first_run_retry(window: WebviewWindow, app: AppHandle, host: State<'_, Host>) -> R<Value> {
+    authorize_shell(window.label(), "os_first_run_retry").map_err(|e| e.to_string())?;
+    let app2 = app.clone();
+    let out = blocking(move || crate::host::run_first_run(&app2, &app2.state::<Host>()))
+    .await?;
+    Ok(json!({"outcome": format!("{out:?}")}))
+}

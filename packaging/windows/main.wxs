@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- BattalionOS MSI (Tauri WiX template, per user, no admin). Based on infantry-ai app/src-tauri/windows/main.wxs (WixUI_InstallDir),
+     cut to what the OS needs, plus one extra page: "Install apps" with the Infantry AI checkbox, checked by default.
+     The checkbox is a component condition: first-run.json is laid down only when it is checked, so "not chosen" is
+     "no file" and the OS has nothing to do on first open. Nothing here touches the OS home (%LOCALAPPDATA%\SuperiorSoft\BattalionOS),
+     so an uninstall keeps every app's state. Silent install without the app: msiexec /i BattalionOS.msi INSTALL_INFANTRY=0 -->
+<?if $(sys.BUILDARCH)="x64"?>
+    <?define Win64 = "yes" ?>
+<?elseif $(sys.BUILDARCH)="arm64"?>
+    <?define Win64 = "yes" ?>
+<?else?>
+    <?error Unsupported value of sys.BUILDARCH=$(sys.BUILDARCH)?>
+<?endif?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="{{product_name}}" UpgradeCode="{{upgrade_code}}" Language="!(loc.TauriLanguage)" Manufacturer="{{manufacturer}}" Version="{{version}}">
+
+        <Package Id="*" Keywords="Installer" InstallerVersion="450" Languages="0" Compressed="yes" InstallScope="perUser" SummaryCodepage="!(loc.TauriCodepage)"/>
+
+        <Property Id="REINSTALLMODE" Value="amus" />
+        <Property Id="AUTOLAUNCHAPP" Secure="yes" />
+        <Property Id="LAUNCHAPPARGS" Secure="yes" />
+
+        {{#if allow_downgrades}}
+            <MajorUpgrade Schedule="afterInstallInitialize" AllowDowngrades="yes" />
+        {{else}}
+            <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="!(loc.DowngradeErrorMessage)" AllowSameVersionUpgrades="yes" />
+        {{/if}}
+
+        <InstallExecuteSequence>
+            <RemoveShortcuts>Installed AND NOT UPGRADINGPRODUCTCODE</RemoveShortcuts>
+        </InstallExecuteSequence>
+
+        <Media Id="1" Cabinet="app.cab" EmbedCab="yes" />
+
+        {{#if banner_path}}<WixVariable Id="WixUIBannerBmp" Value="{{banner_path}}" />{{/if}}
+        {{#if dialog_image_path}}<WixVariable Id="WixUIDialogBmp" Value="{{dialog_image_path}}" />{{/if}}
+        {{#if license}}<WixVariable Id="WixUILicenseRtf" Value="{{license}}" />{{/if}}
+
+        <Icon Id="ProductIcon" SourceFile="{{icon_path}}"/>
+        <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+        <Property Id="ARPNOREPAIR" Value="yes" Secure="yes" />
+        <SetProperty Id="ARPNOMODIFY" Value="1" After="InstallValidate" Sequence="execute"/>
+        {{#if homepage}}
+        <Property Id="ARPURLINFOABOUT" Value="{{homepage}}"/>
+        <Property Id="ARPHELPLINK" Value="{{homepage}}"/>
+        {{/if}}
+
+        <Property Id="INSTALLDIR">
+          <RegistrySearch Id="PrevInstallDirNoName" Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}" Type="raw" />
+          <RegistrySearch Id="PrevInstallDirWithName" Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}" Name="InstallDir" Type="raw" />
+        </Property>
+
+        <Property Id="DESKTOPSHORTCUTEXISTS" Secure="yes">
+            <DirectorySearch Id="DesktopShortcutSearch" Path="[DesktopFolder]" Depth="0">
+                <FileSearch Id="DesktopShortcutFile" Name="{{product_name}}.lnk" />
+            </DirectorySearch>
+        </Property>
+
+        <!-- Step 1 of 2: the OS. The apps page below is the only choice; "1" = Infantry AI is installed on first open. -->
+        <Property Id="INSTALL_INFANTRY" Value="1" Secure="yes" />
+
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="!(loc.LaunchApp)" />
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1"/>
+        <CustomAction Id="LaunchApplication" Impersonate="yes" FileKey="Path" ExeCommand="[LAUNCHAPPARGS]" Return="asyncNoWait" />
+
+        <UI>
+            <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+            <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
+
+            <!-- The checkbox page, between the folder page and "ready to install". -->
+            <Dialog Id="InstallAppsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+                <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Install apps" />
+                <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="Apps that open with BattalionOS. You can add or remove apps later in the Armory." />
+                <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+                <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+                <Control Id="Note" Type="Text" X="25" Y="60" Width="320" Height="30" Transparent="yes" NoPrefix="yes" Text="BattalionOS installs now. The first time you open it, the apps checked below are downloaded and installed, and their icons appear on its desktop." />
+                <Control Id="InfantryCheck" Type="CheckBox" X="25" Y="105" Width="320" Height="18" Property="INSTALL_INFANTRY" CheckBoxValue="1" Text="Infantry AI (from the Infantry AI repository)" />
+                <Control Id="InfantryNote" Type="Text" X="43" Y="126" Width="300" Height="30" Transparent="yes" NoPrefix="yes" Text="A command post for coding agents. Needs an internet connection on first open; it retries if you are offline." />
+                <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+                <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+                <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+                <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                </Control>
+            </Dialog>
+            <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="InstallAppsDlg" Order="4">NSF_OK_PATH AND WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID="1"</Publish>
+            <Publish Dialog="InstallAppsDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg">1</Publish>
+            <Publish Dialog="InstallAppsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+            <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallAppsDlg" Order="2">NOT Installed</Publish>
+
+            {{#unless license}}
+            <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2">1</Publish>
+            <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">1</Publish>
+            {{/unless}}
+        </UI>
+
+        <UIRef Id="WixUI_InstallDir" />
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="DesktopFolder" Name="Desktop">
+                <Component Id="ApplicationShortcutDesktop" Guid="*">
+                    <Condition>NOT WIX_UPGRADE_DETECTED OR DESKTOPSHORTCUTEXISTS</Condition>
+                    <Shortcut Id="ApplicationDesktopShortcut" Name="{{product_name}}" Description="Runs {{product_name}}" Target="[!Path]" WorkingDirectory="INSTALLDIR" />
+                    <RemoveFolder Id="DesktopFolder" On="uninstall" />
+                    <RegistryValue Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}" Name="Desktop Shortcut" Type="integer" Value="1" KeyPath="yes" />
+                </Component>
+            </Directory>
+            <Directory Id="INSTALLDIR" Name="{{product_name}}"/>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="{{product_name}}"/>
+            </Directory>
+        </Directory>
+
+        <SetDirectory Id="INSTALLDIR" Value="[LocalAppDataFolder]Programs\\{{product_name}}">NOT INSTALLDIR</SetDirectory>
+
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="RegistryEntries" Guid="*">
+                <RegistryKey Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}">
+                    <RegistryValue Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+                </RegistryKey>
+            </Component>
+            <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">
+                <File Id="Path" Source="{{main_binary_path}}" KeyPath="yes" Checksum="yes"/>
+            </Component>
+            {{#each binaries as |bin| ~}}
+            <Component Id="{{ bin.id }}" Guid="{{bin.guid}}" Win64="$(var.Win64)">
+                <File Id="Bin_{{ bin.id }}" Source="{{bin.path}}" KeyPath="yes"/>
+            </Component>
+            {{/each~}}
+            {{resources}}
+            <Component Id="CMP_UninstallShortcut" Guid="*">
+                <Shortcut Id="UninstallShortcut" Name="Uninstall {{product_name}}" Description="Uninstalls {{product_name}}" Target="[System64Folder]msiexec.exe" Arguments="/x [ProductCode]" />
+                <RemoveFolder Id="INSTALLDIR" On="uninstall" />
+                <RegistryValue Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}" Name="Uninstaller Shortcut" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+
+        <DirectoryRef Id="ApplicationProgramsFolder">
+            <Component Id="ApplicationShortcut" Guid="*">
+                <Shortcut Id="ApplicationStartMenuShortcut" Name="{{product_name}}" Description="Runs {{product_name}}" Target="[!Path]" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                    <ShortcutProperty Key="System.AppUserModel.ID" Value="{{bundle_id}}"/>
+                </Shortcut>
+                <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+                <RegistryValue Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}" Name="Start Menu Shortcut" Type="integer" Value="1" KeyPath="yes"/>
+            </Component>
+        </DirectoryRef>
+
+        <Feature Id="MainProgram" Title="Application" Description="!(loc.InstallAppFeature)" Level="1" ConfigurableDirectory="INSTALLDIR" AllowAdvertise="no" Display="expand" Absent="disallow">
+            <ComponentRef Id="RegistryEntries"/>
+            {{#each resource_file_ids as |resource_file_id| ~}}
+                <ComponentRef Id="{{ resource_file_id }}"/>
+            {{/each~}}
+            <Feature Id="ShortcutsFeature" Title="Shortcuts" Level="1">
+                <ComponentRef Id="Path"/>
+                <ComponentRef Id="CMP_UninstallShortcut" />
+                <ComponentRef Id="ApplicationShortcut" />
+                <ComponentRef Id="ApplicationShortcutDesktop" />
+            </Feature>
+        </Feature>
+
+        <!-- Components from fragments (tauri.msi.conf.json componentRefs): the first-run plan. -->
+        <Feature Id="External" AllowAdvertise="no" Absent="disallow">
+            {{#each component_group_refs as |id| ~}}
+            <ComponentGroupRef Id="{{ id }}"/>
+            {{/each~}}
+            {{#each component_refs as |id| ~}}
+            <ComponentRef Id="{{ id }}"/>
+            {{/each~}}
+        </Feature>
+
+        {{#if install_webview}}
+        <Property Id="INSTALLED_WEBVIEW2_VERSION">
+            <RegistrySearch Id="Webview2VersionSystemx64" Root="HKLM" Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" />
+            <RegistrySearch Id="Webview2VersionSystemx86" Root="HKLM" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" />
+            <RegistrySearch Id="Webview2VersionUser" Root="HKCU" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw"/>
+        </Property>
+        {{#if download_bootstrapper}}
+        <CustomAction Id="DownloadAndInvokeBootstrapper" Directory="INSTALLDIR" Execute="deferred" ExeCommand="powershell.exe -NoProfile -windowstyle hidden try [\{] [\[]Net.ServicePointManager[\]]::SecurityProtocol = [\[]Net.SecurityProtocolType[\]]::Tls12 [\}] catch [\{][\}]; Invoke-WebRequest -Uri &quot;https://go.microsoft.com/fwlink/p/?LinkId=2124703&quot; -OutFile &quot;$env:TEMP\MicrosoftEdgeWebview2Setup.exe&quot; ; Start-Process -FilePath &quot;$env:TEMP\MicrosoftEdgeWebview2Setup.exe&quot; -ArgumentList ({{webview_installer_args}} &apos;/install&apos;) -Wait" Return="check"/>
+        <InstallExecuteSequence>
+            <Custom Action="DownloadAndInvokeBootstrapper" Before="InstallFinalize"><![CDATA[NOT(REMOVE OR INSTALLED_WEBVIEW2_VERSION)]]></Custom>
+        </InstallExecuteSequence>
+        {{/if}}
+        {{/if}}
+    </Product>
+</Wix>

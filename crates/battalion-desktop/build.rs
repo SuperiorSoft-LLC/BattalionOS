@@ -20,6 +20,7 @@ const COMMANDS: &[&str] = &[
     "os_rollback_app",
     "os_remove_app",
     "os_exit",
+    "os_first_run_retry",
 ];
 
 fn main() {
