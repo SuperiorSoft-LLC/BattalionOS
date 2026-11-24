@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Armory feed v1 (one per app and channel)",
+  "type": "object",
+  "required": ["version", "contract", "platforms"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-.+)?$" },
+    "notes": { "type": "string" },
+    "contract": { "type": "integer", "minimum": 1 },
+    "stateSchema": { "type": "integer", "minimum": 1 },
+    "platforms": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["url", "signature", "sha256", "size"],
+        "properties": {
+          "url": { "type": "string" },
+          "signature": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+          "size": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "manifest": 1,
+  "id": "demo-app",
+  "name": "Demo App",
+  "version": "1.0.0",
+  "publisher": "BattalionOS",
+  "license": "Apache-2.0",
+  "contract": { "min": 1, "max": 1 },
+  "minOs": "0.1.0",
+  "process": {
+    "windows-x86_64": { "exec": "bin/demo-app.exe", "args": [], "env": {}, "readyTimeoutMs": 10000, "stopTimeoutMs": 3000 },
+    "linux-x86_64": { "exec": "bin/demo-app", "args": [], "env": {}, "readyTimeoutMs": 10000, "stopTimeoutMs": 3000 }
+  },
+  "init": { "exec": "bin/demo-app", "args": ["--init"] },
+  "state": { "schema": 1 },
+  "permissions": ["window"]
+}

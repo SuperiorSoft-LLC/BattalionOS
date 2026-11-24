@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BattalionOS app manifest (app.json), manifest 1",
+  "type": "object",
+  "required": ["manifest", "id", "name", "version", "contract"],
+  "properties": {
+    "manifest": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-.+)?$" },
+    "publisher": { "type": "string" },
+    "license": { "type": "string" },
+    "icon": { "type": "string" },
+    "contract": {
+      "type": "object",
+      "required": ["min", "max"],
+      "properties": { "min": { "type": "integer", "minimum": 1 }, "max": { "type": "integer", "minimum": 1 } }
+    },
+    "minOs": { "type": "string" },
+    "process": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["exec"],
+        "properties": {
+          "exec": { "type": "string" },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "env": { "type": "object", "additionalProperties": { "type": "string" } },
+          "readyTimeoutMs": { "type": "integer", "minimum": 1 },
+          "stopTimeoutMs": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "required": ["entry"],
+      "properties": {
+        "entry": { "type": "string" },
+        "window": { "type": "object", "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } } },
+        "connect": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "init": { "type": "object", "required": ["exec"], "properties": { "exec": { "type": "string" }, "args": { "type": "array", "items": { "type": "string" } } } },
+    "state": {
+      "type": "object",
+      "properties": { "dir": { "type": "object", "additionalProperties": { "type": "string" } }, "schema": { "type": "integer", "minimum": 1 } }
+    },
+    "cli": { "type": "array", "items": { "type": "object", "required": ["name", "exec"], "properties": { "name": { "type": "string" }, "exec": { "type": "string" } } } },
+    "permissions": { "type": "array", "items": { "enum": ["process.spawn", "network", "files.user", "window", "login.window"] } }
+  }
+}

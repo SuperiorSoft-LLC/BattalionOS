@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ready file written by an app process when it can serve",
+  "type": "object",
+  "required": ["contract", "pid", "url"],
+  "properties": {
+    "contract": { "type": "integer", "minimum": 1 },
+    "pid": { "type": "integer", "minimum": 1 },
+    "url": { "type": "string", "pattern": "^http://(127\\.0\\.0\\.1|localhost|\\[::1\\])(:[0-9]+)?" },
+    "health": { "type": "string", "default": "/health" },
+    "stop": { "type": "string", "default": "/stop" }
+  }
+}

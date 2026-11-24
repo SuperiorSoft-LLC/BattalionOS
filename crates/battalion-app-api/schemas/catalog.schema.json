@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Armory catalog, schema 2 (catalog.json)",
+  "type": "object",
+  "required": ["schema", "apps"],
+  "properties": {
+    "schema": { "const": 2 },
+    "apps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "publicKey", "contract", "channels"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+          "name": { "type": "string" },
+          "publisher": { "type": "string" },
+          "summary": { "type": "string" },
+          "license": { "type": "string" },
+          "icon": { "type": "string" },
+          "homepage": { "type": "string" },
+          "publicKey": { "type": "string", "minLength": 1 },
+          "contract": { "type": "object", "required": ["min", "max"], "properties": { "min": { "type": "integer" }, "max": { "type": "integer" } } },
+          "permissions": { "type": "array", "items": { "type": "string" } },
+          "channels": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Answer of GET health",
+  "type": "object",
+  "required": ["ok"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "busy": { "type": "integer", "minimum": 0 },
+    "detail": { "type": "string" }
+  }
+}
