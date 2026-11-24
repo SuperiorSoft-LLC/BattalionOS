@@ -5,10 +5,13 @@
 pub mod journal;
 pub mod lock;
 pub mod paths;
+pub mod process;
 pub mod state;
 pub mod store;
+pub mod supervisor;
 
 pub use journal::{Journal, JournalEntry, Pending};
 pub use lock::{Lock, LockError};
 pub use paths::Paths;
 pub use state::{AppState, Current};
+pub use supervisor::{AppStatus, Settings as SupervisorSettings, SupError, Supervisor};
