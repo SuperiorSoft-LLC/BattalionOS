@@ -1,0 +1,9 @@
+{
+  "identifier": "app-windows",
+  "description": "An app window (label app-<id>, served from its own loopback origin): itself only; the host re-checks the label.",
+  "windows": ["app-*"],
+  "remote": { "urls": ["http://127.0.0.1:*/*"] },
+  "permissions": [
+    "allow-os-window-info", "allow-os-app-status", "allow-os-app-health", "allow-os-close-app-window"
+  ]
+}

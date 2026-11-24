@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/battalion-app-api", "crates/battalion-host", "fixtures/demo-app"]
+members = ["crates/battalion-app-api", "crates/battalion-host", "crates/battalion-desktop", "fixtures/demo-app"]
 
 [workspace.package]
 version = "0.1.0"

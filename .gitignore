@@ -7,3 +7,5 @@ node_modules/
 *.key
 .DS_Store
 Thumbs.db
+crates/battalion-desktop/gen/
+crates/battalion-desktop/permissions/

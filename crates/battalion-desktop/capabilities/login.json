@@ -1,0 +1,6 @@
+{
+  "identifier": "login-window",
+  "description": "The sign-in window.",
+  "windows": ["login"],
+  "permissions": ["allow-os-window-info", "allow-os-login-done"]
+}
