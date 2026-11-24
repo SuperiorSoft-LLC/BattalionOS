@@ -28,6 +28,9 @@ An app is like a plugin in that both extend something, but an app has its own la
 own plugins, with its own manifest and its own host. Any app may have plugins, not only one. BattalionOS does not
 know plugins exist and never manages them; nothing is shared between the OS's app manager and an app's plugin manager.
 
+On threads: a plugin runs by default on its app's thread and may have its own where it needs one. An app always has
+its own, never shared with the OS or with another app.
+
 | | App | Plugin |
 |---|---|---|
 | Owner | BattalionOS | The app it extends |
