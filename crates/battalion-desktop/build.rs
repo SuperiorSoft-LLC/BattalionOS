@@ -21,6 +21,8 @@ const COMMANDS: &[&str] = &[
     "os_remove_app",
     "os_exit",
     "os_first_run_retry",
+    "os_app_page",
+    "os_frame_badge",
 ];
 
 fn main() {

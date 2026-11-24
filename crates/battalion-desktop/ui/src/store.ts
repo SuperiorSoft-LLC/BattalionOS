@@ -21,9 +21,13 @@ export interface Model {
   /** The last progress report per app while its action runs. */
   progress: Record<string, ArmoryProgress>;
   firstRunDismissed: boolean;
+  /** The apps shown inside the window, in the order they were opened; each keeps its frame (and its state) until it is closed. */
+  views: string[];
+  /** The view that fills the app area, or null (the desktop). A minimized view is in `views` but not active. */
+  active: string | null;
 }
 
-export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, ops: {}, progress: {}, firstRunDismissed: false };
+export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, ops: {}, progress: {}, firstRunDismissed: false, views: [], active: null };
 
 export type Action =
   | { type: "installed-loaded"; apps: InstalledApp[] }
@@ -39,7 +43,10 @@ export type Action =
   | { type: "op-failed"; id: string; op: ArmoryOp; error: string }
   | { type: "op-dismissed"; id: string }
   | { type: "progress"; p: ArmoryProgress }
-  | { type: "dismiss-first-run" };
+  | { type: "dismiss-first-run" }
+  | { type: "view-open"; id: string }
+  | { type: "view-minimize"; id: string }
+  | { type: "view-close"; id: string };
 
 const without = <T,>(r: Record<string, T>, id: string): Record<string, T> => {
   const { [id]: _gone, ...rest } = r;
@@ -48,8 +55,12 @@ const without = <T,>(r: Record<string, T>, id: string): Record<string, T> => {
 
 export function reduce(m: Model, a: Action): Model {
   switch (a.type) {
-    case "installed-loaded":
-      return { ...m, loaded: true, installed: a.apps, listError: null };
+    case "installed-loaded": {
+      // An app that is gone (removed) has no view: its frame ends with it.
+      const gone = (id: string) => !a.apps.some((x) => x.id === id && x.state !== "absent" && x.state !== "removing");
+      const views = m.views.filter((id) => !gone(id));
+      return { ...m, loaded: true, installed: a.apps, listError: null, views, active: m.active && views.includes(m.active) ? m.active : null };
+    }
     case "installed-failed":
       return { ...m, loaded: true, listError: a.error };
     case "catalog-loading":
@@ -75,6 +86,12 @@ export function reduce(m: Model, a: Action): Model {
       return { ...m, progress: { ...m.progress, [a.p.id]: a.p } };
     case "dismiss-first-run":
       return { ...m, firstRunDismissed: true };
+    case "view-open":
+      return { ...m, views: m.views.includes(a.id) ? m.views : [...m.views, a.id], active: a.id };
+    case "view-minimize":
+      return { ...m, active: m.active === a.id ? null : m.active };
+    case "view-close":
+      return { ...m, views: m.views.filter((id) => id !== a.id), active: m.active === a.id ? null : m.active };
   }
 }
 
@@ -125,6 +142,39 @@ export const taskItems = (m: Model): TaskItem[] =>
   m.installed
     .filter((a) => RUNNING.includes(a.state) || a.state === "failed")
     .map((a) => ({ id: a.id, running: a.state === "running", badge: a.state === "failed", mark: a.badge ?? null }));
+
+/** A taskbar button: a live or failed app (`taskItems`), and any app with a view, even one that stopped. `active` = it fills the app area. */
+export interface BarItem extends TaskItem { open: boolean; active: boolean }
+export const barItems = (m: Model): BarItem[] => {
+  const live = taskItems(m);
+  const extra = m.views.filter((id) => !live.some((t) => t.id === id)).map((id) => ({ id, running: false, badge: false, mark: m.installed.find((a) => a.id === id)?.badge ?? null }));
+  return [...live, ...extra].map((t) => ({ ...t, open: m.views.includes(t.id), active: m.active === t.id }));
+};
+
+/** What the app area shows for a view: the page, or the app's state (with Retry where starting it again helps). */
+export type Area = { kind: "frame" } | { kind: "status"; text: string; retry: boolean };
+export function areaOf(m: Model, id: string): Area {
+  const a = m.installed.find((x) => x.id === id);
+  switch (a?.state) {
+    case "running":
+      return { kind: "frame" };
+    case "starting":
+    case "initialising":
+      return { kind: "status", text: "Starting…", retry: false };
+    case "stopping":
+      return { kind: "status", text: "Stopping…", retry: false };
+    case "updating":
+      return { kind: "status", text: "Updating…", retry: false };
+    case "failed":
+      return { kind: "status", text: "The app stopped working.", retry: true };
+    case undefined:
+    case "absent":
+    case "removing":
+      return { kind: "status", text: "The app is not installed.", retry: false };
+    default:
+      return { kind: "status", text: "The app is stopped.", retry: true };
+  }
+}
 
 /** Offline means the list is a cache, or nothing could be read. A source error beside a live list is only a warning. */
 export interface Offline { offline: boolean; reason: string | null }

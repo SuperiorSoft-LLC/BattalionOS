@@ -3,7 +3,7 @@
 //! checks the calling window's label (from the runtime, not from the arguments) before it acts.
 
 use crate::access::{authorize_app, authorize_self, authorize_shell, caller_of, Caller};
-use crate::host::{open_app_window, Host};
+use crate::host::Host;
 use battalion_host::armory::{info::catalog_icon, RemoveOptions, UpdateOptions};
 use battalion_host::supervisor::AppStatus;
 use serde_json::{json, Value};
@@ -87,10 +87,45 @@ pub async fn os_stop_app(window: WebviewWindow, app: AppHandle, host: State<'_, 
     Ok(status_json(&s))
 }
 
+/// Open app `id` inside the OS window (it fills the app area above the taskbar). The window of an app of its own is not opened
+/// now; the shell opens the view when it hears `os://app-open`. The app must be installed and have a page. Nothing is started here:
+/// the shell starts a stopped app first and shows its state while the frame waits.
 #[tauri::command]
 pub async fn os_open_app_window(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<()> {
     authorize_shell(window.label(), "os_open_app_window").map_err(|e| e.to_string())?;
-    open_app_window(&app, &host, &id)
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let paths = host.paths.clone();
+    let id2 = id.clone();
+    blocking(move || crate::host::page_exists(&paths, &id2)).await??;
+    if let Some(main) = app.get_webview_window(crate::access::MAIN) {
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    app.emit(crate::events::APP_OPEN, &id).map_err(|e| e.to_string())
+}
+
+/// The page of app `id` for a frame in the OS window: `{id, version, origin, url}`. The origin is the app's one kept page origin.
+#[tauri::command]
+pub async fn os_app_page(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
+    authorize_shell(window.label(), "os_app_page").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let (paths, sup, pages) = (host.paths.clone(), host.sup.clone(), host.pages.clone());
+    let r = blocking(move || crate::host::page_of(&paths, &sup, &pages, &id)).await??;
+    Ok(json!({"id": r.id, "version": r.version, "origin": r.origin, "url": r.url}))
+}
+
+/// The badge of the app whose frame sent the message. The shell names the app from the frame (never from the message); an app
+/// window sets its own badge with `os_badge`. Main only.
+#[tauri::command]
+pub async fn os_frame_badge(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, count: Option<u64>, text: Option<String>) -> R<()> {
+    authorize_shell(window.label(), "os_frame_badge").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let badge = crate::badge::parse(count, text.as_deref())?;
+    if host.badges.set(&id, badge.clone()) {
+        paint_badge(&app, &id, badge.as_deref());
+    }
+    Ok(())
 }
 
 /// Show app `id`'s badge on its window: the taskbar button (overlay dot on Windows, the badge label where the OS has one) and the
@@ -237,6 +272,7 @@ pub async fn os_remove_app(window: WebviewWindow, app: AppHandle, host: State<'_
         w.close().map_err(|e| e.to_string())?;
     }
     host.servers.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+    host.pages.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
     let a = host.armory.clone();
     let id2 = id.clone();
     let r = blocking(move || a.remove(&id, &RemoveOptions::default())).await?.map_err(|e| e.to_string());

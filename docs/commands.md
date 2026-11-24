@@ -40,7 +40,7 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 | `os_app_health` | `id` | main, `app-<id>` | health, as text |
 | `os_start_app` | `id` | main | status |
 | `os_stop_app` | `id` | main | status |
-| `os_open_app_window` | `id` | main | nothing; opens or focuses `app-<id>` |
+| `os_open_app_window` | `id` | main | nothing. Opens the app **inside the BattalionOS window** (BOS-17): checks the app is installed and has a page, brings `main` to the front and emits `os://app-open` (the app id); the shell then fills its app area with the app's page in a frame. It opens no window of its own (the per-app window code stays for the pop out). The name is frozen |
 | `os_close_app_window` | `id` | main, `app-<id>` | nothing; the app process keeps running |
 | `os_catalog` | | main | `{apps:[{id, source, compatible, name, publisher, summary, icon, version}], rejected, sourceErrors, fromCache}`: `icon` only when the catalog gives a `data:image/` or `https:` URL; `version` is what the app's stable feed offers (null when the feed cannot be read) |
 | `os_install_app` | `id`, `channel?` (default `stable`) | main | `{ok}` |
@@ -65,12 +65,38 @@ window that calls (its label from the runtime); neither takes an id.
 
 `os_list_apps` rows also carry `badge`: the running app's badge text, or null.
 
+Added by BOS-17 (an app opens inside the window). Both are for `main` only (the shell). An app's page is drawn by the shell in a frame, so it
+has no window label of its own: the shell takes the app id from WHICH frame sent a message, and acts for that app with these.
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_app_page` | `id` | main | `{id, version, origin, url}`: starts (or reuses) the page server of app `id` on the app's one kept page port and gives the frame's origin and entry url. An update replaces the server on the same port |
+| `os_frame_badge` | `id`, `count?`, `text?` | main | nothing. `os_badge` for the app of a frame (same rules for `count` and `text`) |
+
+### The page in a frame (BOS-17)
+
+- The page is drawn in a frame in the shell's app area, from its own origin `http://127.0.0.1:<port>` (the app's page server). The frame is
+  hidden, never reloaded, on minimize or switch; Close removes it. An update loads the new version in the frame.
+- **Port and origin.** `battalion_host::uiport`: each app with a `ui` has one page port, chosen once and kept in `<home>/ui-ports/<id>`, the
+  same between runs, updates and OS restarts. Before the app starts the OS gives the origin as `BATTALION_UI_ORIGIN` and `uiOrigin` in the
+  context (docs/app-abi.md); the app lets exactly that origin reach its socket and refuses others (403).
+- **CSP of the page server:** `default-src 'self'`; scripts, styles, images, fonts and fetch/socket may also come from the app's own url (read
+  at each request, so a restarted app on a new port is followed). Nothing else.
+- **Messages.** The page calls the OS with `window.parent.postMessage({bos: 1, id, cmd, args}, "*")`; the shell answers the frame with
+  `{bos: 1, id, ok, result}` or `{bos: 1, id, ok: false, error}`. The app id is the frame's (the frame the shell made, found by
+  `event.source`, and its origin must equal the frame's origin); an id in the message is never used. Allowed: `os_window_info`,
+  `os_app_status`, `os_app_health`, `os_close_app_window`, `os_badge`, `os_show_desktop`, with today's results and arguments (`id`
+  may be omitted or equal to the frame's own; any other is refused). Everything else is refused. A frame the shell did not make gets
+  nothing. The frame has no `main` command rights (the capability for `main` has no remote url).
+- `os_close_app_window` from a frame = Close (the view ends; the app keeps running). `os_show_desktop` = Minimize (the view keeps its state).
+
 ## Events (emitted to all windows)
 
 | Event | Payload |
 |---|---|
 | `os://app-state` | `{id, state}` after `os_install_app`, `os_update_app`, `os_rollback_app` and `os_remove_app` end (`state` is null for a removed app) |
 | `os://armory-progress` | `{id, op, stage, bytes, total, percent}`: `op` is `install`, `update`, `rollback` or `remove`; `stage` is the step (`download`, `verify`, `unpack`, `place`, `init`, `stop`, `switch`, `start`, `done`, `mark`, `delete`, `forget`); `bytes`, `total` and `percent` (0-100) only while `stage` is `download`, else null |
+| `os://app-open` | the app id; the shell opens the view of that app inside its window |
 | `os://app-window-closed` | the app id |
 | `os://login-changed` | `true` |
 | `os://badge` | `{id, badge}` when an app sets or clears its badge (`badge` is the text or null) |

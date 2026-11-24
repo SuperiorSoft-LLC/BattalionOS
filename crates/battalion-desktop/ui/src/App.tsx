@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
-// The shell: reads the installed list from the host, owns the model, wires the views. An app opens in its own window (os_open_app_window).
+// The shell: reads the installed list from the host, owns the model, wires the views. An app opens inside this window (os_open_app_window
+// -> os://app-open): its page fills the app area above the taskbar, in a frame that is hidden, never reloaded, on minimize.
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { RefusalBanner } from "../kit";
 import { Armory } from "./Armory";
+import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
 import { FirstRun } from "./FirstRun";
 import { errText, type ArmoryOp, type Os } from "./os";
-import { appView, desktopIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun, taskItems } from "./store";
+import { appView, barItems, desktopIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
 
 export function App({ os }: { os: Os }) {
@@ -35,25 +37,56 @@ export function App({ os }: { os: Os }) {
     void loadCatalog();
     const offChange = os.onChange(() => void loadInstalled());
     const offProgress = os.onProgress((p) => dispatch({ type: "progress", p }));
+    const offOpen = os.onOpen((id) => dispatch({ type: "view-open", id }));
     return () => {
       offChange();
       offProgress();
+      offOpen();
     };
   }, [os, loadInstalled, loadCatalog]);
+
+  // An app that stops or crashes has no event of its own: while a view is open the list is read again every 2 seconds.
+  const watching = m.views.length > 0;
+  useEffect(() => {
+    if (!watching) return;
+    const t = setInterval(() => void loadInstalled(), 2000);
+    return () => clearInterval(t);
+  }, [watching, loadInstalled]);
 
   const open = useCallback(
     async (id: string) => {
       try {
-        const v = appView(m, id);
-        if (v.kind === "installed" && !v.running) await os.startApp(id);
+        // The host checks the app and says `os://app-open`; the view shows "Starting…" while a stopped app starts.
         await os.openAppWindow(id);
+        dispatch({ type: "view-open", id });
+        const v = appView(m, id);
+        if (v.kind === "installed" && !v.running) {
+          void loadInstalled();
+          await os.startApp(id);
+        }
         await loadInstalled();
       } catch (e) {
         setNotice(`Could not open ${id}: ${errText(e)}`);
+        await loadInstalled();
       }
     },
     [os, m, loadInstalled],
   );
+  const minimize = useCallback((id: string) => dispatch({ type: "view-minimize", id }), []);
+  const closeView = useCallback((id: string) => dispatch({ type: "view-close", id }), []);
+  const retry = useCallback(
+    async (id: string) => {
+      try {
+        await os.startApp(id);
+      } catch (e) {
+        setNotice(`Could not start ${id}: ${errText(e)}`);
+      }
+      await loadInstalled();
+    },
+    [os, loadInstalled],
+  );
+  // A taskbar button: the view that is showing goes back to the desktop (it keeps its state); any other opens or shows.
+  const task = useCallback((id: string) => (m.active === id ? minimize(id) : void open(id)), [m.active, minimize, open]);
   const install = useCallback((id: string) => void runInstall(os, dispatch, id, errText), [os]);
   const op = useCallback(
     (id: string, kind: ArmoryOp) => {
@@ -75,11 +108,12 @@ export function App({ os }: { os: Os }) {
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
       <Desktop ids={ids} view={view} label={label} icon={icon} badge={(id) => m.installed.find((a) => a.id === id)?.badge ?? null} onOpen={(id) => void open(id)}>
+        <AppFrames m={m} os={os} close={closeView} minimize={minimize} retry={(id) => void retry(id)} />
         {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={taskItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onArmory={() => setArmory(true)} onExit={exit} />
+      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={() => setArmory(true)} onExit={exit} />
     </div>
   );
 }

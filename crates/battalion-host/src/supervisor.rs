@@ -385,6 +385,12 @@ impl Supervisor {
 
         let state_dir = state_dir_of(&manifest, paths, id)?;
         std::fs::create_dir_all(&state_dir).map_err(io_err)?;
+        // An app with a page gets the page's origin before it starts: one port that stays the same between runs, so the app
+        // can let exactly that origin reach its socket and the page keeps its saved settings.
+        let ui_origin = match manifest.ui {
+            Some(_) => Some(crate::uiport::origin_for(paths, id).map_err(io_err)?),
+            None => None,
+        };
         let token = process::random_token();
         store::write_atomic(&run.join("token"), token.as_bytes()).map_err(io_err)?;
         let log = paths.logs().join(format!("{id}.log"));
@@ -410,6 +416,9 @@ impl Supervisor {
             (env::READY_FILE.into(), ready_path.display().to_string()),
             (env::TOKEN_FILE.into(), run.join("token").display().to_string()),
         ]);
+        if let Some(o) = &ui_origin {
+            envs.push((env::UI_ORIGIN.into(), o.clone()));
+        }
         let context = battalion_app_api::abi::Context {
             contract: CONTRACT,
             abi: battalion_app_api::abi::ABI_VERSION,
@@ -420,6 +429,7 @@ impl Supervisor {
             ready_file: ready_path.display().to_string(),
             token_file: run.join("token").display().to_string(),
             args: spec.args.clone(),
+            ui_origin: ui_origin.clone(),
         };
         let spawn = process::spawn_worker(&WorkerSpec {
             exe: self.inner.worker_exe.clone(),

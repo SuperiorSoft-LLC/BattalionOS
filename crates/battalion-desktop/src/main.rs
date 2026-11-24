@@ -67,7 +67,9 @@ fn main() {
             os_rollback_app,
             os_remove_app,
             os_exit,
-            os_first_run_retry
+            os_first_run_retry,
+            os_app_page,
+            os_frame_badge
         ])
         .setup(|app| {
             // Armory progress goes to every window as an event; the shell shows it.

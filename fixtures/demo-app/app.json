@@ -13,6 +13,7 @@
     "macos-aarch64": { "library": "lib/libdemo_app.dylib", "args": [], "env": {}, "readyTimeoutMs": 10000, "stopTimeoutMs": 3000 }
   },
   "init": { "exec": "bin/demo-helper", "args": ["--init"] },
+  "ui": { "entry": "ui/index.html", "window": { "width": 900, "height": 600 } },
   "state": { "schema": 1 },
   "permissions": ["window"]
 }

@@ -52,4 +52,8 @@ pub struct Context {
     pub token_file: String,
     /// `process.<target>.args` of the manifest.
     pub args: Vec<String>,
+    /// The origin of the app's page (`http://127.0.0.1:<port>`), the same value as `BATTALION_UI_ORIGIN`; only for an app
+    /// whose manifest has a `ui`. The app lets exactly this origin reach its socket.
+    #[serde(rename = "uiOrigin", default, skip_serializing_if = "Option::is_none")]
+    pub ui_origin: Option<String>,
 }

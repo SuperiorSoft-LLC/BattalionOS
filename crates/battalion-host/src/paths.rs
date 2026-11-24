@@ -122,6 +122,15 @@ impl Paths {
         }
     }
 
+    /// The one page port of app `id`, kept between runs (`uiport::port_for`).
+    pub fn ui_port_file(&self, id: &str) -> Result<PathBuf, BadAppId> {
+        if valid_id(id) {
+            Ok(self.root.join("ui-ports").join(id))
+        } else {
+            Err(BadAppId(id.to_string()))
+        }
+    }
+
     /// Create the fixed folders.
     pub fn ensure(&self) -> std::io::Result<()> {
         for d in [self.root.clone(), self.logs(), self.catalog_dir(), self.staging(), self.bin(), self.apps()] {

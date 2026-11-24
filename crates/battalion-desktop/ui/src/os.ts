@@ -19,7 +19,8 @@ export interface InstalledApp {
 }
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
-export type ArmoryOp = "install" | "update" | "rollback" | "remove";
+export interface AppPage { id: string; version: string; origin: string; url: string }
+export type ArmoryOp= "install" | "update" | "rollback" | "remove";
 /** `os://armory-progress`: bytes, total and percent only while the stage is `download`. */
 export interface ArmoryProgress { id: string; op: ArmoryOp; stage: string; bytes?: number | null; total?: number | null; percent?: number | null }
 
@@ -31,7 +32,16 @@ export interface Os {
   remove(id: string): Promise<void>;
   rollback(id: string): Promise<void>;
   startApp(id: string): Promise<void>;
+  /** `os_open_app_window`: opens the app inside this window (the host checks it, then emits `os://app-open`, heard by `onOpen`). */
   openAppWindow(id: string): Promise<void>;
+  /** The page of an app for its frame: the origin it has and its entry url (`os_app_page`). */
+  appPage(id: string): Promise<AppPage>;
+  appStatus(id: string): Promise<unknown>;
+  appHealth(id: string): Promise<unknown>;
+  /** `os_frame_badge`: the badge of the app whose frame asked. */
+  frameBadge(id: string, count?: number, text?: string): Promise<void>;
+  /** An app is to be shown inside the window; returns the unsubscribe. */
+  onOpen(cb: (id: string) => void): () => void;
   openLogin(): Promise<void>;
   /** Ends the OS process only; running apps keep running. */
   exit(): Promise<void>;
@@ -61,6 +71,14 @@ export const hostOs: Os = {
   rollback: async (id) => void (await call("os_rollback_app", { id })),
   startApp: async (id) => void (await call("os_start_app", { id })),
   openAppWindow: (id) => call("os_open_app_window", { id }),
+  appPage: (id) => call("os_app_page", { id }),
+  appStatus: (id) => call("os_app_status", { id }),
+  appHealth: (id) => call("os_app_health", { id }),
+  frameBadge: async (id, count, text) => void (await call("os_frame_badge", { id, count, text })),
+  onOpen(cb) {
+    const sub = tauri().event.listen("os://app-open", (e) => cb(String(e.payload)));
+    return () => void sub.then((off) => off());
+  },
   openLogin: () => call("os_open_login"),
   exit: () => call("os_exit"),
   onChange(cb) {

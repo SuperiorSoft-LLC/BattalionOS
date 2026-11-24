@@ -144,7 +144,8 @@ fn run(ctx: Context) -> i32 {
                     continue;
                 }
                 let counter = counter.clone();
-                std::thread::spawn(move || serve(stream, &counter));
+                let ui_origin = ctx.ui_origin.clone();
+                std::thread::spawn(move || serve(stream, &counter, ui_origin.as_deref()));
             }
             Err(_) => std::thread::sleep(Duration::from_millis(10)),
         }
@@ -152,7 +153,9 @@ fn run(ctx: Context) -> i32 {
     0
 }
 
-fn serve(mut stream: TcpStream, counter: &AtomicU64) {
+/// `GET /ws` stands for an app's socket: it lets exactly the origin the OS named (`uiOrigin`) in (101) and refuses every other
+/// page (403). `GET /health` and the rest answer as before.
+fn serve(mut stream: TcpStream, counter: &AtomicU64, ui_origin: Option<&str>) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -160,10 +163,16 @@ fn serve(mut stream: TcpStream, counter: &AtomicU64) {
     if reader.read_line(&mut request_line).is_err() {
         return;
     }
+    let mut origin: Option<String> = None;
     loop {
         let mut h = String::new();
         if reader.read_line(&mut h).unwrap_or(0) == 0 || h == "\r\n" {
             break;
+        }
+        if let Some((k, v)) = h.split_once(':') {
+            if k.eq_ignore_ascii_case("origin") {
+                origin = Some(v.trim().to_string());
+            }
         }
     }
     let reply = |stream: &mut TcpStream, status: &str, body: &str| {
@@ -174,6 +183,25 @@ fn serve(mut stream: TcpStream, counter: &AtomicU64) {
             let h = Health { ok: true, busy: Some(0), detail: Some(format!("counter={}", counter.load(Ordering::Relaxed))) };
             reply(&mut stream, "200 OK", &serde_json::to_string(&h).unwrap());
         }
+        // What the demo page asks over fetch: allowed (with CORS for exactly that origin) only from the origin the OS named.
+        ["GET", "/api/origin"] => match (origin.as_deref(), ui_origin) {
+            (Some(o), Some(u)) if o == u => {
+                let body = "{\"ok\":true}";
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: {u}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+            _ => reply(&mut stream, "403 Forbidden", &format!("{{\"expected\":{:?},\"got\":{:?}}}", ui_origin, origin)),
+        },
+        // The app's own script for its page (code the app serves to its own page): the page server's policy lets the page load it.
+        ["GET", "/extra.js"] => {
+            let body = "window.__demoExtra = 'loaded from the app';";
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/javascript\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        }
+        ["GET", "/ws"] => match (origin.as_deref(), ui_origin) {
+            (Some(o), Some(u)) if o == u => {
+                let _ = write!(stream, "HTTP/1.1 101 Switching Protocols\r\nConnection: close\r\n\r\n");
+            }
+            _ => reply(&mut stream, "403 Forbidden", "{\"ok\":false}"),
+        },
         _ => reply(&mut stream, "404 Not Found", "{\"ok\":false}"),
     }
 }

@@ -81,3 +81,29 @@ fn app_windows_get_the_two_self_commands_and_they_take_no_id() {
         assert!(sig.contains("window: WebviewWindow"));
     }
 }
+
+#[test]
+fn an_app_opens_inside_the_window_not_in_one_of_its_own() {
+    let src = read("src/commands.rs");
+    let body = src.split("pub async fn os_open_app_window(").nth(1).unwrap().split("#[tauri::command]").next().unwrap();
+    assert!(!body.contains("WebviewWindowBuilder") && !body.contains("open_app_window("), "os_open_app_window must not open a window of its own");
+    assert!(body.contains("APP_OPEN"), "it says os://app-open so the shell opens the view");
+}
+
+#[test]
+fn a_frame_gets_no_command_rights_of_the_window_that_holds_it() {
+    // The shell window (main) has no remote url: a page in a frame of it is not the shell, so Tauri refuses its IPC.
+    let main = read("capabilities/main.json");
+    assert!(!main.contains("\"remote\""), "main must be local only");
+    // The two shell commands that serve frames are main only and never granted to an app window.
+    let app = read("capabilities/app.json");
+    for c in ["os-app-page", "os-frame-badge"] {
+        assert!(main.contains(&format!("allow-{c}\"")));
+        assert!(!app.contains(c), "{c} is not for app windows");
+    }
+    let src = read("src/commands.rs");
+    for name in ["os_app_page", "os_frame_badge"] {
+        let body = src.split(&format!("pub async fn {name}(")).nth(1).unwrap().split("#[tauri::command]").next().unwrap();
+        assert!(body.contains("authorize_shell("), "{name} is for the shell only");
+    }
+}

@@ -136,7 +136,9 @@ try {
     $vdir = "$appDir\$ver"
     $m = Get-Content "$vdir\app.json" -Raw | ConvertFrom-Json
     $iconFile = Join-Path $vdir $m.icon
-    $res.steps.appInstalled = [bool]$ver -and (Test-Path "$vdir\bin\infantry-daemon.exe")
+    # An app is a library the OS runs on its own worker (BOS-18): the file to look for is the manifest's own process.<target>.library.
+    $lib = $m.process.'windows-x86_64'.library
+    $res.steps.appInstalled = [bool]$ver -and [bool]$lib -and (Test-Path (Join-Path $vdir $lib))
     $res.steps.icon = [ordered]@{ file = $m.icon; exists = (Test-Path $iconFile); bytes = $(if (Test-Path $iconFile) { (Get-Item $iconFile).Length }); limit = 262144 }
     $res.steps.iconInList = $res.steps.icon.exists -and $res.steps.icon.bytes -le 262144
     Log "app installed: $($res.steps.appInstalled) version $ver; icon in list: $($res.steps.iconInList)"; Save
@@ -176,9 +178,9 @@ try {
     $h = Invoke-WebRequest -UseBasicParsing ($rf.url.TrimEnd('/') + $hp) -TimeoutSec 15
     $res.steps.health = [ordered]@{ url = $rf.url; status = [int]$h.StatusCode; body = $h.Content.Substring(0, [Math]::Min(300, $h.Content.Length)) }
     Log "daemon health $($h.StatusCode) at $($rf.url)"
-    Start-Sleep -Seconds 20; WinShot 'infantry-ai-20s' ([W32]::FindWindow([NullString]::Value, 'infantry-ai'))
+    Start-Sleep -Seconds 20; WinShot 'infantry-ai-20s' ([W32]::FindWindow([NullString]::Value, 'BattalionOS'))
     Start-Sleep -Seconds 25
-    WinShot 'infantry-ai' ([W32]::FindWindow([NullString]::Value, 'infantry-ai'))
+    WinShot 'infantry-ai' ([W32]::FindWindow([NullString]::Value, 'BattalionOS'))
     $res.steps.appPage = Cdp '127\.0\.0\.1' @($pageState)
     Log "infantry-ai page: $(($res.steps.appPage.results | ForEach-Object { $_.value }) -join ' ')"; Save
     $res.result = 'PASS'

@@ -13,6 +13,7 @@ pub mod process;
 pub mod state;
 pub mod store;
 pub mod supervisor;
+pub mod uiport;
 pub mod worker;
 
 pub use journal::{Journal, JournalEntry, Pending};

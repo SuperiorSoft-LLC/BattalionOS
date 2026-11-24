@@ -500,3 +500,45 @@ fn an_app_that_aborts_or_returns_an_error_leaves_the_os_and_another_app_running(
         let _ = sup.stop(id);
     }
 }
+
+/// An app with a page: the OS names the page's origin before the app starts; the app lets exactly that origin reach its socket
+/// (101) and refuses every other (403); the port is the same after a stop and a new start and after the OS restarts.
+#[test]
+fn an_app_with_a_page_gets_one_origin_that_stays_and_only_that_origin_gets_in() {
+    use std::io::Read;
+    let h = Home::new("uiorigin");
+    h.install("app-ui", &[], 10_000);
+    let mp = h.paths.version_dir("app-ui", "1.0.0").unwrap().join("app.json");
+    let mut m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&mp).unwrap()).unwrap();
+    m["ui"] = serde_json::json!({"entry": "ui/index.html"});
+    std::fs::write(&mp, m.to_string()).unwrap();
+    h.install("app-plain", &[], 10_000); // no page: no origin
+
+    let ws = |url: &str, origin: Option<&str>| -> String {
+        let addr = url.trim_start_matches("http://").trim_end_matches('/').to_string();
+        let mut c = std::net::TcpStream::connect(&addr).unwrap();
+        let o = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
+        write!(c, "GET /ws HTTP/1.1\r\nHost: {addr}\r\n{o}Connection: close\r\n\r\n").unwrap();
+        let mut out = String::new();
+        c.read_to_string(&mut out).unwrap();
+        out.lines().next().unwrap_or("").to_string()
+    };
+    let sup = h.sup();
+    let url = sup.start("app-ui").unwrap().url.unwrap();
+    let origin = battalion_host::uiport::origin_for(&h.paths, "app-ui").unwrap();
+    assert!(ws(&url, Some(&origin)).contains("101"), "its own page gets in");
+    assert!(ws(&url, Some("http://127.0.0.1:1")).contains("403"), "another page is refused");
+    assert!(ws(&url, Some("http://evil.example")).contains("403"));
+    assert!(ws(&url, None).contains("403"), "no origin is refused");
+
+    sup.stop("app-ui").unwrap();
+    let url2 = h.sup().start("app-ui").unwrap().url.unwrap();
+    assert_eq!(battalion_host::uiport::origin_for(&h.paths, "app-ui").unwrap(), origin, "same origin after a restart of the OS and the app");
+    assert!(ws(&url2, Some(&origin)).contains("101"));
+    h.sup().stop("app-ui").unwrap();
+
+    let url3 = h.sup().start("app-plain").unwrap().url.unwrap();
+    assert!(ws(&url3, Some(&origin)).contains("403"), "an app without a page was told no origin: nothing gets in");
+    assert!(!h.paths.ui_port_file("app-plain").unwrap().exists(), "no port is kept for an app without a page");
+    h.sup().stop("app-plain").unwrap();
+}

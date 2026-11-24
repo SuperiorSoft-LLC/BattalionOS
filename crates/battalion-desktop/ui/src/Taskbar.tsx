@@ -5,9 +5,9 @@ import { Boxes, LayoutGrid, Power } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Separator } from "../kit";
 import { AppIcon } from "./AppIcon";
-import type { TaskItem } from "./store";
+import type { BarItem } from "./store";
 
-export function Taskbar({ items, installedIds, label, icon, onOpen, onArmory, onExit }: { items: TaskItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onArmory: () => void; onExit: () => void }) {
+export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onArmory, onExit }: { items: BarItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onTask: (id: string) => void; onArmory: () => void; onExit: () => void }) {
   const [start, setStart] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -52,7 +52,7 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onArmory, on
       </Button>
       <Separator orientation="vertical" className="mx-1 h-6" />
       {items.map((t) => (
-        <Button key={t.id} variant="ghost" size="sm" className="relative flex-col gap-0 pb-1" onClick={() => onOpen(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}${t.mark ? ` (${t.mark})` : ""}`}>
+        <Button key={t.id} variant={t.active ? "secondary" : "ghost"} size="sm" className="relative flex-col gap-0 pb-1" data-active={t.active} onClick={() => onTask(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}${t.mark ? ` (${t.mark})` : ""}`}>
           <span className="flex items-center gap-1.5">
             <AppIcon icon={icon(t.id)} className="size-4" /> {label(t.id)}
             {t.badge && <Badge variant="destructive">!</Badge>}

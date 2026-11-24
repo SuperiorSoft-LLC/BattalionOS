@@ -2,6 +2,8 @@
 //! Event names the host emits to windows. Frozen in docs/commands.md.
 
 pub const APP_STATE: &str = "os://app-state";
+/// The app id: an app is to be shown inside the OS window (`os_open_app_window`).
+pub const APP_OPEN: &str = "os://app-open";
 pub const APP_WINDOW_CLOSED: &str = "os://app-window-closed";
 /// `{id, badge}` (`badge` a text or null) when an app sets or clears its badge.
 pub const BADGE: &str = "os://badge";

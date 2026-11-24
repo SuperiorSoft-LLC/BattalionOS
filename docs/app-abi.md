@@ -18,7 +18,7 @@ void     battalion_app_stop(void);                    /* asks run to return; cal
   (exit code 2). The worker loads the library, checks `battalion_abi_version`, and calls `battalion_app_run` on a new
   thread (the app's own).
 - **Context** (`run`'s argument, one JSON object, valid during the call): `contract`, `abi`, `appId`, `appVersion`,
-  `appDir`, `stateDir`, `readyFile`, `tokenFile`, `args`. The contract environment (`BATTALION_*`) is also set in the worker.
+  `appDir`, `stateDir`, `readyFile`, `tokenFile`, `args`, and `uiOrigin` (only for an app whose manifest has a `ui`: the origin of the app's page, `http://127.0.0.1:<port>`, the same value as `BATTALION_UI_ORIGIN`; the port is kept between runs and the app lets only this origin reach its socket). The contract environment (`BATTALION_*`) is also set in the worker.
 - **Ready and health** are as in contract v1: write `readyFile` (loopback `url`), answer `GET health`.
 - **Stop.** The OS closes the worker's stdin (also what happens when the OS itself ends). The worker calls
   `battalion_app_stop`; the app makes `run` return; the worker exits with `run`'s code. After `stopTimeoutMs` the OS ends the
