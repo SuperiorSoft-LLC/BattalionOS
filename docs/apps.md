@@ -16,24 +16,26 @@ The OS names no app. In its code and docs an app is only "an app".
 
 ## Who manages it
 
-BattalionOS, always. No product built on BattalionOS installs, starts, lists or updates an app for it, and an
-app is never run through a plugin host.
+BattalionOS, always. It creates the app's own lane (its process), runs it there and ends it. No product built on
+BattalionOS installs, starts, lists or updates an app for it, and an app is never run through a plugin host.
 
-## What it is not
+## Where plugins fit
 
-A **plugin** belongs to one product, inside that product. The product alone manages its plugins: installs,
-loads, lists and removes them, with its own manifest and its own host. BattalionOS does not know plugins exist.
-The two behave alike in places (both are installable, both have a manifest), but they are never treated as the
-same thing and nothing is shared between the two managers.
+The chain is: **BattalionOS > apps > each app's plugins.**
+
+An app is like a plugin in that both extend something, but an app has its own lane and the OS manages it. A
+**plugin** belongs to the app it extends, and only that app manages it: it installs, loads, lists and removes its
+own plugins, with its own manifest and its own host. Any app may have plugins, not only one. BattalionOS does not
+know plugins exist and never manages them; nothing is shared between the OS's app manager and an app's plugin manager.
 
 | | App | Plugin |
 |---|---|---|
-| Owner | BattalionOS | One product built on BattalionOS |
-| Manager | The BattalionOS app manager (`battalion-host`, the Armory) | That product's own plugin manager |
+| Owner | BattalionOS | The app it extends |
+| Manager | The BattalionOS app manager (`battalion-host`, the Armory) | That app's own plugin manager |
 | Manifest | `app.json` at the package root | `module.json` at the package root |
-| Package | `.bosapp` | The product's own package |
-| Where it is listed | The BattalionOS apps page and the Armory catalog | The product's own Plugins screen only |
-| Who starts it | The BattalionOS supervisor, as its own process | The product, inside itself |
+| Package | `.bosapp` | The app's own package |
+| Where it is listed | The BattalionOS apps page and the Armory catalog | That app's own Plugins screen only |
+| Who starts it | The BattalionOS supervisor, in its own lane (process) | The app, inside itself |
 
 ## How the OS keeps the line
 
