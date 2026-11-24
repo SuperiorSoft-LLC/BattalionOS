@@ -6,6 +6,6 @@
     "allow-os-window-info", "allow-os-list-apps", "allow-os-app-status", "allow-os-app-health",
     "allow-os-start-app", "allow-os-stop-app", "allow-os-open-app-window", "allow-os-close-app-window",
     "allow-os-catalog", "allow-os-install-app", "allow-os-open-login",
-    "allow-os-update-app", "allow-os-rollback-app", "allow-os-remove-app", "allow-os-exit", "allow-os-first-run-retry", "allow-os-app-page", "allow-os-frame-badge", "core:window:allow-close"
+    "allow-os-update-app", "allow-os-rollback-app", "allow-os-remove-app", "allow-os-exit", "allow-os-first-run-retry", "allow-os-app-page", "allow-os-frame-badge", "allow-os-frame-pick-folder", "allow-os-frame-pick-file", "allow-os-frame-open-external", "allow-os-frame-login-open", "allow-os-frame-login-close", "core:window:allow-close"
   ]
 }

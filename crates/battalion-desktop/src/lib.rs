@@ -5,6 +5,7 @@
 pub mod access;
 pub mod badge;
 pub mod events;
+pub mod frame_calls;
 pub mod serve;
 pub mod webview2;
 

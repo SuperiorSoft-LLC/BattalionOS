@@ -23,6 +23,11 @@ const COMMANDS: &[&str] = &[
     "os_first_run_retry",
     "os_app_page",
     "os_frame_badge",
+    "os_frame_pick_folder",
+    "os_frame_pick_file",
+    "os_frame_open_external",
+    "os_frame_login_open",
+    "os_frame_login_close",
 ];
 
 fn main() {

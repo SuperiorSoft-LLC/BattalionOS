@@ -128,6 +128,95 @@ pub async fn os_frame_badge(window: WebviewWindow, app: AppHandle, host: State<'
     Ok(())
 }
 
+/// BOS-25: the native calls of an app's page in a frame. All are main only (the shell asks for the app of the frame that sent the
+/// message, never from the message), and each checks the one manifest permission of its kind in the app's installed manifest.
+async fn allowed(host: &State<'_, Host>, id: &str, cmd: &'static str) -> R<()> {
+    crate::access::app_label(id).map_err(|e| e.to_string())?;
+    let (paths, id2) = (host.paths.clone(), id.to_string());
+    let perms = blocking(move || crate::host::permissions_of(&paths, &id2)).await??;
+    crate::frame_calls::require(id, &perms, cmd)
+}
+
+/// Choose a folder for the app of the frame (`os_pick_folder`): the path, or null when cancelled. Needs `files.user`.
+#[tauri::command]
+pub async fn os_frame_pick_folder(window: WebviewWindow, host: State<'_, Host>, id: String, title: Option<String>) -> R<Option<String>> {
+    authorize_shell(window.label(), "os_frame_pick_folder").map_err(|e| e.to_string())?;
+    allowed(&host, &id, crate::frame_calls::PICK_FOLDER).await?;
+    let title = crate::frame_calls::dialog_title(title.as_deref(), "Choose a folder");
+    let w = window.clone();
+    let picked = blocking(move || rfd::FileDialog::new().set_title(title).set_parent(&w).pick_folder()).await?;
+    Ok(picked.map(|p| p.to_string_lossy().into_owned()))
+}
+
+/// Choose one file for the app of the frame (`os_pick_file`): the path, or null when cancelled. Needs `files.user`.
+#[tauri::command]
+pub async fn os_frame_pick_file(window: WebviewWindow, host: State<'_, Host>, id: String, title: Option<String>) -> R<Option<String>> {
+    authorize_shell(window.label(), "os_frame_pick_file").map_err(|e| e.to_string())?;
+    allowed(&host, &id, crate::frame_calls::PICK_FILE).await?;
+    let title = crate::frame_calls::dialog_title(title.as_deref(), "Choose a file");
+    let w = window.clone();
+    let picked = blocking(move || rfd::FileDialog::new().set_title(title).set_parent(&w).pick_file()).await?;
+    Ok(picked.map(|p| p.to_string_lossy().into_owned()))
+}
+
+/// Open a link in the system browser for the app of the frame (`os_open_external`). http, https and mailto only. Needs `network`.
+#[tauri::command]
+pub async fn os_frame_open_external(window: WebviewWindow, host: State<'_, Host>, id: String, url: String) -> R<()> {
+    authorize_shell(window.label(), "os_frame_open_external").map_err(|e| e.to_string())?;
+    allowed(&host, &id, crate::frame_calls::OPEN_EXTERNAL).await?;
+    let url = crate::frame_calls::external_link(&url)?;
+    blocking(move || open::that_detached(url).map_err(|e| e.to_string())).await?
+}
+
+/// Open the sign-in window of the app of the frame (`os_login_window_open`): a window of the OS with no capability and its own
+/// data folder, showing `url`. Every web address it reaches is sent to the shell (`os://frame-login-url`), and its end
+/// (`os://frame-login-closed`). One per app: a second call replaces the first. Needs `login.window`.
+#[tauri::command]
+pub async fn os_frame_login_open(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, url: String) -> R<()> {
+    authorize_shell(window.label(), "os_frame_login_open").map_err(|e| e.to_string())?;
+    allowed(&host, &id, crate::frame_calls::LOGIN_WINDOW_OPEN).await?;
+    let target: tauri::Url = crate::frame_calls::login_url(&url)?.parse().map_err(|e| format!("not a web address: {e}"))?;
+    let label = crate::frame_calls::login_label(&id);
+    if let Some(old) = app.get_webview_window(&label) {
+        let _ = old.close();
+    }
+    let data = host.paths.webview_dir(&id).map_err(|e| e.0)?;
+    let data = data.with_file_name(format!("{}-login", data.file_name().and_then(|n| n.to_str()).unwrap_or("app")));
+    std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;
+    let (seen, app_id) = (app.clone(), id.clone());
+    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(target))
+        .title("Sign in")
+        .inner_size(520.0, 760.0)
+        .center()
+        .data_directory(data)
+        .on_navigation(move |u| {
+            if matches!(u.scheme(), "http" | "https") {
+                let _ = seen.emit(crate::events::FRAME_LOGIN_URL, json!({"id": app_id, "url": u.to_string()}));
+            }
+            true
+        })
+        .build()
+        .map_err(|e| e.to_string())?;
+    let (closed, app_id) = (app.clone(), id);
+    win.on_window_event(move |e| {
+        if matches!(e, tauri::WindowEvent::Destroyed) {
+            let _ = closed.emit(crate::events::FRAME_LOGIN_CLOSED, json!({"id": app_id}));
+        }
+    });
+    Ok(())
+}
+
+/// Close the sign-in window of the app of the frame (`os_login_window_close`). Needs `login.window`; nothing open is not an error.
+#[tauri::command]
+pub async fn os_frame_login_close(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<()> {
+    authorize_shell(window.label(), "os_frame_login_close").map_err(|e| e.to_string())?;
+    allowed(&host, &id, crate::frame_calls::LOGIN_WINDOW_CLOSE).await?;
+    if let Some(w) = app.get_webview_window(&crate::frame_calls::login_label(&id)) {
+        w.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Show app `id`'s badge on its window: the taskbar button (overlay dot on Windows, the badge label where the OS has one) and the
 /// title. `None` removes it. The desktop icon is the shell's: it reads the badge from `os_list_apps`.
 fn paint_badge(app: &AppHandle, id: &str, badge: Option<&str>) {

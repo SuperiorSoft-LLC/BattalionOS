@@ -7,7 +7,7 @@
 // window the shell did not make gets no answer at all. Only today's app commands are served; the rest are refused.
 
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
-export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop"] as const;
+export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close"] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
 
 /** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). */
@@ -22,6 +22,12 @@ export interface FrameBackend {
   close(id: string): void;
   /** Minimize = back to the desktop; the view keeps its state. */
   minimize(id: string): void;
+  /** BOS-25: the native calls. The host checks the manifest permission of each (`files.user`, `network`, `login.window`). */
+  pickFolder(id: string, title: string | undefined): Promise<string | null>;
+  pickFile(id: string, title: string | undefined): Promise<string | null>;
+  openExternal(id: string, url: string): Promise<void>;
+  loginOpen(id: string, url: string): Promise<void>;
+  loginClose(id: string): Promise<void>;
 }
 
 export interface FrameEvent { source: unknown; origin: string; data: unknown }
@@ -61,8 +67,29 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
       case "os_show_desktop":
         be.minimize(frame.id);
         return reply({ ok: true, result: null });
+      case "os_pick_folder":
+        return reply({ ok: true, result: await be.pickFolder(frame.id, typeof args.title === "string" ? args.title : undefined) });
+      case "os_pick_file":
+        return reply({ ok: true, result: await be.pickFile(frame.id, typeof args.title === "string" ? args.title : undefined) });
+      case "os_open_external":
+        if (typeof args.url !== "string") return reply({ ok: false, error: "os_open_external needs a url" });
+        await be.openExternal(frame.id, args.url);
+        return reply({ ok: true, result: null });
+      case "os_login_window_open":
+        if (typeof args.url !== "string") return reply({ ok: false, error: "os_login_window_open needs a url" });
+        await be.loginOpen(frame.id, args.url);
+        return reply({ ok: true, result: null });
+      case "os_login_window_close":
+        await be.loginClose(frame.id);
+        return reply({ ok: true, result: null });
     }
   } catch (e) {
     return reply({ ok: false, error: text(e) });
   }
+}
+
+/** BOS-25: an event for ONE app's frame (the sign-in window of that app reached an address, or ended). Sent to that frame only, at its origin. */
+export function eventFor(frames: readonly FrameEntry[], appId: string, event: "os_login_url" | "os_login_closed", data?: { url: string }): { to: unknown; origin: string; message: Record<string, unknown> } | null {
+  const frame = frames.find((f) => f.id === appId && f.window != null);
+  return frame ? { to: frame.window, origin: frame.origin, message: { bos: 1, event, ...(data ?? {}) } } : null;
 }

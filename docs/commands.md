@@ -86,10 +86,37 @@ has no window label of its own: the shell takes the app id from WHICH frame sent
   `{bos: 1, id, ok, result}` or `{bos: 1, id, ok: false, error}`. The app id is the frame's (the frame the shell made, found by
   `event.source`, and its origin must equal the frame's origin); an id in the message is never used. Allowed: `os_window_info`,
   `os_app_status`, `os_app_health`, `os_close_app_window`, `os_badge`, `os_show_desktop`, with today's results and arguments (`id`
-  may be omitted or equal to the frame's own; any other is refused). Everything else is refused. A frame the shell did not make gets
+  may be omitted or equal to the frame's own; any other is refused), and from BOS-25 the five native calls below. Everything else is refused. A frame the shell did not make gets
   nothing. The frame has no `main` command rights (the capability for `main` has no remote url).
 - `os_close_app_window` from a frame = Close (the view ends; the app keeps running). `os_show_desktop` = Minimize (the view keeps its state).
 
+### Native calls of a page in a frame (BOS-25)
+
+An app's page in a frame has no window of its own, so it asks the OS for what a window of its own would do. Same message form, same
+identity rule (the frame that asked; an `id` in the message is never used, any other than the frame's is refused). Each call needs the
+one permission of its kind in the app's installed `app.json` (`permissions`, read at every call); without it the call is refused with
+the permission's name. Nothing else is added: files and the clipboard are the frame's own (`<input type=file>`, and `allow="clipboard-read; clipboard-write"` on the frame).
+
+| Page message `cmd` | Args | Permission | Result |
+|---|---|---|---|
+| `os_pick_folder` | `title?` | `files.user` | the chosen folder path, or null when cancelled |
+| `os_pick_file` | `title?` | `files.user` | the chosen file path, or null when cancelled |
+| `os_open_external` | `url` | `network` | nothing; opens the system browser. Only `http`, `https` and `mailto` (no spaces or control characters, up to 2048 bytes); any other is refused |
+| `os_login_window_open` | `url` | `login.window` | nothing; the OS opens a window (no capability, its own data folder `webview/<id>-login`) showing `url` (`http`/`https` only). A second call replaces it |
+| `os_login_window_close` | | `login.window` | nothing; closes it (none open is not an error) |
+
+The shell serves them with these main-only commands (the app id is the frame's):
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_frame_pick_folder` | `id`, `title?` | main | path or null |
+| `os_frame_pick_file` | `id`, `title?` | main | path or null |
+| `os_frame_open_external` | `id`, `url` | main | nothing |
+| `os_frame_login_open` | `id`, `url` | main | nothing |
+| `os_frame_login_close` | `id` | main | nothing |
+
+Events to the shell: `os://frame-login-url` `{id, url}` (the sign-in window reached a web address) and `os://frame-login-closed` `{id}`.
+The shell sends them on to that app's frame only, as `{bos: 1, event: "os_login_url", url}` and `{bos: 1, event: "os_login_closed"}`.
 ## Events (emitted to all windows)
 
 | Event | Payload |
@@ -99,6 +126,8 @@ has no window label of its own: the shell takes the app id from WHICH frame sent
 | `os://app-open` | the app id; the shell opens the view of that app inside its window |
 | `os://app-window-closed` | the app id |
 | `os://login-changed` | `true` |
+| `os://frame-login-url` | `{id, url}` (BOS-25) |
+| `os://frame-login-closed` | `{id}` (BOS-25) |
 | `os://badge` | `{id, badge}` when an app sets or clears its badge (`badge` is the text or null) |
 
 ## Lifetime

@@ -9,7 +9,7 @@ build = "build.rs"
 [features]
 default = ["gui"]
 # The Tauri part. Without it the crate is the pure logic (labels, access, scheme server), fast to test.
-gui = ["dep:tauri", "dep:tauri-plugin-single-instance", "dep:tauri-build"]
+gui = ["dep:tauri", "dep:tauri-plugin-single-instance", "dep:tauri-build", "dep:rfd", "dep:open"]
 
 [dependencies]
 battalion-app-api.workspace = true
@@ -18,6 +18,8 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12.6", optional = true }
 tauri-plugin-single-instance = { version = "2", optional = true }
+rfd = { version = "0.17", optional = true }
+open = { version = "5", optional = true }
 
 [build-dependencies]
 tauri-build = { version = "2", optional = true }

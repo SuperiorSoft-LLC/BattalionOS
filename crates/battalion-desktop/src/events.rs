@@ -13,3 +13,7 @@ pub const ARMORY_PROGRESS: &str = "os://armory-progress";
 /// `{status, ids?, id?, error?}` while the first-run install of the apps the installer asked for runs. `status` is `start`
 /// (`ids`), `installed` (`id`), `done` (`ids`), `offline` or `failed` (`id`, `error`; Retry is `os_first_run_retry`), `already-done` or `nothing`.
 pub const FIRST_RUN: &str = "os://first-run";
+/// `{id, url}` (BOS-25): the sign-in window of app `id` reached a web address. The shell tells that app's frame.
+pub const FRAME_LOGIN_URL: &str = "os://frame-login-url";
+/// `{id}` (BOS-25): the sign-in window of app `id` is gone.
+pub const FRAME_LOGIN_CLOSED: &str = "os://frame-login-closed";

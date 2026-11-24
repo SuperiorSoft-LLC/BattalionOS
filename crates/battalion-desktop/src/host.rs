@@ -89,6 +89,18 @@ pub fn page_exists(paths: &Paths, id: &str) -> Result<(), String> {
     m.ui.as_ref().map(|_| ()).ok_or_else(|| format!("app '{id}' has no page"))
 }
 
+/// The permissions the installed manifest of app `id` declares (BOS-25: the native calls of a frame check them). Read at every call,
+/// so an update that changes them is followed.
+pub fn permissions_of(paths: &Paths, id: &str) -> Result<Vec<String>, String> {
+    let cur = battalion_host::Current::load(&paths.current_json(id).map_err(|e| e.0)?)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("app '{id}' is not installed"))?;
+    let vdir = paths.version_dir(id, &cur.version).map_err(|e| e.0)?;
+    let text = std::fs::read_to_string(vdir.join("app.json")).map_err(|e| e.to_string())?;
+    let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))?;
+    Ok(m.permissions.clone())
+}
+
 /// The app's own url while it runs, asked at every request of the page server: an app that restarts listens on a new port, and the
 /// page it serves must be allowed to load from where the app is now (a read of the app's small status record, no probe).
 fn app_url_of(sup: &Supervisor, id: &str) -> crate::serve::AppUrl {

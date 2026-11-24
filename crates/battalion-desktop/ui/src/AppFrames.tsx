@@ -4,7 +4,7 @@
 // running the area says so, with Retry, and the frame loads again once it runs; an update loads the new version.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../kit";
-import { answer, type FrameBackend, type FrameEntry } from "./frames";
+import { answer, eventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, type Model } from "./store";
@@ -112,6 +112,11 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
     badge: (id, count, text) => os.frameBadge(id, count, text),
     close,
     minimize,
+    pickFolder: (id, title) => os.framePickFolder(id, title),
+    pickFile: (id, title) => os.framePickFile(id, title),
+    openExternal: (id, url) => os.frameOpenExternal(id, url),
+    loginOpen: (id, url) => os.frameLoginOpen(id, url),
+    loginClose: (id) => os.frameLoginClose(id),
   };
   const backendRef = useRef(backend);
   backendRef.current = backend;
@@ -127,6 +132,17 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
   }, []);
+
+  // The sign-in window of an app (opened for its page by os_login_window_open) reports to THAT app's frame only.
+  useEffect(
+    () =>
+      os.onFrameLogin((e) => {
+        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
+        const r = e.closed ? eventFor(frames, e.id, "os_login_closed") : e.url ? eventFor(frames, e.id, "os_login_url", { url: e.url }) : null;
+        if (r) (r.to as Window).postMessage(r.message, r.origin);
+      }),
+    [os],
+  );
 
   return (
     <div className={`absolute inset-0 z-[5] ${m.active ? "" : "pointer-events-none"}`} data-testid="app-area">

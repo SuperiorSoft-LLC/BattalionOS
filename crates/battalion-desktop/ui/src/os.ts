@@ -42,6 +42,14 @@ export interface Os {
   frameBadge(id: string, count?: number, text?: string): Promise<void>;
   /** An app is to be shown inside the window; returns the unsubscribe. */
   onOpen(cb: (id: string) => void): () => void;
+  /** BOS-25: the native calls for the app of a frame (`os_frame_*`); the host checks the manifest permission. */
+  framePickFolder(id: string, title?: string): Promise<string | null>;
+  framePickFile(id: string, title?: string): Promise<string | null>;
+  frameOpenExternal(id: string, url: string): Promise<void>;
+  frameLoginOpen(id: string, url: string): Promise<void>;
+  frameLoginClose(id: string): Promise<void>;
+  /** The sign-in window of an app reached an address (`os://frame-login-url`) or ended (`os://frame-login-closed`); returns the unsubscribe. */
+  onFrameLogin(cb: (e: { id: string; url?: string; closed?: boolean }) => void): () => void;
   openLogin(): Promise<void>;
   /** Ends the OS process only; running apps keep running. */
   exit(): Promise<void>;
@@ -78,6 +86,16 @@ export const hostOs: Os = {
   onOpen(cb) {
     const sub = tauri().event.listen("os://app-open", (e) => cb(String(e.payload)));
     return () => void sub.then((off) => off());
+  },
+  framePickFolder: (id, title) => call("os_frame_pick_folder", { id, title }),
+  framePickFile: (id, title) => call("os_frame_pick_file", { id, title }),
+  frameOpenExternal: async (id, url) => void (await call("os_frame_open_external", { id, url })),
+  frameLoginOpen: async (id, url) => void (await call("os_frame_login_open", { id, url })),
+  frameLoginClose: async (id) => void (await call("os_frame_login_close", { id })),
+  onFrameLogin(cb) {
+    const a = tauri().event.listen("os://frame-login-url", (e) => cb(e.payload as { id: string; url: string }));
+    const b = tauri().event.listen("os://frame-login-closed", (e) => cb({ ...(e.payload as { id: string }), closed: true }));
+    return () => [a, b].forEach((s) => void s.then((off) => off()));
   },
   openLogin: () => call("os_open_login"),
   exit: () => call("os_exit"),
