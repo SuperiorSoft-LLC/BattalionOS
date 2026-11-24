@@ -648,7 +648,7 @@ impl Supervisor {
     }
 }
 
-fn state_dir_of(m: &Manifest, paths: &Paths, id: &str) -> Result<PathBuf, SupError> {
+pub(crate) fn state_dir_of(m: &Manifest, paths: &Paths, id: &str) -> Result<PathBuf, SupError> {
     // A manifest that names its own folder wins (`state.dir.<os>`); the OS never deletes it.
     let own = m.state.as_ref().and_then(|s| s.dir.get(std::env::consts::OS)).filter(|d| !d.is_empty());
     match own {

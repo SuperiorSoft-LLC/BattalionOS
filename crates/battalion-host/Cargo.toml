@@ -9,3 +9,16 @@ description = "Host base: paths, atomic store, locks, journal, app state machine
 battalion-app-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+minisign-verify = "0.3"
+sha2 = "0.10"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+ureq = "2"
+
+[features]
+# Tests only: BATTALION_KILL_AT=<journal step> ends the process at that step (a power cut).
+crash-points = []
+
+[dev-dependencies]
+battalion-host = { path = ".", features = ["crash-points"] }
+ed25519-dalek = "2"
+blake2 = "0.10"

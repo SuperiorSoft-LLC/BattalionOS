@@ -2,6 +2,7 @@
 //! write them, what was in flight when the OS died, and the one state machine per app.
 //! Knows no app by name.
 
+pub mod armory;
 pub mod journal;
 pub mod lock;
 pub mod paths;
