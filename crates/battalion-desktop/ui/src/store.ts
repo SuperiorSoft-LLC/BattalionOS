@@ -247,3 +247,8 @@ export async function runOp(f: OpFlow, dispatch: (a: Action) => void, id: string
   if (ok) dispatch({ type: "op-done", id });
   return ok;
 }
+
+/** BOS-29: the Armory is part of the OS, not an app. Its desktop icon has this fixed id (a colon never occurs in an app id); nothing about it is stored in app.json or the catalog. */
+export const ARMORY_ICON = "os:armory";
+/** The desktop's icons: the Armory first, then one per installed app. It is always there (no app installed, offline) and is not in the installed list. */
+export const iconIds = (m: Model): string[] => [ARMORY_ICON, ...desktopIds(m)];

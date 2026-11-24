@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 // The desktop: one icon per installed app, on the owner's grid (grid.ts). Drag to move (snap, swap), arrows to move the focus,
 // Enter or double click to open. Positions are kept in localStorage of the shell window.
-import { TriangleAlert } from "lucide-react";
+import { Boxes, TriangleAlert } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cellAt, CELL_H, CELL_W, drop, DRAG_THRESHOLD, GRID_PAD, gridSize, neighbor, parsePositions, place, POSITIONS_KEY, serializePositions, type Cell, type Direction, type GridSize } from "./grid";
 import { AppIcon } from "./AppIcon";
 import { Badge } from "../kit";
-import type { AppView } from "./store";
+import { ARMORY_ICON, type AppView } from "./store";
 
 const KEYS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 
@@ -78,7 +78,7 @@ export function Desktop({ ids, view, label, icon, badge, onOpen, children }: { i
             onPointerCancel={() => finish(null)}
           >
             <span className="relative grid size-12 place-items-center rounded-xl border bg-card text-muted-foreground">
-              <AppIcon icon={icon(id)} />
+              {id === ARMORY_ICON ? <Boxes className="size-6" aria-hidden /> : <AppIcon icon={icon(id)} />}
               {v.kind === "failed" && <TriangleAlert className="absolute -right-1 -top-1 size-4 text-danger" aria-hidden />}
               {badge(id) && v.kind !== "failed" && <Badge variant="destructive" className="absolute -right-2 -top-2" data-badge={badge(id)}>{badge(id)}</Badge>}
             </span>

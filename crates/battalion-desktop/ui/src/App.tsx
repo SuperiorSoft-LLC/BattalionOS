@@ -8,7 +8,7 @@ import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
 import { FirstRun } from "./FirstRun";
 import { errText, type ArmoryOp, type Os } from "./os";
-import { appView, barItems, desktopIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
+import { appView, barItems, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
 import { ResizeEdges, TitleBar } from "./TitleBar";
 
@@ -122,8 +122,10 @@ export function App({ os }: { os: Os }) {
   const exit = useCallback(() => void os.exit().catch((e) => setNotice(`Could not exit: ${errText(e)}`)), [os]);
 
   const ids = useMemo(() => desktopIds(m), [m]);
+  const icons = useMemo(() => iconIds(m), [m]);
+  const openArmory = useCallback(() => { setArmory(true); void loadCatalog(); }, [loadCatalog]);
   const view = useCallback((id: string) => appView(m, id), [m]);
-  const label = useCallback((id: string) => labelOf(m, id), [m]);
+  const label = useCallback((id: string) => (id === ARMORY_ICON ? "Armory" : labelOf(m, id)), [m]);
   const icon = useCallback((id: string) => iconOf(m, id), [m]);
 
   return (
@@ -133,13 +135,13 @@ export function App({ os }: { os: Os }) {
       <div className="px-3 pt-2 empty:hidden">
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
-      <Desktop ids={ids} view={view} label={label} icon={icon} badge={(id) => m.installed.find((a) => a.id === id)?.badge ?? null} onOpen={(id) => void open(id)}>
+      <Desktop ids={icons} view={view} label={label} icon={icon} badge={(id) => m.installed.find((a) => a.id === id)?.badge ?? null} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
         <AppFrames m={m} os={os} close={closeView} minimize={minimize} retry={(id) => void retry(id)} />
         {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={() => { setArmory(true); void loadCatalog(); }} onExit={exit} />
+      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} />
     </div>
   );
 }

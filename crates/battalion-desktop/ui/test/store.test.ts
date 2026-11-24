@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 import { describe, expect, it } from "vitest";
 import { normalizeCatalog, type AppStateName, type Catalog, type InstalledApp } from "../src/os";
-import { appLabel, appView, availableOf, browseIds, desktopIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems } from "../src/store";
+import { place } from "../src/grid";
+import { appLabel, appView, availableOf, browseIds, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems } from "../src/store";
 
 const app = (id: string, state: AppStateName): InstalledApp => ({ id, version: "1.0.0", state, channel: "stable" });
 const cat = (over: Partial<Catalog> = {}): Catalog => ({ apps: [{ id: "notes", source: "s", compatible: true }, { id: "old-one", source: "s", compatible: false }], rejected: [], sourceErrors: [], fromCache: false, ...over });
@@ -173,5 +174,23 @@ describe("update, rollback and remove", () => {
   it("an app's own badge shows on its taskbar button", () => {
     const m = withInstalled({ ...app("a", "running"), badge: "3" }, app("b", "running"));
     expect(taskItems(m).map((t) => t.mark)).toEqual(["3", null]);
+  });
+});
+
+describe("BOS-29: the Armory icon on the desktop", () => {
+  it("is always there, first, also with no app installed and when offline", () => {
+    expect(iconIds(initial)).toEqual([ARMORY_ICON]);
+    expect(iconIds(withInstalled(app("a", "installed")))).toEqual([ARMORY_ICON, "a"]);
+  });
+  it("is not an installed app: not in the installed list, nothing to remove", () => {
+    const m = withInstalled(app("a", "installed"));
+    expect(desktopIds(m)).not.toContain(ARMORY_ICON);
+    expect(m.installed.some((x) => x.id === ARMORY_ICON)).toBe(false);
+  });
+  it("an old saved layout keeps every icon; the Armory takes the first free cell", () => {
+    const g = { cols: 4, rows: 3 };
+    const old = { a: { col: 0, row: 0 }, b: { col: 0, row: 1 } };
+    expect(place(iconIds(withInstalled(app("a", "installed"), app("b", "installed"))), old, g)).toEqual({ a: { col: 0, row: 0 }, b: { col: 0, row: 1 }, [ARMORY_ICON]: { col: 0, row: 2 } });
+    expect(place([ARMORY_ICON, "a"], {}, g)[ARMORY_ICON]).toEqual({ col: 0, row: 0 });
   });
 });
