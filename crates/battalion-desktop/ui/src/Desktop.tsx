@@ -5,11 +5,12 @@ import { TriangleAlert } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cellAt, CELL_H, CELL_W, drop, DRAG_THRESHOLD, GRID_PAD, gridSize, neighbor, parsePositions, place, POSITIONS_KEY, serializePositions, type Cell, type Direction, type GridSize } from "./grid";
 import { AppIcon } from "./AppIcon";
+import { Badge } from "../kit";
 import type { AppView } from "./store";
 
 const KEYS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 
-export function Desktop({ ids, view, label, icon, onOpen, children }: { ids: string[]; view: (id: string) => AppView; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; children?: ReactNode }) {
+export function Desktop({ ids, view, label, icon, badge, onOpen, children }: { ids: string[]; view: (id: string) => AppView; label: (id: string) => string; icon: (id: string) => string | null; badge: (id: string) => string | null; onOpen: (id: string) => void; children?: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<GridSize>({ cols: 8, rows: 6 });
   const [saved, setSaved] = useState(() => parsePositions(localStorage.getItem(POSITIONS_KEY) ?? ""));
@@ -50,7 +51,7 @@ export function Desktop({ ids, view, label, icon, onOpen, children }: { ids: str
             type="button"
             style={{ ...pos, width: CELL_W - 8, height: CELL_H - 8 }}
             className="absolute flex touch-none flex-col items-center gap-1 rounded-lg p-2 text-xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`${label(id)}${v.kind === "failed" ? " (failed)" : ""}`}
+            aria-label={`${label(id)}${v.kind === "failed" ? " (failed)" : ""}${badge(id) ? ` (${badge(id)})` : ""}`}
             onDoubleClick={() => onOpen(id)}
             onKeyDown={(e) => {
               const dir = KEYS[e.key];
@@ -79,6 +80,7 @@ export function Desktop({ ids, view, label, icon, onOpen, children }: { ids: str
             <span className="relative grid size-12 place-items-center rounded-xl border bg-card text-muted-foreground">
               <AppIcon icon={icon(id)} />
               {v.kind === "failed" && <TriangleAlert className="absolute -right-1 -top-1 size-4 text-danger" aria-hidden />}
+              {badge(id) && v.kind !== "failed" && <Badge variant="destructive" className="absolute -right-2 -top-2" data-badge={badge(id)}>{badge(id)}</Badge>}
             </span>
             <span className="w-full truncate text-center">{label(id)}</span>
           </button>

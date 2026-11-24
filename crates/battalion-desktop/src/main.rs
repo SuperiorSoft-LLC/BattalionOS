@@ -33,6 +33,8 @@ fn main() {
             os_stop_app,
             os_open_app_window,
             os_close_app_window,
+            os_badge,
+            os_show_desktop,
             os_catalog,
             os_install_app,
             os_open_login,

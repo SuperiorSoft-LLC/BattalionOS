@@ -3,6 +3,7 @@
 //! per-app file server) need no GUI and are tested without one; `gui` adds the Tauri 2 host.
 
 pub mod access;
+pub mod badge;
 pub mod events;
 pub mod serve;
 

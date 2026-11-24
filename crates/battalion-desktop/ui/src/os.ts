@@ -14,6 +14,8 @@ export interface InstalledApp {
   available?: string | null;
   /** The version a rollback goes back to. */
   previous?: string | null;
+  /** The badge the running app put on itself (`os_badge`), or null. */
+  badge?: string | null;
 }
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
@@ -62,7 +64,7 @@ export const hostOs: Os = {
   openLogin: () => call("os_open_login"),
   exit: () => call("os_exit"),
   onChange(cb) {
-    const subs = ["os://app-state", "os://app-window-closed", "os://login-changed"].map((n) => tauri().event.listen(n, () => cb()));
+    const subs = ["os://app-state", "os://app-window-closed", "os://login-changed", "os://badge"].map((n) => tauri().event.listen(n, () => cb()));
     return () => subs.forEach((s) => void s.then((off) => off()));
   },
   onProgress(cb) {

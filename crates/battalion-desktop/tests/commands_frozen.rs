@@ -54,7 +54,7 @@ fn every_command_checks_the_calling_window() {
     for chunk in src.split("#[tauri::command]").skip(1) {
         let name = chunk.split("fn ").nth(1).unwrap().split('(').next().unwrap();
         assert!(chunk.contains("window: WebviewWindow"), "{name} takes no calling window");
-        let body_checked = chunk.contains("authorize_app(") || chunk.contains("authorize_shell(") || chunk.contains("caller_of(") || chunk.contains("crate::access::LOGIN");
+        let body_checked = chunk.contains("authorize_app(") || chunk.contains("authorize_shell(") || chunk.contains("authorize_self(") || chunk.contains("caller_of(") || chunk.contains("crate::access::LOGIN");
         assert!(body_checked, "{name} does not check who is calling");
     }
 }
@@ -64,5 +64,20 @@ fn app_capability_grants_only_self_service_commands() {
     let app = read("capabilities/app.json");
     for forbidden in ["os-start-app", "os-stop-app", "os-install-app", "os-list-apps", "os-catalog", "os-open-app-window", "os-open-login", "os-update-app", "os-rollback-app", "os-remove-app", "os-exit"] {
         assert!(!app.contains(&format!("allow-{forbidden}\"")), "app windows must not be granted {forbidden}");
+    }
+}
+
+#[test]
+fn app_windows_get_the_two_self_commands_and_they_take_no_id() {
+    let app = read("capabilities/app.json");
+    for c in ["os-badge", "os-show-desktop"] {
+        assert!(app.contains(&format!("allow-{c}\"")), "app windows must be granted {c}");
+    }
+    // The app is the calling window: neither command has an id argument.
+    let src = read("src/commands.rs");
+    for name in ["os_badge", "os_show_desktop"] {
+        let sig = src.split(&format!("pub async fn {name}(")).nth(1).unwrap().split(')').next().unwrap();
+        assert!(!sig.contains("id:"), "{name} must not take an id");
+        assert!(sig.contains("window: WebviewWindow"));
     }
 }

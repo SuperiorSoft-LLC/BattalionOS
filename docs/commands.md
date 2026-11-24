@@ -26,7 +26,7 @@ path leaves the folder (symlink, junction), checks the `Host` header (rebinding)
 ## Capabilities
 
 `capabilities/main.json` (label `main`): every command. `capabilities/app.json` (label `app-*`, remote
-URL `http://127.0.0.1:*/*`): `os_window_info`, `os_app_status`, `os_app_health`, `os_close_app_window`.
+URL `http://127.0.0.1:*/*`): `os_window_info`, `os_app_status`, `os_app_health`, `os_close_app_window`, `os_badge`, `os_show_desktop`.
 `capabilities/login.json` (label `login`): `os_window_info`, `os_login_done`.
 Every command checks the label again in Rust: an `app-a` window cannot act on app `b`.
 
@@ -55,6 +55,16 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 Added by BOS-10b. Every command above runs the Armory action on a blocking thread and, when it ends
 (done or failed), emits `os://app-state`. Errors are the Armory's own text, shown with a Retry.
 
+Added by BOS-10c. Both are for an app window only (the `app-*` capability); `main` and `login` are refused. The app is the
+window that calls (its label from the runtime); neither takes an id.
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_badge` | `count?` (number), `text?` (string) | `app-<id>` | nothing. Sets the caller's own badge: a count (above 99 shows `99+`) or a text of up to 8 characters, not both; `count` 0, an empty text, or neither clears it. The desktop icon shows it (`badge` in `os_list_apps`), and so do the app window's taskbar button (an overlay dot on Windows, the badge label where the OS has one) and its title `(<badge>) <id>`. It is cleared when the app stops (`os_stop_app`), is updated, rolled back or removed, or is no longer running when `os_list_apps` is read |
+| `os_show_desktop` | | `app-<id>` | nothing. Brings `main` to the front (shown, un-minimized, focused) and minimizes the calling app window; the window stays open and the app keeps running |
+
+`os_list_apps` rows also carry `badge`: the running app's badge text, or null.
+
 ## Events (emitted to all windows)
 
 | Event | Payload |
@@ -63,6 +73,7 @@ Added by BOS-10b. Every command above runs the Armory action on a blocking threa
 | `os://armory-progress` | `{id, op, stage, bytes, total, percent}`: `op` is `install`, `update`, `rollback` or `remove`; `stage` is the step (`download`, `verify`, `unpack`, `place`, `init`, `stop`, `switch`, `start`, `done`, `mark`, `delete`, `forget`); `bytes`, `total` and `percent` (0-100) only while `stage` is `download`, else null |
 | `os://app-window-closed` | the app id |
 | `os://login-changed` | `true` |
+| `os://badge` | `{id, badge}` when an app sets or clears its badge (`badge` is the text or null) |
 
 ## Lifetime
 

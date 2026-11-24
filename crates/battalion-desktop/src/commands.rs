@@ -2,7 +2,7 @@
 //! The os_* commands. Every one is async (a blocking call goes through spawn_blocking), and every one
 //! checks the calling window's label (from the runtime, not from the arguments) before it acts.
 
-use crate::access::{authorize_app, authorize_shell, caller_of, Caller};
+use crate::access::{authorize_app, authorize_self, authorize_shell, caller_of, Caller};
 use crate::host::{open_app_window, Host};
 use battalion_host::armory::{info::catalog_icon, RemoveOptions, UpdateOptions};
 use battalion_host::supervisor::AppStatus;
@@ -30,13 +30,24 @@ pub async fn os_window_info(window: WebviewWindow) -> R<Value> {
 }
 
 #[tauri::command]
-pub async fn os_list_apps(window: WebviewWindow, host: State<'_, Host>) -> R<Value> {
+pub async fn os_list_apps(window: WebviewWindow, app: AppHandle, host: State<'_, Host>) -> R<Value> {
     authorize_shell(window.label(), "os_list_apps").map_err(|e| e.to_string())?;
     let a = host.armory.clone();
     let list = blocking(move || a.installed()).await?.map_err(|e| e.to_string())?;
+    // A badge belongs to a running app: one whose app is no longer running is dropped here.
+    let badge_of = |a: &battalion_host::armory::InstalledApp| {
+        if a.state == "running" {
+            host.badges.get(&a.id)
+        } else {
+            if host.badges.set(&a.id, None) {
+                paint_badge(&app, &a.id, None);
+            }
+            None
+        }
+    };
     Ok(json!(list
         .iter()
-        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous}))
+        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "badge": badge_of(a)}))
         .collect::<Vec<_>>()))
 }
 
@@ -65,10 +76,14 @@ pub async fn os_start_app(window: WebviewWindow, host: State<'_, Host>, id: Stri
 }
 
 #[tauri::command]
-pub async fn os_stop_app(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
+pub async fn os_stop_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<Value> {
     authorize_shell(window.label(), "os_stop_app").map_err(|e| e.to_string())?;
     let sup = host.sup.clone();
+    let id2 = id.clone();
     let s = blocking(move || sup.stop(&id)).await?.map_err(|e| format!("{e:?}"))?;
+    if host.badges.set(&id2, None) {
+        paint_badge(&app, &id2, None);
+    }
     Ok(status_json(&s))
 }
 
@@ -76,6 +91,61 @@ pub async fn os_stop_app(window: WebviewWindow, host: State<'_, Host>, id: Strin
 pub async fn os_open_app_window(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<()> {
     authorize_shell(window.label(), "os_open_app_window").map_err(|e| e.to_string())?;
     open_app_window(&app, &host, &id)
+}
+
+/// Show app `id`'s badge on its window: the taskbar button (overlay dot on Windows, the badge label where the OS has one) and the
+/// title. `None` removes it. The desktop icon is the shell's: it reads the badge from `os_list_apps`.
+fn paint_badge(app: &AppHandle, id: &str, badge: Option<&str>) {
+    let _ = app.emit(crate::events::BADGE, json!({"id": id, "badge": badge}));
+    let Ok(label) = crate::access::app_label(id) else { return };
+    let Some(w) = app.get_webview_window(&label) else { return };
+    let _ = w.set_title(&match badge {
+        Some(b) => format!("({b}) {id}"),
+        None => id.to_string(),
+    });
+    #[cfg(windows)]
+    {
+        // Windows has no badge label: a red dot overlay on the taskbar button; the count is in the title.
+        let dot = badge.map(|_| {
+            let mut rgba = Vec::with_capacity(16 * 16 * 4);
+            for y in 0..16i32 {
+                for x in 0..16i32 {
+                    let inside = (x - 8) * (x - 8) + (y - 8) * (y - 8) <= 49;
+                    rgba.extend_from_slice(if inside { &[0xE5, 0x39, 0x35, 0xFF] } else { &[0, 0, 0, 0] });
+                }
+            }
+            tauri::image::Image::new_owned(rgba, 16, 16)
+        });
+        let _ = w.set_overlay_icon(dot);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = w.set_badge_label(badge.map(str::to_string));
+    }
+}
+
+/// The app's own badge: a count, a short text, or null / 0 / "" to clear it. The app is the window making the call
+/// (its label), never an argument. The badge goes away when the app stops, is updated or is removed.
+#[tauri::command]
+pub async fn os_badge(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, count: Option<u64>, text: Option<String>) -> R<()> {
+    let id = authorize_self(window.label(), "os_badge").map_err(|e| e.to_string())?;
+    let badge = crate::badge::parse(count, text.as_deref())?;
+    if host.badges.set(&id, badge.clone()) {
+        paint_badge(&app, &id, badge.as_deref());
+    }
+    Ok(())
+}
+
+/// Bring the desktop (the `main` window) to the front and leave the calling app's window open, minimized.
+#[tauri::command]
+pub async fn os_show_desktop(window: WebviewWindow, app: AppHandle) -> R<()> {
+    authorize_self(window.label(), "os_show_desktop").map_err(|e| e.to_string())?;
+    let main = app.get_webview_window(crate::access::MAIN).ok_or("the desktop window is not open")?;
+    main.unminimize().map_err(|e| e.to_string())?;
+    main.show().map_err(|e| e.to_string())?;
+    main.set_focus().map_err(|e| e.to_string())?;
+    // Minimize is the one hide every window manager does the same way (the window stays open, one click on the taskbar returns it).
+    window.minimize().map_err(|e| e.to_string())
 }
 
 /// Close the window of app `id`. An app may close its own window; main may close any. The process keeps running.
@@ -124,6 +194,10 @@ pub async fn os_install_app(window: WebviewWindow, app: AppHandle, host: State<'
 
 /// Tell every window that app `id` changed: the shell reloads its list.
 async fn announce(app: &AppHandle, host: &Host, id: &str) {
+    // The app was stopped or replaced by this action: its badge goes; a running app sets it again.
+    if host.badges.set(id, None) {
+        paint_badge(app, id, None);
+    }
     let a = host.armory.clone();
     let want = id.to_string();
     let state = blocking(move || a.installed().ok().and_then(|l| l.into_iter().find(|x| x.id == want)).map(|x| x.state)).await.ok().flatten();

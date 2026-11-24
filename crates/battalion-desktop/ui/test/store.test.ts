@@ -67,7 +67,7 @@ describe("desktop and taskbar", () => {
   });
   it("taskbar shows live apps with a running dot and failed ones with a badge", () => {
     const m = withInstalled(app("a", "running"), app("b", "stopped"), app("c", "failed"), app("d", "starting"));
-    expect(taskItems(m)).toEqual([{ id: "a", running: true, badge: false }, { id: "c", running: false, badge: true }, { id: "d", running: false, badge: false }]);
+    expect(taskItems(m)).toEqual([{ id: "a", running: true, badge: false, mark: null }, { id: "c", running: false, badge: true, mark: null }, { id: "d", running: false, badge: false, mark: null }]);
   });
 });
 
@@ -164,5 +164,9 @@ describe("update, rollback and remove", () => {
     let m: Model = withInstalled(app("notes", "stopped"), app("other", "running"));
     await runOp({ run: async () => {}, listApps: async () => [app("other", "running")] }, (a) => { m = reduce(m, a); }, "notes", "remove", err);
     expect(desktopIds(m)).toEqual(["other"]);
+  });
+  it("an app's own badge shows on its taskbar button", () => {
+    const m = withInstalled({ ...app("a", "running"), badge: "3" }, app("b", "running"));
+    expect(taskItems(m).map((t) => t.mark)).toEqual(["3", null]);
   });
 });

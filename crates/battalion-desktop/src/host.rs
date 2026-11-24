@@ -17,13 +17,15 @@ pub struct Host {
     pub armory: std::sync::Arc<Armory>,
     /// One loopback origin per open app window.
     pub servers: Mutex<HashMap<String, AppServer>>,
+    /// The badge each app has set on itself (`os_badge`).
+    pub badges: crate::badge::Badges,
 }
 
 impl Host {
     pub fn new(paths: Paths) -> Host {
         let sup = Supervisor::new(paths.clone());
         let armory = std::sync::Arc::new(Armory::new(paths.clone(), sup.clone(), env!("CARGO_PKG_VERSION")));
-        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()) }
+        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), badges: Default::default() }
     }
 }
 

@@ -22,6 +22,7 @@ pub enum Denied {
     BadAppId(String),
     NotYours { caller: String, target: String },
     ShellOnly(String),
+    AppOnly(String),
 }
 
 impl std::fmt::Display for Denied {
@@ -31,6 +32,7 @@ impl std::fmt::Display for Denied {
             Denied::BadAppId(i) => write!(f, "bad app id '{i}'"),
             Denied::NotYours { caller, target } => write!(f, "window '{caller}' may not act on app '{target}'"),
             Denied::ShellOnly(c) => write!(f, "'{c}' is for the OS shell only"),
+            Denied::AppOnly(c) => write!(f, "'{c}' is for an app window only"),
         }
     }
 }
@@ -74,6 +76,15 @@ pub fn authorize_shell(label: &str, command: &str) -> Result<(), Denied> {
     }
 }
 
+/// Commands an app makes about itself (`os_badge`, `os_show_desktop`): only an app window, and the app is the one the label
+/// names. The id is never an argument, so no window can act as another app.
+pub fn authorize_self(label: &str, command: &str) -> Result<String, Denied> {
+    match caller_of(label)? {
+        Caller::App(id) => Ok(id),
+        _ => Err(Denied::AppOnly(command.to_string())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,6 +105,13 @@ mod tests {
         assert_eq!(authorize_shell("main", "os_list_apps"), Ok(()));
         assert!(authorize_shell("app-aa", "os_list_apps").is_err());
         assert!(authorize_shell("login", "os_list_apps").is_err());
+    }
+    #[test]
+    fn self_commands_name_the_app_from_the_label_only() {
+        assert_eq!(authorize_self("app-aa", "os_badge"), Ok("aa".to_string()));
+        assert!(authorize_self("main", "os_badge").is_err());
+        assert!(authorize_self("login", "os_badge").is_err());
+        assert!(authorize_self("app-../x", "os_badge").is_err());
     }
     #[test]
     fn labels_must_be_well_formed() {

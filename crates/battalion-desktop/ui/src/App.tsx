@@ -74,7 +74,7 @@ export function App({ os }: { os: Os }) {
       <div className="px-3 pt-2 empty:hidden">
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
-      <Desktop ids={ids} view={view} label={label} icon={icon} onOpen={(id) => void open(id)}>
+      <Desktop ids={ids} view={view} label={label} icon={icon} badge={(id) => m.installed.find((a) => a.id === id)?.badge ?? null} onOpen={(id) => void open(id)}>
         {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}

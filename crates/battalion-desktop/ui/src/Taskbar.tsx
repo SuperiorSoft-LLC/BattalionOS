@@ -52,10 +52,11 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onArmory, on
       </Button>
       <Separator orientation="vertical" className="mx-1 h-6" />
       {items.map((t) => (
-        <Button key={t.id} variant="ghost" size="sm" className="relative flex-col gap-0 pb-1" onClick={() => onOpen(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}`}>
+        <Button key={t.id} variant="ghost" size="sm" className="relative flex-col gap-0 pb-1" onClick={() => onOpen(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}${t.mark ? ` (${t.mark})` : ""}`}>
           <span className="flex items-center gap-1.5">
             <AppIcon icon={icon(t.id)} className="size-4" /> {label(t.id)}
             {t.badge && <Badge variant="destructive">!</Badge>}
+            {!t.badge && t.mark && <Badge variant="destructive" data-badge={t.mark}>{t.mark}</Badge>}
           </span>
           {t.running && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ok" data-running="true" aria-hidden />}
         </Button>

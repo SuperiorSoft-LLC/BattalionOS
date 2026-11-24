@@ -120,11 +120,11 @@ export function appView(m: Model, id: string): AppView {
 export const desktopIds = (m: Model): string[] => m.installed.filter((a) => a.state !== "absent" && a.state !== "removing").map((a) => a.id);
 
 /** Taskbar entries: the apps with a live process (running dot), and a failed one (badge). */
-export interface TaskItem { id: string; running: boolean; badge: boolean }
+export interface TaskItem { id: string; running: boolean; badge: boolean; mark: string | null }
 export const taskItems = (m: Model): TaskItem[] =>
   m.installed
     .filter((a) => RUNNING.includes(a.state) || a.state === "failed")
-    .map((a) => ({ id: a.id, running: a.state === "running", badge: a.state === "failed" }));
+    .map((a) => ({ id: a.id, running: a.state === "running", badge: a.state === "failed", mark: a.badge ?? null }));
 
 /** Offline means the list is a cache, or nothing could be read. A source error beside a live list is only a warning. */
 export interface Offline { offline: boolean; reason: string | null }

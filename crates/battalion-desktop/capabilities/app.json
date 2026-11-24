@@ -4,6 +4,6 @@
   "windows": ["app-*"],
   "remote": { "urls": ["http://127.0.0.1:*/*"] },
   "permissions": [
-    "allow-os-window-info", "allow-os-app-status", "allow-os-app-health", "allow-os-close-app-window"
+    "allow-os-window-info", "allow-os-app-status", "allow-os-app-health", "allow-os-close-app-window", "allow-os-badge", "allow-os-show-desktop"
   ]
 }
