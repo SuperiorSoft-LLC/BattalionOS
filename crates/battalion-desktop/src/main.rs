@@ -7,6 +7,10 @@ fn main() {
     use battalion_host::Paths;
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+    // A stale WebView2 registration (Windows Sandbox's image has one) would leave the window blank white.
+    if let Some(dir) = battalion_desktop::webview2::apply_fallback() {
+        eprintln!("webview2: registered runtime folder is missing; using {}", dir.display());
+    }
     let paths = Paths::from_env().unwrap_or_else(|| Paths::new(std::env::temp_dir().join("battalion-os")));
     let _ = paths.ensure();
     // The installer's first-run.json may name the catalog; seed it before the Armory reads os.json.

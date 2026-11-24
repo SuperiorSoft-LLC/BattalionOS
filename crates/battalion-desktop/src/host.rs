@@ -44,7 +44,8 @@ pub fn open_app_window(app: &AppHandle, host: &Host, id: &str) -> Result<(), Str
     let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))?;
     let ui = m.ui.as_ref().ok_or_else(|| format!("app '{id}' has no window"))?;
 
-    let srv = AppServer::start(vdir, ui.connect.clone()).map_err(|e| e.to_string())?;
+    let page_dir = std::path::Path::new(ui.entry.trim_start_matches('/')).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf());
+    let srv = AppServer::start_with_page_dir(vdir, page_dir, ui.connect.clone()).map_err(|e| e.to_string())?;
     let url = format!("{}/{}", srv.origin(), ui.entry.trim_start_matches('/'));
     let data = host.paths.webview_dir(id).map_err(|e| e.0)?;
     std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;

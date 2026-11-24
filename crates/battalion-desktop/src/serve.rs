@@ -91,6 +91,13 @@ pub struct AppServer {
 impl AppServer {
     /// Serve `root` on a free loopback port. `connect` becomes the CSP `connect-src` list.
     pub fn start(root: PathBuf, connect: Vec<String>) -> std::io::Result<AppServer> {
+        Self::start_with_page_dir(root, None, connect)
+    }
+
+    /// Like [`start`], and a request that is missing under `root` is retried under `page_dir` (a folder inside `root`,
+    /// the folder of the app's entry page). A page built with root-absolute urls (`/assets/app.js`) asks for them at the
+    /// origin root; they live beside the entry page. Anything found at `root` still wins, and nothing outside `root` is served.
+    pub fn start_with_page_dir(root: PathBuf, page_dir: Option<PathBuf>, connect: Vec<String>) -> std::io::Result<AppServer> {
         let l = TcpListener::bind(("127.0.0.1", 0))?;
         let port = l.local_addr()?.port();
         l.set_nonblocking(true)?;
@@ -107,9 +114,9 @@ impl AppServer {
             while !st.load(Ordering::Relaxed) {
                 match l.accept() {
                     Ok((s, _)) => {
-                        let (root, csp) = (root.clone(), csp.clone());
+                        let (root, csp, page_dir) = (root.clone(), csp.clone(), page_dir.clone());
                         std::thread::spawn(move || {
-                            let _ = handle(s, &root, port, &csp);
+                            let _ = handle(s, &root, page_dir.as_deref(), port, &csp);
                         });
                     }
                     Err(_) => std::thread::sleep(Duration::from_millis(20)),
@@ -144,7 +151,7 @@ fn reply(s: &mut TcpStream, code: u16, text: &str, ctype: &str, csp: &str, body:
     Ok(())
 }
 
-fn handle(mut s: TcpStream, root: &Path, port: u16, csp: &str) -> std::io::Result<()> {
+fn handle(mut s: TcpStream, root: &Path, page_dir: Option<&Path>, port: u16, csp: &str) -> std::io::Result<()> {
     s.set_nonblocking(false)?;
     s.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut buf = [0u8; 8192];
@@ -169,7 +176,11 @@ fn handle(mut s: TcpStream, root: &Path, port: u16, csp: &str) -> std::io::Resul
     } else if method != "GET" && !head {
         reply(&mut s, 405, "Method Not Allowed", "text/plain", csp, b"GET only", false)
     } else {
-        match resolve(root, target) {
+        let found = match resolve(root, target) {
+            Err(Refused::Missing) => page_dir.map(|d| resolve(&root.join(d), target)).unwrap_or(Err(Refused::Missing)),
+            other => other,
+        };
+        match found {
             Ok(p) => match std::fs::read(&p) {
                 Ok(b) => reply(&mut s, 200, "OK", mime(&p), csp, &b, head),
                 Err(_) => reply(&mut s, 404, "Not Found", "text/plain", csp, b"not found", head),
@@ -192,6 +203,28 @@ mod tests {
         std::fs::write(d.path().join("app/ui/index.html"), "<p>hi</p>").unwrap();
         std::fs::write(d.path().join("secret.txt"), "no").unwrap();
         d
+    }
+
+    #[test]
+    fn root_absolute_urls_resolve_beside_the_entry_page() {
+        let d = tree();
+        let app = d.path().join("app");
+        std::fs::create_dir_all(app.join("ui/assets")).unwrap();
+        std::fs::write(app.join("ui/assets/a.js"), "1").unwrap();
+        std::fs::write(app.join("ui/shared.txt"), "ui").unwrap();
+        std::fs::write(app.join("shared.txt"), "root").unwrap();
+        let srv = AppServer::start_with_page_dir(app, Some(PathBuf::from("ui")), vec![]).unwrap();
+        let get = |path: &str| {
+            let mut s = TcpStream::connect(("127.0.0.1", srv.port())).unwrap();
+            write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", srv.port()).unwrap();
+            let mut out = String::new();
+            s.read_to_string(&mut out).unwrap();
+            out
+        };
+        assert!(get("/assets/a.js").starts_with("HTTP/1.1 200"), "found beside the entry page");
+        assert!(get("/shared.txt").ends_with("root"), "a file at the root wins");
+        assert!(get("/nope.js").starts_with("HTTP/1.1 404"));
+        assert!(get("/../secret.txt").starts_with("HTTP/1.1 403"));
     }
 
     #[test]

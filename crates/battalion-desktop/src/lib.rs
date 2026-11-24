@@ -6,6 +6,7 @@ pub mod access;
 pub mod badge;
 pub mod events;
 pub mod serve;
+pub mod webview2;
 
 #[cfg(feature = "gui")]
 pub mod commands;
