@@ -130,6 +130,9 @@ pub async fn os_frame_badge(window: WebviewWindow, app: AppHandle, host: State<'
 
 /// BOS-25: the native calls of an app's page in a frame. All are main only (the shell asks for the app of the frame that sent the
 /// message, never from the message), and each checks the one manifest permission of its kind in the app's installed manifest.
+/// Labels of sign-in windows that a second `os_frame_login_open` is replacing: their end is not reported as a close.
+static REPLACING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
 async fn allowed(host: &State<'_, Host>, id: &str, cmd: &'static str) -> R<()> {
     crate::access::app_label(id).map_err(|e| e.to_string())?;
     let (paths, id2) = (host.paths.clone(), id.to_string());
@@ -178,7 +181,21 @@ pub async fn os_frame_login_open(window: WebviewWindow, app: AppHandle, host: St
     let target: tauri::Url = crate::frame_calls::login_url(&url)?.parse().map_err(|e| format!("not a web address: {e}"))?;
     let label = crate::frame_calls::login_label(&id);
     if let Some(old) = app.get_webview_window(&label) {
+        // A second call replaces the first: the old window ends without telling the page it was closed, and its label must be gone
+        // before the new one is built (a close is asynchronous).
+        REPLACING.lock().unwrap_or_else(|p| p.into_inner()).push(label.clone());
         let _ = old.close();
+        let (a2, l2) = (app.clone(), label.clone());
+        blocking(move || {
+            for _ in 0..80 {
+                if a2.get_webview_window(&l2).is_none() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        })
+        .await?;
+        REPLACING.lock().unwrap_or_else(|p| p.into_inner()).retain(|l| l != &label);
     }
     let data = host.paths.webview_dir(&id).map_err(|e| e.0)?;
     let data = data.with_file_name(format!("{}-login", data.file_name().and_then(|n| n.to_str()).unwrap_or("app")));
@@ -200,6 +217,9 @@ pub async fn os_frame_login_open(window: WebviewWindow, app: AppHandle, host: St
     let (closed, app_id) = (app.clone(), id);
     win.on_window_event(move |e| {
         if matches!(e, tauri::WindowEvent::Destroyed) {
+            if REPLACING.lock().unwrap_or_else(|p| p.into_inner()).contains(&crate::frame_calls::login_label(&app_id)) {
+                return;
+            }
             let _ = closed.emit(crate::events::FRAME_LOGIN_CLOSED, json!({"id": app_id}));
         }
     });
