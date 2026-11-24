@@ -16,6 +16,8 @@ export interface InstalledApp {
   previous?: string | null;
   /** The badge the running app put on itself (`os_badge`), or null. */
   badge?: string | null;
+  /** BOS-27: the manifest says the app's page draws its own title bar (`ui.ownTitleBar`). */
+  ownTitleBar?: boolean;
 }
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
@@ -24,7 +26,20 @@ export type ArmoryOp= "install" | "update" | "rollback" | "remove";
 /** `os://armory-progress`: bytes, total and percent only while the stage is `download`. */
 export interface ArmoryProgress { id: string; op: ArmoryOp; stage: string; bytes?: number | null; total?: number | null; percent?: number | null }
 
+/** BOS-27: the OS window (no Windows title bar; the shell draws it). Close hides the window; the OS and apps go on. */
+export type ResizeEdge = "North" | "South" | "East" | "West" | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest";
+export interface OsWindow {
+  minimize(): Promise<void>;
+  toggleMaximize(): Promise<void>;
+  close(): Promise<void>;
+  startDrag(): Promise<void>;
+  startResize(edge: ResizeEdge): Promise<void>;
+  /** Calls [cb] with the maximized state now and at every change; returns the unsubscribe. */
+  onMaximized(cb: (maximized: boolean) => void): () => void;
+}
+
 export interface Os {
+  window: OsWindow;
   listApps(): Promise<InstalledApp[]>;
   catalog(): Promise<Catalog>;
   install(id: string, channel?: string): Promise<void>;
@@ -74,7 +89,24 @@ const tauri = (): Tauri => {
 };
 const call = <T,>(cmd: string, args?: Record<string, unknown>) => tauri().core.invoke(cmd, args) as Promise<T>;
 
+type TauriWindow = { minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; startDragging(): Promise<void>; startResizeDragging(d: string): Promise<void>; isMaximized(): Promise<boolean>; onResized(cb: () => void): Promise<() => void> };
+const win = () => (tauri() as unknown as { window: { getCurrentWindow(): TauriWindow } }).window.getCurrentWindow();
+
 export const hostOs: Os = {
+  window: {
+    minimize: () => win().minimize(),
+    toggleMaximize: () => win().toggleMaximize(),
+    close: () => win().close(),
+    startDrag: () => win().startDragging(),
+    startResize: (edge) => win().startResizeDragging(edge),
+    onMaximized(cb) {
+      const w = win();
+      const look = () => void w.isMaximized().then(cb, () => {});
+      look();
+      const sub = w.onResized(look);
+      return () => void sub.then((off) => off());
+    },
+  },
   listApps: () => call("os_list_apps"),
   catalog: async () => normalizeCatalog(await call<Catalog>("os_catalog")),
   install: async (id, channel) => void (await call("os_install_app", { id, channel })),

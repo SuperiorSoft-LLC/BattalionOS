@@ -176,6 +176,18 @@ export function areaOf(m: Model, id: string): Area {
   }
 }
 
+/**
+ * BOS-27: the app whose own title bar is the window's bar right now, or null (the OS then draws its bar). Needs all of: its view is
+ * on screen, its app is running (so a starting or crashed app has the OS bar), its manifest declares `ui.ownTitleBar`, and its page
+ * said the bar is there (`os_window_bar`), so a page that hangs at start never leaves the window without a bar.
+ */
+export function titleBarOwner(m: Model, said: Readonly<Record<string, boolean>>): string | null {
+  const id = m.active;
+  if (!id || !m.views.includes(id)) return null;
+  const app = m.installed.find((a) => a.id === id);
+  return app?.ownTitleBar === true && said[id] === true && areaOf(m, id).kind === "frame" ? id : null;
+}
+
 /** Offline means the list is a cache, or nothing could be read. A source error beside a live list is only a warning. */
 export interface Offline { offline: boolean; reason: string | null }
 export function offline(m: Model): Offline {

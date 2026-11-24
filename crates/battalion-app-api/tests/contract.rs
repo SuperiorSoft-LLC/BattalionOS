@@ -156,3 +156,12 @@ fn an_app_is_a_library_exec_is_refused_with_a_clear_message() {
     v["cli"] = json!([{"name": "tool", "exec": "bin/tool.exe"}]);
     assert!(Manifest::parse(&v.to_string(), P, CONTRACT).is_ok());
 }
+
+#[test]
+fn own_title_bar_is_optional_and_off_when_absent() {
+    let mut v = good();
+    v["ui"] = json!({"entry": "ui/index.html"});
+    assert!(!Manifest::parse(&v.to_string(), P, CONTRACT).unwrap().ui.unwrap().own_title_bar);
+    v["ui"] = json!({"entry": "ui/index.html", "ownTitleBar": true});
+    assert!(Manifest::parse(&v.to_string(), P, CONTRACT).unwrap().ui.unwrap().own_title_bar);
+}

@@ -47,7 +47,7 @@ pub async fn os_list_apps(window: WebviewWindow, app: AppHandle, host: State<'_,
     };
     Ok(json!(list
         .iter()
-        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "badge": badge_of(a)}))
+        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "badge": badge_of(a), "ownTitleBar": a.own_title_bar}))
         .collect::<Vec<_>>()))
 }
 

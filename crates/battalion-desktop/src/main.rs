@@ -106,6 +106,8 @@ fn main() {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("BattalionOS")
                 .inner_size(1200.0, 800.0)
+                // BOS-27: no Windows title bar; the shell draws the bar (the OS's own, or the app's when it has one).
+                .decorations(false)
                 .build()?;
             Ok(())
         })

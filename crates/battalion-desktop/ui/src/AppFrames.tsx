@@ -12,13 +12,15 @@ import { areaOf, type Model } from "./store";
 /** The query the shell adds to a page's url so the page knows it is shown inside the OS window (the frame is what the OS trusts, not this). */
 export const FRAME_FLAG = "bos-app";
 
-function Frame({ id, page, reload, active, onWindow }: { id: string; page: AppPage; reload: number; active: boolean; onWindow: (id: string, w: Window | null) => void }) {
+function Frame({ id, page, reload, active, onWindow, onFresh }: { id: string; page: AppPage; reload: number; active: boolean; onWindow: (id: string, w: Window | null) => void; onFresh: (id: string) => void }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const url = `${page.url}${page.url.includes("?") ? "&" : "?"}${FRAME_FLAG}=${encodeURIComponent(id)}`;
   useEffect(() => {
     onWindow(id, ref.current?.contentWindow ?? null);
+    // A new page (first load, reload, update): it has not said yet that its title bar is there.
+    onFresh(id);
     return () => onWindow(id, null);
-  }, [id, onWindow, url, reload]);
+  }, [id, onWindow, onFresh, url, reload]);
   return (
     <iframe
       ref={ref}
@@ -33,7 +35,7 @@ function Frame({ id, page, reload, active, onWindow }: { id: string; page: AppPa
   );
 }
 
-export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os; close: (id: string) => void; minimize: (id: string) => void; retry: (id: string) => void }) {
+export function AppFrames({ m, os, close, minimize, retry, bar }: { m: Model; os: Os; close: (id: string) => void; minimize: (id: string) => void; retry: (id: string) => void; bar: (id: string, on: boolean) => void }) {
   const [pages, setPages] = useState<Record<string, AppPage>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [tick, setTick] = useState(0);
@@ -117,14 +119,22 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
     openExternal: (id, url) => os.frameOpenExternal(id, url),
     loginOpen: (id, url) => os.frameLoginOpen(id, url),
     loginClose: (id) => os.frameLoginClose(id),
+    windowMinimize: () => os.window.minimize(),
+    windowToggleMaximize: () => os.window.toggleMaximize(),
+    windowClose: () => os.window.close(),
+    windowStartDrag: () => os.window.startDrag(),
+    windowBar: bar,
   };
   const backendRef = useRef(backend);
   backendRef.current = backend;
+  const activeRef = useRef(m.active);
+  activeRef.current = m.active;
+  const onFresh = useCallback((id: string) => bar(id, false), [bar]);
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
   useEffect(() => {
     const on = (ev: MessageEvent) => {
-      const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
+      const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null, onScreen: activeRef.current === id }));
       void answer(frames, { source: ev.source, origin: ev.origin, data: ev.data }, backendRef.current).then((r) => {
         if (r) (r.to as Window).postMessage(r.message, r.origin);
       });
@@ -137,7 +147,7 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
   useEffect(
     () =>
       os.onFrameLogin((e) => {
-        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
+        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null, onScreen: activeRef.current === id }));
         const r = e.closed ? eventFor(frames, e.id, "os_login_closed") : e.url ? eventFor(frames, e.id, "os_login_url", { url: e.url }) : null;
         if (r) (r.to as Window).postMessage(r.message, r.origin);
       }),
@@ -152,7 +162,7 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
         const page = pages[id];
         return (
           <div key={id} className={`absolute inset-0 bg-background ${active ? "" : "hidden"}`} data-view={id}>
-            {page && <Frame id={id} page={page} reload={reloads[id] ?? 0} active={active} onWindow={onWindow} />}
+            {page && <Frame id={id} page={page} reload={reloads[id] ?? 0} active={active} onWindow={onWindow} onFresh={onFresh} />}
             {(area.kind === "status" || errors[id]) && (
               <div className="absolute inset-0 z-10 grid place-items-center bg-background" role="status" data-view-status={id}>
                 <div className="flex flex-col items-center gap-3 text-sm">

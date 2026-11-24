@@ -85,10 +85,35 @@ has no window label of its own: the shell takes the app id from WHICH frame sent
 - **Messages.** The page calls the OS with `window.parent.postMessage({bos: 1, id, cmd, args}, "*")`; the shell answers the frame with
   `{bos: 1, id, ok, result}` or `{bos: 1, id, ok: false, error}`. The app id is the frame's (the frame the shell made, found by
   `event.source`, and its origin must equal the frame's origin); an id in the message is never used. Allowed: `os_window_info`,
-  `os_app_status`, `os_app_health`, `os_close_app_window`, `os_badge`, `os_show_desktop`, with today's results and arguments (`id`
+  `os_app_status`, `os_app_health`, `os_close_app_window`, `os_badge`, `os_show_desktop`, the `os_window_*` messages (BOS-27), with today's results and arguments (`id`
   may be omitted or equal to the frame's own; any other is refused), and from BOS-25 the five native calls below. Everything else is refused. A frame the shell did not make gets
   nothing. The frame has no `main` command rights (the capability for `main` has no remote url).
 - `os_close_app_window` from a frame = Close (the view ends; the app keeps running). `os_show_desktop` = Minimize (the view keeps its state).
+
+### The window and its title bar (BOS-27)
+
+The OS window `main` has no Windows title bar (decorations off). The shell draws the bar: its own thin one (name, drag, minimize /
+maximize / close) whenever no app with its own bar is on screen (the desktop, the Armory, first run, an app that is starting or
+crashed, and any app that does not declare the field), and no bar of its own over an app that draws one. Never two bars. The shell
+also draws the resize strips on every edge and corner (above the frames), and the drag by the bar uses Tauri's drag region, so
+dragging, a double click to maximize, resizing and Windows snap keep working. The buttons do what the Windows buttons did: Close
+hides the window (the OS and the apps go on, see Lifetime).
+
+An app says in `app.json` that its page draws its own bar: `ui.ownTitleBar: true` (optional, absent = false; `ownTitleBar` is also
+in `os_list_apps` rows). The OS keeps its own bar over that app until the page says its bar is there, so a page that hangs at start
+never leaves the window without a bar or a way to move and close it. Same message form and identity rule as below; only the app view
+that is on screen may send them (a hidden view is refused):
+
+| Page message `cmd` | Args | Result |
+|---|---|---|
+| `os_window_bar` | `on?` (default true) | nothing. The page's own bar is there (`on` false: gone). Counts only for an app that declares `ui.ownTitleBar`; forgotten again when the page loads anew |
+| `os_window_minimize` | | nothing. Minimizes the OS window |
+| `os_window_toggle_maximize` | | nothing. Maximizes, or restores |
+| `os_window_close` | | nothing. What the Windows close button did: hides the window; the OS and apps go on |
+| `os_window_start_drag` | | nothing. Starts the native drag of the window (send it on a mouse down in the bar's drag area); a double click on it is `os_window_toggle_maximize` |
+
+The shell does this with the window commands of Tauri (`core:window:allow-minimize`, `-toggle-maximize`, `-start-dragging`,
+`-start-resize-dragging`, `-close`, `-is-maximized`), which only `main` has.
 
 ### Native calls of a page in a frame (BOS-25)
 

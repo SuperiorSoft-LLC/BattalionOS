@@ -65,6 +65,21 @@ impl Armory {
         (card.name.filter(|n| !n.trim().is_empty()), icon)
     }
 
+    /// BOS-27: whether the installed manifest says the app's page draws its own title bar (`ui.ownTitleBar`).
+    pub(crate) fn own_title_bar_of(&self, id: &str, version: &str) -> bool {
+        #[derive(Deserialize)]
+        struct Ui {
+            #[serde(default, rename = "ownTitleBar")]
+            own: bool,
+        }
+        #[derive(Deserialize)]
+        struct M {
+            ui: Option<Ui>,
+        }
+        let Ok(vdir) = self.paths.version_dir(id, version) else { return false };
+        std::fs::read_to_string(vdir.join("app.json")).ok().and_then(|t| serde_json::from_str::<M>(&t).ok()).and_then(|m| m.ui).is_some_and(|u| u.own)
+    }
+
     /// The version the cached feed of the app's channel offers, when newer than `installed`.
     pub(crate) fn cached_newer(&self, id: &str, installed: &str, channel: Option<&str>) -> Option<String> {
         let feed = Feed::parse(&std::fs::read_to_string(self.feed_cache(id, channel.unwrap_or("stable"))).ok()?).ok()?;

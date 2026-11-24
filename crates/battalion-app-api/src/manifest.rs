@@ -80,6 +80,10 @@ pub struct UiSpec {
     pub window: Option<WindowSpec>,
     #[serde(default)]
     pub connect: Vec<String>,
+    /// BOS-27: the app's page draws its own title bar (name, drag area, window buttons). Inside the OS window the OS then draws no
+    /// bar of its own over the page once the page says its bar is there (`os_window_bar`). Absent = false.
+    #[serde(default, rename = "ownTitleBar")]
+    pub own_title_bar: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

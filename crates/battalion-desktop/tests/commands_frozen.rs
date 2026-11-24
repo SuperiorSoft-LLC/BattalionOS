@@ -107,3 +107,15 @@ fn a_frame_gets_no_command_rights_of_the_window_that_holds_it() {
         assert!(body.contains("authorize_shell("), "{name} is for the shell only");
     }
 }
+
+#[test]
+fn the_window_has_no_windows_title_bar_and_only_main_may_drive_it() {
+    // BOS-27: decorations off on `main`; the shell draws the bar, so main (and only main) may minimize, maximize, drag and resize it.
+    assert!(read("src/main.rs").contains(".decorations(false)"));
+    let main = read("capabilities/main.json");
+    let app = read("capabilities/app.json");
+    for c in ["minimize", "toggle-maximize", "start-dragging", "start-resize-dragging", "close"] {
+        assert!(main.contains(&format!("core:window:allow-{c}\"")), "main needs core:window:allow-{c}");
+        assert!(!app.contains(&format!("allow-{c}\"")) || c == "close", "{c} is not for app windows");
+    }
+}
