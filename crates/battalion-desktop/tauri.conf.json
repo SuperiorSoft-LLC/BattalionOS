@@ -3,11 +3,22 @@
   "productName": "BattalionOS",
   "version": "0.1.0",
   "identifier": "org.battalionos.desktop",
-  "build": { "frontendDist": "./ui" },
+  "build": {
+    "frontendDist": "./ui"
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
-  "bundle": { "active": false }
+  "bundle": {
+    "active": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGOEFERjBCMzg3NDIzN0UKUldSK0kzUTRDOStLYjUzOUg5OXNzVVRnbjRMUEd4cCtpcHRLTGo5OTc3a3F6R2Zzc2JBUklRd2YK"
+    }
+  }
 }
