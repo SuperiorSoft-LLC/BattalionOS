@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 import { describe, expect, it } from "vitest";
-import type { AppStateName, Catalog, InstalledApp } from "../src/os";
+import { normalizeCatalog, type AppStateName, type Catalog, type InstalledApp } from "../src/os";
 import { appLabel, appView, availableOf, browseIds, desktopIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems } from "../src/store";
 
 const app = (id: string, state: AppStateName): InstalledApp => ({ id, version: "1.0.0", state, channel: "stable" });
@@ -85,6 +85,11 @@ describe("first run", () => {
 
 describe("offline", () => {
   it("online when the catalog is fresh", () => expect(offline(reduce(initial, { type: "catalog-loaded", catalog: cat() }))).toEqual({ offline: false, reason: null }));
+  it("an empty fromCache list from the host is not offline", () => {
+    const c = normalizeCatalog({ ...cat(), fromCache: [] as unknown as boolean });
+    expect(offline(reduce(initial, { type: "catalog-loaded", catalog: c }))).toEqual({ offline: false, reason: null });
+    expect(normalizeCatalog({ ...cat(), fromCache: ["s"] as unknown as boolean }).fromCache).toBe(true);
+  });
   it("offline when served from the cache", () => expect(offline(reduce(initial, { type: "catalog-loaded", catalog: cat({ fromCache: true, sourceErrors: ["timeout"] }) }))).toEqual({ offline: true, reason: "timeout" }));
   it("offline when nothing can be read", () => {
     const m = reduce(initial, { type: "catalog-failed", error: "no network" });

@@ -8,6 +8,8 @@
 #
 #   -Package   output of the app packager, made with --base-url file:///C:/BattalionOSKit/ (the SandboxDir below):
 #              <app>.bosapp, .bosapp.sig, feed.json, catalog-entry.json. Any throwaway key file in it is NOT copied.
+#   -PackageV2 a second package of the same app (same key, newer version, same --base-url): its .bosapp and .sig go into the kit and
+#              its feed as feed-v2.json; the check copies it over feed.json to update from the Armory (BOS-19).
 #   -Kit       the folder to fill; the .wsb maps it READ-ONLY into the Sandbox.
 #   -Results   a second folder, writable, for the check run (only results go there). Default: <Kit>-results.
 #   -SandboxDir  where the Sandbox copies the kit; the catalog/feed urls name it. Default C:\BattalionOSKit.
@@ -24,6 +26,7 @@ param(
     [Parameter(Mandatory)][string]$Package,
     [Parameter(Mandatory)][string]$Kit,
     [string]$Results,
+    [string]$PackageV2,
     [string]$SandboxDir = 'C:\BattalionOSKit',
     [switch]$SkipMsiBuild
 )
@@ -46,6 +49,16 @@ foreach ($p in $feed.platforms.PSObject.Properties) {
     if (-not $p.Value.url.StartsWith($urlBase)) { throw "feed url '$($p.Value.url)' does not start with $urlBase; repack with --base-url $urlBase" }
 }
 Copy-Item $pkg.FullName, "$($pkg.FullName).sig", "$Package\feed.json" $Kit -Force
+if ($PackageV2) {
+    $PackageV2 = (Resolve-Path $PackageV2).Path
+    $pkg2 = Get-ChildItem $PackageV2 -Filter *.bosapp | Select-Object -First 1
+    if (-not $pkg2) { throw "no .bosapp in $PackageV2" }
+    $feed2 = Get-Content "$PackageV2\feed.json" -Raw | ConvertFrom-Json
+    if ([version]$feed2.version -le [version]$feed.version) { throw "the second package ($($feed2.version)) must be newer than the first ($($feed.version))" }
+    foreach ($p in $feed2.platforms.PSObject.Properties) { if (-not $p.Value.url.StartsWith($urlBase)) { throw "feed-v2 url '$($p.Value.url)' does not start with $urlBase" } }
+    Copy-Item $pkg2.FullName, "$($pkg2.FullName).sig" $Kit -Force
+    Copy-Item "$PackageV2\feed.json" "$Kit\feed-v2.json" -Force
+}
 
 # 2. The local catalog (schema 2): the packaged entry plus its icon as an inline image.
 $entry = Get-Content "$Package\catalog-entry.json" -Raw | ConvertFrom-Json

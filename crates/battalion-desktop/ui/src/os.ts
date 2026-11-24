@@ -76,7 +76,7 @@ const call = <T,>(cmd: string, args?: Record<string, unknown>) => tauri().core.i
 
 export const hostOs: Os = {
   listApps: () => call("os_list_apps"),
-  catalog: () => call("os_catalog"),
+  catalog: async () => normalizeCatalog(await call<Catalog>("os_catalog")),
   install: async (id, channel) => void (await call("os_install_app", { id, channel })),
   update: async (id) => void (await call("os_update_app", { id })),
   remove: async (id) => void (await call("os_remove_app", { id })),
@@ -117,5 +117,11 @@ export const hostOs: Os = {
     return () => void sub.then((off) => off());
   },
 };
+
+/** The host sends `fromCache` as the list of sources served from the cache (an empty list is "none"); the shell wants a flag. */
+export function normalizeCatalog(c: Catalog): Catalog {
+  const f = c.fromCache as unknown;
+  return { ...c, fromCache: Array.isArray(f) ? f.length > 0 : Boolean(f) };
+}
 
 export const errText = (e: unknown): string => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
