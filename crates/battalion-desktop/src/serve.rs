@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! One loopback file server per app window (the origin fallback, see docs/commands.md "Origin").
 //! Each app gets its own port, so its web origin (`http://127.0.0.1:<port>`) is its own; the window's
 //! data_directory separates the rest. It serves only files under the app's version folder, GET/HEAD only.

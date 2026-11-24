@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Host state and the per-app window.
 
 use crate::access::{app_label, APP_PREFIX};

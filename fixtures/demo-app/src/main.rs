@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Fixture app for contract v1. Run it the way the OS does: with the BATTALION_* environment.
 //!
 //! Modes (`--mode <m>` or env `DEMO_MODE`):

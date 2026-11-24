@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Guard: the OS names no app. No source file of the OS may contain the name of the first app.
 //! Packaging data (lock files, installers, docs) is out of scope; this reads code and manifests.
 

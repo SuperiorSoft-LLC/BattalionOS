@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! The Armory engine: a catalog of apps, a signed package check, install, update with rollback,
 //! and remove. It knows no app by name; everything it installs is data in a catalog.
 //!

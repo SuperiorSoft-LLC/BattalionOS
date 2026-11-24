@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! One OS process, no policy: spawn it detached from the OS, tell whether it is the process we
 //! started, call it over loopback HTTP, kill its tree by pid. Knows no app.
 //!

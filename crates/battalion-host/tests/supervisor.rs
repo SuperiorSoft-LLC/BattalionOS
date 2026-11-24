@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Supervisor tests against the fixture app (real processes, real loopback HTTP).
 //! Each test has its own home folder; the fixture listens on port 0.
 

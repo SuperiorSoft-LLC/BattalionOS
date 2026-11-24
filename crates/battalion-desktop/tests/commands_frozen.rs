@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! The command surface is frozen in docs/commands.md. These tests read the sources as text, so they
 //! run without the GUI feature.
 

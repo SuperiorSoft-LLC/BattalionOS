@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /// Every os_* command. Kept in step with `commands.rs` by tests/commands_frozen.rs.
 #[cfg(feature = "gui")]
 const COMMANDS: &[&str] = &[

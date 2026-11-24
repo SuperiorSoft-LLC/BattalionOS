@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! The app supervisor: one detached process per app. Start it with the contract environment, wait
 //! for its ready file, probe its health, restart with backoff, stop it (POST stop, then a tree kill
 //! by pid), adopt it again after the OS restarted, and never touch a process it did not start.

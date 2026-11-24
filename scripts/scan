@@ -4,6 +4,8 @@
 # Usage: scripts/scan                 scan every tracked file (default)
 #        scripts/scan --range A..B    scan lines added in the range + author identities
 #        scripts/scan --pre-push      git pre-push mode (reads ref lines on stdin)
+# Fast: one stream of "file<TAB>text" lines (git grep / git diff) and one grep per rule over the
+# whole stream, never a shell loop per line.
 set -u
 cd "$(git rev-parse --show-toplevel)"
 ZERO=0000000000000000000000000000000000000000
@@ -11,34 +13,37 @@ ALLOW_ID='^[0-9]*\+?[A-Za-z0-9._-]+@users\.noreply\.github\.com$'
 fail=0
 report() { echo "SCAN FAIL [$1] $2"; fail=1; }
 
-# check_text <label> : reads "file:content" lines on stdin
+SECRET='AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|(password|passwd|secret|token|api[_-]?key)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"' ]{8,}["'"'"']'
+EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
+PRIVIP='(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254)\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)'
+PRIVHOST='[A-Za-z0-9-]+\.(local|internal|lan|corp|home\.arpa)([^A-Za-z0-9_-]|$)'
+USERPATH='[A-Za-z]:[\/]+Users[\/]+[A-Za-z0-9._-]+|/home/[a-z][A-Za-z0-9._-]*/|/Users/[A-Za-z][A-Za-z0-9._-]*/'
+USERPATH_OK='Users[\/]+(<[^>]*>|%[^%]*%|\$\{?[A-Za-z_]+\}?|you|user|username|public|default)([\/]|$)|/(home|Users)/(<[^>]*>|\$\{?[A-Za-z_]+\}?|you|user|username|runner)/'
+
+# check_text <stream-file> : lines are "file<TAB>text"
 check_text() {
-  local f=$1
-  while IFS= read -r line; do
-    file=${line%%$'\t'*}; text=${line#*$'\t'}
-    if grep -Eq 'AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|(password|passwd|secret|token|api[_-]?key)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"' ]{8,}["'"'"']' <<<"$text"; then report secret "$file: $text"; fi
-    em=$(grep -Eo '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' <<<"$text" | grep -Eiv '@users\.noreply\.github\.com$|@example\.(com|org|net)$|^noreply@anthropic\.com$' | head -1)
-    [ -n "$em" ] && report email "$file: $em"
-    if grep -Eq '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254)\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' <<<"$text"; then report private-ip "$file: $text"; fi
-    if grep -Eiq '[A-Za-z0-9-]+\.(local|internal|lan|corp|home\.arpa)([^A-Za-z0-9-]|$)' <<<"$text"; then report private-host "$file: $text"; fi
-    if grep -Eq '[A-Za-z]:[\/]+Users[\/]+[A-Za-z0-9._-]+|/home/[a-z][A-Za-z0-9._-]*/|/Users/[A-Za-z][A-Za-z0-9._-]*/' <<<"$text" \
-       && ! grep -Eiq 'Users[\/]+(<[^>]*>|%[^%]*%|\$\{?[A-Za-z_]+\}?|you|user|username|public|default)([\/]|$)|/(home|Users)/(<[^>]*>|\$\{?[A-Za-z_]+\}?|you|user|username|runner)/' <<<"$text"; then report user-path "$file: $text"; fi
-  done
+  local s=$1 l
+  while IFS= read -r l; do report secret "$l"; done < <(grep -E "$SECRET" "$s")
+  while IFS= read -r l; do report email "$l"; done < <(grep -Eo "$EMAIL" "$s" | grep -Eiv '@users\.noreply\.github\.com$|@example\.(com|org|net)$|^noreply@anthropic\.com$')
+  while IFS= read -r l; do report private-ip "$l"; done < <(grep -E "$PRIVIP" "$s")
+  while IFS= read -r l; do report private-host "$l"; done < <(grep -Ei "$PRIVHOST" "$s")
+  while IFS= read -r l; do report user-path "$l"; done < <(grep -E "$USERPATH" "$s" | grep -Eiv "$USERPATH_OK")
 }
 
 scan_tree() {
-  git ls-files -z | while IFS= read -r -d '' f; do
-    [ "$f" = scripts/scan ] && continue
-    grep -Iq . "$f" 2>/dev/null && grep -In '' "$f" | sed "s|^[0-9]*:|$f\t|"
-  done | check_text tree
+  local s; s=$(mktemp)
+  git grep -InI --no-color -e '' -- . ':!scripts/scan' | sed -E 's/^([^:]*):[0-9]+:/\1\t/' > "$s"
+  check_text "$s"; rm -f "$s"
 }
 scan_range() {
-  local r=$1
+  local r=$1 s
   local d=$r; case $r in *..*) ;; *) d="4b825dc642cb6eb9a060e54bf8d69288fbee4904..$r";; esac
-  git diff --no-color -U0 "$d" -- . ':!scripts/scan' | awk -v OFS='\t' '/^\+\+\+ /{f=substr($2,3);next} /^\+/{print f, substr($0,2)}' | check_text range
-  git log --format='%H %ae %ce' "$r" | while read -r sha a c; do
+  s=$(mktemp)
+  git diff --no-color -U0 "$d" -- . ':!scripts/scan' | awk -v OFS='\t' '/^\+\+\+ /{f=substr($2,3);next} /^\+/{print f, substr($0,2)}' > "$s"
+  check_text "$s"; rm -f "$s"
+  while read -r sha a c; do
     for id in "$a" "$c"; do grep -Eq "$ALLOW_ID" <<<"$id" || report author "$sha identity $id"; done
-  done
+  done < <(git log --format='%H %ae %ce' "$r")
 }
 
 main() {

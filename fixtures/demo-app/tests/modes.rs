@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Drives the fixture the way the OS will: BATTALION_* env, ready file, health, stop.
 
 use battalion_app_api::{env, Health, ReadyFile};

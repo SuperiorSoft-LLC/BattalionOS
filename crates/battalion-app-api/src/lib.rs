@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! BattalionOS app contract v1 (Apache-2.0).
 //!
 //! Rules that keep it cheap to live with: unknown fields are ignored, optional parts stay optional,

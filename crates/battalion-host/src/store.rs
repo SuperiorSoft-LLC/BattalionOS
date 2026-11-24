@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Atomic file writes: a reader sees the old file or the new one, never half of one.
 //! Write to a temp file in the same folder, flush it to disk, then rename over the target.
 

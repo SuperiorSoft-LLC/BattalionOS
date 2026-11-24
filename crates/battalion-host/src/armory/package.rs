@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! The package check, in the order that keeps a bad package from touching anything real:
 //! plan (platform, contract) -> download with a size cap -> sha256 -> signature (pinned key)
 //! -> unzip with path, count and size limits -> manifest (id, version, contract, minOs).

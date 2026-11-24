@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! JSON schemas (draft 2020-12) of the contract files, for editors and CI of catalog repos.
 
 pub const APP_JSON: &str = include_str!("../schemas/app.schema.json");

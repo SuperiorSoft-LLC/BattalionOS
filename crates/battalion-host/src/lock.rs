@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Exclusive file locks: one per app (two Armory actions on one app) and one for the whole OS
 //! (single instance). The OS releases a lock when the process dies, so a crash never leaves one stuck.
 

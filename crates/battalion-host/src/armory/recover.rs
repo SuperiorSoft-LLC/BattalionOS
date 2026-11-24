@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Journal recovery: run once when the OS starts, before apps are started or adopted.
 //!
 //! For each action that began and never ended, the last step it announced says how far it got:

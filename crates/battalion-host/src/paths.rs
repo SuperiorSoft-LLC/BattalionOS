@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! The on-disk layout, per user, no admin. `BATTALION_HOME` overrides the root (every test uses it).
 //!
 //! ```text

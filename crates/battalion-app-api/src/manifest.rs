@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! `app.json`: the manifest at the root of a `.bosapp` package.
 
 use crate::version::Version;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Write-ahead journal of multi-step actions (install, update, remove). Written before each step,
 //! so after a crash the next start knows what was in flight and can finish or undo it.
 //!

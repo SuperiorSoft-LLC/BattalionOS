@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! One state machine per app, persisted in `current.json` before each step, so a crash of the
 //! OS resumes or undoes the step.
 //!

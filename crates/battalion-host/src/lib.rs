@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Host base of BattalionOS (MPL-2.0): where things live, how they are written safely, who may
 //! write them, what was in flight when the OS died, and the one state machine per app.
 //! Knows no app by name.

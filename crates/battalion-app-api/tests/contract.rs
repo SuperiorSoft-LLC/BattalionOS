@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use battalion_app_api::catalog::{CatalogError, FeedError};
 use battalion_app_api::{schemas, Catalog, Feed, Manifest, ManifestError, ReadyError, ReadyFile, CONTRACT};
 use serde_json::{json, Value};

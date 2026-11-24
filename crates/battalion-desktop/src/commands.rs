@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! The os_* commands. Every one is async (a blocking call goes through spawn_blocking), and every one
 //! checks the calling window's label (from the runtime, not from the arguments) before it acts.
 

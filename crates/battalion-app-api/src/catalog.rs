@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Catalog v2 (`catalog.json`, one per Armory source) and feed v1 (one per app and channel).
 
 use crate::manifest::{valid_id, ContractRange};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use std::cmp::Ordering;
 
 /// `major.minor.patch`, numeric. A `-pre` suffix sorts before the release.

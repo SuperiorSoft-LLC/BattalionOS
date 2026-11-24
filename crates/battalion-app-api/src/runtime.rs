@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! What the OS and a running app say to each other: env names, ready file, health.
 
 use serde::{Deserialize, Serialize};

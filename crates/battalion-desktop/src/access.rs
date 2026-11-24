@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Who may act on whom. A window's label is its identity: `main`, `login`, or `app-<id>`.
 //! The label comes from the Tauri runtime (the calling webview), never from the command's arguments,
 //! so an app cannot claim to be another one.

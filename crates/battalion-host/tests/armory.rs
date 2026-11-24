@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Armory engine tests: real packages (zip + minisign), real fixture processes, file: sources.
 //! Crash tests re-run this test binary as a child that dies (exit 99) at one journal step, then
 //! recover in the parent. Every test has its own home; the fixture listens on port 0.

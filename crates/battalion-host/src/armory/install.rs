@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Install: journaled, and undone completely when any step fails.
 //!
 //! ```text

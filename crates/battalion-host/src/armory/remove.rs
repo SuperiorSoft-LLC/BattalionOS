@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Remove: the app's versions go, its state stays.
 //!
 //! The data folder (`data/<id>`) and web view folder are the user's: they are kept, so a later

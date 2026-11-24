@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Catalog sources, the lenient read of each, the offline cache, and the per-app feed.
 //!
 //! A source that cannot be read is served from its last good copy (`<home>/catalog/`), and the

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use battalion_host::state::{AppState, Current};
 use battalion_host::{store, Journal, Lock, LockError, Paths};
 use std::path::PathBuf;
