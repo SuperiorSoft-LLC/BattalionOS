@@ -26,12 +26,6 @@ fn main() {
     // Started with `--open <app-id>` (a shortcut, the command line): the shell opens that app when it has loaded.
     let argv: Vec<String> = std::env::args().skip(1).collect();
     *host.open_request.lock().unwrap() = battalion_desktop::launch::open_request(&argv);
-    // Apps belong to the run that started them; a leftover of an older run is stopped by its recorded pid.
-    for (id, r) in host.sup.recover_all() {
-        if let Err(e) = r {
-            eprintln!("recover {id}: {e:?}");
-        }
-    }
     let app = tauri::Builder::default()
         // Single instance: a second launch focuses the first one's main window.
         // `--open <app-id>` of that second start is handed to this run (BOS-19); the rest of its line is ignored.
@@ -87,6 +81,14 @@ fn main() {
             os_take_open_request
         ])
         .setup(|app| {
+            // Apps belong to the run that started them; a leftover of an older run is stopped by its recorded pid. This runs only
+            // here, in the first instance: a second start is handed to the running one by the single-instance plugin before setup and
+            // must never stop that one's apps (BOS-19).
+            for (id, r) in app.state::<Host>().sup.recover_all() {
+                if let Err(e) = r {
+                    eprintln!("recover {id}: {e:?}");
+                }
+            }
             // Armory progress goes to every window as an event; the shell shows it.
             let handle = app.handle().clone();
             let sink: battalion_host::armory::ProgressSink = std::sync::Arc::new(move |p| {

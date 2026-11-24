@@ -181,14 +181,14 @@ try {
     }
     # The page's own way in, probed from here: its page server, and the app's socket with the page's origin (no token is read or printed).
     function Probe {
-        $pf = Get-ChildItem "$osHome\run\infantry-ai" -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'port' } | Select-Object -First 1
+        $pf = Get-Item "$osHome\ui-ports\infantry-ai" -ErrorAction SilentlyContinue
         $port = if ($pf) { (Get-Content $pf.FullName -Raw).Trim() } else { $null }
         $o = [ordered]@{ portFile = $(if ($pf) { $pf.Name }); port = $port }
-        try { $r = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/?bos-app=infantry-ai" -TimeoutSec 10; $o.page = "$($r.StatusCode) $($r.Content.Length) bytes" } catch { $o.page = "ERR $($_.Exception.Message)" }
+        try { $r = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/?bos-app=infantry-ai" -TimeoutSec 10; $o.page = "$($r.StatusCode) $($r.Content.Length) bytes; CSP: $($r.Headers['Content-Security-Policy'])" } catch { $o.page = "ERR $($_.Exception.Message)" }
         foreach ($origin in @("http://127.0.0.1:$port", 'http://evil.example')) {
             try { $ws = New-Object Net.WebSockets.ClientWebSocket; $ws.Options.SetRequestHeader('Origin', $origin)
                   $ws.ConnectAsync([Uri]'ws://127.0.0.1:18990/ws', [Threading.CancellationToken]::None).Wait(8000) | Out-Null; $o["ws $origin"] = "state $($ws.State)"; $ws.Dispose() }
-            catch { $o["ws $origin"] = "ERR $($_.Exception.InnerException.Message)$($_.Exception.Message)" }
+            catch { $e = $_.Exception; while ($e.InnerException) { $e = $e.InnerException }; $o["ws $origin"] = "ERR $($e.Message)" }
         }
         $o
     }
@@ -272,8 +272,8 @@ try {
         Copy-Item "$SandboxDir\feed-v2.json" "$SandboxDir\feed.json" -Force      # the catalog now offers the second version
         Armory; Shot 'e-armory'; Diag 'e'
         # the Armory reads the feed again on Reload; the page then offers 'Update to <version>'
-        [void](UiaClick '^Reload$'); Start-Sleep 6
-        $res.steps.e.updateResult = UiaClick '^Update'
+        [void](UiaClick 'Open Infantry AI page'); Start-Sleep 3; Shot 'e-armory-page'
+        $res.steps.e.updateResult = UiaClick '^Update to '
         Start-Sleep 40
         $res.steps.e.versionAfter = (Get-Content "$osHomeApps\current.json" -Raw | ConvertFrom-Json).version
         $res.steps.e.osPidAfter = @(OsPids); $res.steps.e.sameOsPid = ((@(OsPids) -contains $os0) -and (@(OsPids).Count -eq 1))
