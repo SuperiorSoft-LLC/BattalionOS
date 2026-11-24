@@ -7,13 +7,11 @@
 // window the shell did not make gets no answer at all. Only today's app commands are served; the rest are refused.
 
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
-export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_window_minimize", "os_window_toggle_maximize", "os_window_close", "os_window_start_drag", "os_window_bar"] as const;
-/** BOS-27: the calls on the OS window itself. Only the app view that is on screen may use them. */
-export const WINDOW_COMMANDS: readonly string[] = ["os_window_minimize", "os_window_toggle_maximize", "os_window_close", "os_window_start_drag", "os_window_bar"];
+export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close"] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
 
 /** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). */
-export interface FrameEntry { id: string; origin: string; window: unknown; /** BOS-27: this app's view is the one showing in the OS window (active, not minimized). */ onScreen?: boolean }
+export interface FrameEntry { id: string; origin: string; window: unknown }
 
 /** What the shell does for the app of a frame. The app id is always the frame's. */
 export interface FrameBackend {
@@ -30,13 +28,6 @@ export interface FrameBackend {
   openExternal(id: string, url: string): Promise<void>;
   loginOpen(id: string, url: string): Promise<void>;
   loginClose(id: string): Promise<void>;
-  /** BOS-27: the OS window's own buttons and drag, for the page of the app on screen. Close hides the window, as the Windows button did. */
-  windowMinimize(): Promise<void>;
-  windowToggleMaximize(): Promise<void>;
-  windowClose(): Promise<void>;
-  windowStartDrag(): Promise<void>;
-  /** BOS-27: the page says its own title bar is there (`on`) or gone. The shell then draws no bar of its own over it, if the manifest declares one. */
-  windowBar(id: string, on: boolean): void;
 }
 
 export interface FrameEvent { source: unknown; origin: string; data: unknown }
@@ -53,7 +44,6 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
   if (!d || typeof d !== "object" || d.bos !== 1 || typeof d.id !== "string" || !REQUEST_ID.test(d.id) || typeof d.cmd !== "string") return null;
   const reply = (r: { ok: true; result: unknown } | { ok: false; error: string }): FrameReply => ({ to: frame.window, origin: frame.origin, message: { bos: 1, id: d.id as string, ...r } });
   if (!(FRAME_COMMANDS as readonly string[]).includes(d.cmd)) return reply({ ok: false, error: `'${d.cmd}' is not available to an app's page` });
-  if (WINDOW_COMMANDS.includes(d.cmd) && !frame.onScreen) return reply({ ok: false, error: `'${d.cmd}' is only for the app that is on screen` });
   const args = d.args && typeof d.args === "object" ? (d.args as Record<string, unknown>) : {};
   // Today's app commands name no app or only their own; a page can never act for another one.
   if (args.id !== undefined && args.id !== frame.id) return reply({ ok: false, error: `app '${frame.id}' may not act on app '${String(args.id)}'` });
@@ -91,21 +81,6 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
         return reply({ ok: true, result: null });
       case "os_login_window_close":
         await be.loginClose(frame.id);
-        return reply({ ok: true, result: null });
-      case "os_window_minimize":
-        await be.windowMinimize();
-        return reply({ ok: true, result: null });
-      case "os_window_toggle_maximize":
-        await be.windowToggleMaximize();
-        return reply({ ok: true, result: null });
-      case "os_window_close":
-        await be.windowClose();
-        return reply({ ok: true, result: null });
-      case "os_window_start_drag":
-        await be.windowStartDrag();
-        return reply({ ok: true, result: null });
-      case "os_window_bar":
-        be.windowBar(frame.id, args.on !== false);
         return reply({ ok: true, result: null });
     }
   } catch (e) {

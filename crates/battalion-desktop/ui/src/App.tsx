@@ -8,17 +8,14 @@ import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
 import { FirstRun } from "./FirstRun";
 import { errText, type ArmoryOp, type Os } from "./os";
-import { appView, barItems, desktopIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun, titleBarOwner } from "./store";
+import { appView, barItems, desktopIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
-import { OsTitleBar, ResizeEdges } from "./TitleBar";
+import { ResizeEdges, TitleBar } from "./TitleBar";
 
 export function App({ os }: { os: Os }) {
   const [m, dispatch] = useReducer(reduce, initial);
   const [armory, setArmory] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  // BOS-27: apps whose page said its own title bar is there (reset by AppFrames at every new page).
-  const [said, setSaid] = useState<Record<string, boolean>>({});
-  const bar = useCallback((id: string, on: boolean) => setSaid((s) => (s[id] === on || (!on && s[id] === undefined) ? s : { ...s, [id]: on })), []);
 
   const loadInstalled = useCallback(async () => {
     try {
@@ -132,12 +129,12 @@ export function App({ os }: { os: Os }) {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <ResizeEdges win={os.window} />
-      {titleBarOwner(m, said) === null && <OsTitleBar win={os.window} />}
+      <TitleBar win={os.window} appName={m.active ? labelOf(m, m.active) : null} />
       <div className="px-3 pt-2 empty:hidden">
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
       <Desktop ids={ids} view={view} label={label} icon={icon} badge={(id) => m.installed.find((a) => a.id === id)?.badge ?? null} onOpen={(id) => void open(id)}>
-        <AppFrames m={m} os={os} close={closeView} minimize={minimize} retry={(id) => void retry(id)} bar={bar} />
+        <AppFrames m={m} os={os} close={closeView} minimize={minimize} retry={(id) => void retry(id)} />
         {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}

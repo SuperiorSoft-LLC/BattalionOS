@@ -16,8 +16,6 @@ export interface InstalledApp {
   previous?: string | null;
   /** The badge the running app put on itself (`os_badge`), or null. */
   badge?: string | null;
-  /** BOS-27: the manifest says the app's page draws its own title bar (`ui.ownTitleBar`). */
-  ownTitleBar?: boolean;
 }
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }

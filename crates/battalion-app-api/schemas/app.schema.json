@@ -38,8 +38,7 @@
       "properties": {
         "entry": { "type": "string" },
         "window": { "type": "object", "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } } },
-        "connect": { "type": "array", "items": { "type": "string" } },
-        "ownTitleBar": { "type": "boolean" }
+        "connect": { "type": "array", "items": { "type": "string" } }
       }
     },
     "init": { "type": "object", "required": ["exec"], "properties": { "exec": { "type": "string" }, "args": { "type": "array", "items": { "type": "string" } } } },

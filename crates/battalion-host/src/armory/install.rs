@@ -38,8 +38,6 @@ pub struct InstalledApp {
     pub available: Option<String>,
     /// The version a rollback would go back to, when one is kept.
     pub previous: Option<String>,
-    /// BOS-27: the manifest's `ui.ownTitleBar` (false when absent or unreadable).
-    pub own_title_bar: bool,
 }
 
 impl Armory {
@@ -74,8 +72,7 @@ impl Armory {
                 let (name, icon) = self.card_of(&id, &cur.version);
                 let previous = cur.previous.clone().filter(|v| self.paths.version_dir(&id, v).is_ok_and(|d| d.join("app.json").is_file()));
                 let available = self.cached_newer(&id, &cur.version, channel.as_deref());
-                let own_title_bar = self.own_title_bar_of(&id, &cur.version);
-                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous, own_title_bar });
+                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous });
             }
         }
         out.sort_by(|a, b| a.id.cmp(&b.id));

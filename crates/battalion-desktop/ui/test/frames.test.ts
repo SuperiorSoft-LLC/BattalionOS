@@ -6,8 +6,8 @@ const winA = { name: "frame-a" };
 const winB = { name: "frame-b" };
 const stranger = { name: "a window the shell did not make" };
 const frames: FrameEntry[] = [
-  { id: "app-a", origin: "http://127.0.0.1:5001", window: winA, onScreen: true },
-  { id: "app-b", origin: "http://127.0.0.1:5002", window: winB, onScreen: false },
+  { id: "app-a", origin: "http://127.0.0.1:5001", window: winA },
+  { id: "app-b", origin: "http://127.0.0.1:5002", window: winB },
 ];
 
 function backend() {
@@ -26,11 +26,6 @@ function backend() {
     },
     loginOpen: async (id, url) => void calls.push(`loginOpen ${id} ${url}`),
     loginClose: async (id) => void calls.push(`loginClose ${id}`),
-    windowMinimize: async () => void calls.push("w minimize"),
-    windowToggleMaximize: async () => void calls.push("w maximize"),
-    windowClose: async () => void calls.push("w close"),
-    windowStartDrag: async () => void calls.push("w drag"),
-    windowBar: (id, on) => void calls.push(`w bar ${id} ${on}`),
   };
   return { be, calls };
 }
@@ -79,7 +74,7 @@ describe("identity: the app is the frame that sent the message", () => {
 
 describe("only today's app commands", () => {
   it("lists exactly the six app commands", () => {
-    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_login_window_close", "os_login_window_open", "os_open_external", "os_pick_file", "os_pick_folder", "os_show_desktop", "os_window_bar", "os_window_close", "os_window_info", "os_window_minimize", "os_window_start_drag", "os_window_toggle_maximize"]);
+    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_login_window_close", "os_login_window_open", "os_open_external", "os_pick_file", "os_pick_folder", "os_show_desktop", "os_window_info"]);
   });
   for (const cmd of ["os_list_apps", "os_start_app", "os_stop_app", "os_install_app", "os_remove_app", "os_update_app", "os_rollback_app", "os_open_app_window", "os_exit", "os_catalog", "os_open_login", "os_app_page", "os_frame_badge", "core:window:close", "__proto__", ""]) {
     it(`refuses ${JSON.stringify(cmd)}`, async () => {
