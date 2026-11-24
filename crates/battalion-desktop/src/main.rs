@@ -3,6 +3,11 @@
 
 #[cfg(feature = "gui")]
 fn main() {
+    // An app worker (this same program, started by the OS with an internal argument) runs one app's
+    // library and nothing else: before any window code.
+    if let Some(code) = battalion_host::worker::run_if_worker() {
+        std::process::exit(code);
+    }
     use battalion_desktop::{commands::*, host::Host};
     use battalion_host::Paths;
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -18,9 +23,10 @@ fn main() {
         let _ = battalion_host::firstrun::seed_sources(&paths, &plan);
     }
     let host = Host::new(paths);
-    for (id, r) in host.sup.adopt_all() {
+    // Apps belong to the run that started them; a leftover of an older run is stopped by its recorded pid.
+    for (id, r) in host.sup.recover_all() {
         if let Err(e) = r {
-            eprintln!("adopt {id}: {e:?}");
+            eprintln!("recover {id}: {e:?}");
         }
     }
     let app = tauri::Builder::default()
@@ -32,6 +38,16 @@ fn main() {
             }
         }))
         .manage(host)
+        // Closing the window hides it: apps and agents keep working. A new start (single instance) or
+        // the next launch shows it again. Exit (os_exit) is the only way the OS ends.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if battalion_desktop::access::close_hides_window(window.label()) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             os_window_info,
             os_list_apps,
@@ -74,19 +90,25 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("build battalion-desktop");
-    app.run(|handle, ev| {
-        // The OS exits: apps keep running (the next start adopts them) unless their manifest says `onOsExit: stop`.
-        if let tauri::RunEvent::Exit = ev {
+    app.run(|handle, ev| match ev {
+        // No window left is not an exit: the OS runs on for its apps until Exit.
+        tauri::RunEvent::ExitRequested { api, code: None, .. } => api.prevent_exit(),
+        // Exit: every app is stopped cleanly (its stop, the timeout, then its job); then the OS goes.
+        tauri::RunEvent::Exit => {
             if let Some(h) = handle.try_state::<Host>() {
                 for (id, e) in h.armory.exit_os() {
                     eprintln!("stop {id} at exit: {e}");
                 }
             }
         }
+        _ => {}
     });
 }
 
 #[cfg(not(feature = "gui"))]
 fn main() {
+    if let Some(code) = battalion_host::worker::run_if_worker() {
+        std::process::exit(code);
+    }
     eprintln!("battalion-desktop was built without the gui feature");
 }

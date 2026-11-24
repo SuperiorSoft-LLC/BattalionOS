@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-//! One OS process, no policy: spawn it detached from the OS, tell whether it is the process we
-//! started, call it over loopback HTTP, kill its tree by pid. Knows no app.
+//! One OS process, no policy: start an app worker as the OS's own child (in a job, stdin held), tell
+//! whether a pid is the process we started, call it over loopback HTTP, kill a leftover by pid and
+//! start time. Knows no app.
 //!
 //! A pid alone is not an identity (pids are reused), so a process is a `ProcId { pid, start }`:
 //! the pid plus the time the OS says it began. A pid whose start time differs is another process.
@@ -20,47 +21,93 @@ pub struct ProcId {
     pub start: String,
 }
 
-pub struct SpawnSpec {
-    pub exec: PathBuf,
-    pub args: Vec<String>,
+pub struct WorkerSpec {
+    /// The OS's own program, started with the internal worker argument.
+    pub exe: PathBuf,
+    pub library: PathBuf,
     pub env: Vec<(String, String)>,
+    /// Names removed from the inherited environment (the OS's own BATTALION_* and the manifest's envScrub prefixes).
+    pub env_remove: Vec<String>,
     pub cwd: PathBuf,
     /// stdout and stderr are appended here.
     pub log: PathBuf,
+    /// The app's context JSON (one line).
+    pub context: String,
 }
 
-/// Start the process detached: no console window, its own process group, not a child the OS
-/// waits for. It keeps running when the OS (our process) ends.
-pub fn spawn_detached(spec: &SpawnSpec) -> io::Result<ProcId> {
+/// An app worker the OS started and owns: its child process, the write end of its stdin and the
+/// job it lives in. Dropping the last reference ends the worker and everything it started.
+pub struct Worker {
+    pub id: ProcId,
+    child: std::sync::Mutex<std::process::Child>,
+    stdin: std::sync::Mutex<Option<std::process::ChildStdin>>,
+    job: crate::job::Job,
+}
+
+impl Worker {
+    /// Tell the app to stop: the worker sees end of file on its stdin, calls the app's `stop`.
+    pub fn close_stdin(&self) {
+        *self.stdin.lock().unwrap() = None;
+    }
+    /// End the worker and its whole group now.
+    pub fn kill(&self) {
+        self.job.kill();
+        let _ = self.child.lock().unwrap().kill();
+    }
+    /// The exit code once it has ended (also reaps it).
+    pub fn try_exit(&self) -> Option<i32> {
+        self.child.lock().unwrap().try_wait().ok().flatten().map(|s| s.code().unwrap_or(-1))
+    }
+}
+
+/// Start the app worker as the OS's own child: no console window, its own process group, in its
+/// own job from before it reads its first line (it does nothing until the handshake below), with
+/// its stdin held by us.
+pub fn spawn_worker(spec: &WorkerSpec) -> io::Result<Worker> {
     if let Some(d) = spec.log.parent() {
         std::fs::create_dir_all(d)?;
     }
     let log = std::fs::OpenOptions::new().create(true).append(true).open(&spec.log)?;
-    let mut cmd = Command::new(&spec.exec);
-    cmd.args(&spec.args).current_dir(&spec.cwd).stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
+    let nonce = random_token();
+    let mut cmd = Command::new(&spec.exe);
+    cmd.arg(crate::worker::ARG).arg(&spec.library).current_dir(&spec.cwd).stdin(Stdio::piped()).stdout(log.try_clone()?).stderr(log);
+    for k in &spec.env_remove {
+        cmd.env_remove(k);
+    }
     for (k, v) in &spec.env {
         cmd.env(k, v);
     }
-    detach(&mut cmd);
-    let child = cmd.spawn()?;
+    cmd.env(crate::worker::NONCE_ENV, &nonce);
+    group(&mut cmd);
+    let job = crate::job::Job::new()?;
+    let mut child = cmd.spawn()?;
     let pid = child.id();
-    // No wait, no kill on drop: the handle is closed and the process lives on. On unix the
-    // process is reaped by init once we end; while we live, `is_alive` sees a zombie as dead.
-    std::mem::forget(child);
-    Ok(ProcId { pid, start: start_token(pid).unwrap_or_default() })
+    // The worker is blocked on its stdin: nothing of the app exists yet. Put it in the job first.
+    if let Err(e) = job.assign(pid) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(e);
+    }
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    if let Err(e) = writeln!(stdin, "{nonce}").and_then(|_| writeln!(stdin, "{}", spec.context)).and_then(|_| stdin.flush()) {
+        job.kill();
+        let _ = child.wait();
+        return Err(e);
+    }
+    Ok(Worker { id: ProcId { pid, start: start_token(pid).unwrap_or_default() }, child: std::sync::Mutex::new(child), stdin: std::sync::Mutex::new(Some(stdin)), job })
 }
 
 #[cfg(windows)]
-fn detach(cmd: &mut Command) {
+fn group(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
 }
 #[cfg(unix)]
-fn detach(cmd: &mut Command) {
+fn group(cmd: &mut Command) {
     use std::os::unix::process::CommandExt;
-    cmd.process_group(0); // its own group: the tree can be signalled as one, and ^C of the OS skips it
+    cmd.process_group(0); // its own group: the job
 }
 
 /// A helper command (taskkill, ps, kill) with no console window.
@@ -126,6 +173,11 @@ fn start_token(pid: u32) -> Option<String> {
     Some(text.split_once(char::is_whitespace).map(|(_, rest)| rest.trim().to_string()).unwrap_or_default())
 }
 
+/// The OS's start-time token of a running process (what a record keeps to tell it from a reused pid).
+pub fn start_token_of(pid: u32) -> Option<String> {
+    start_token(pid)
+}
+
 /// The process exists, is running, and is the same one that was identified (same start time).
 pub fn is_alive(id: &ProcId) -> bool {
     match start_token(id.pid) {
@@ -150,7 +202,7 @@ pub fn kill_tree(id: &ProcId) {
     }
     #[cfg(unix)]
     {
-        // The process leads its own group (see `detach`): signal the whole group.
+        // The process leads its own group (see `group`): signal the whole group.
         let _ = quiet("kill").args(["-KILL", "--", &format!("-{}", id.pid)]).status();
         let _ = quiet("kill").args(["-KILL", &id.pid.to_string()]).status();
     }

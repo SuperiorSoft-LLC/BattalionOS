@@ -253,6 +253,10 @@ impl Armory {
         Armory::with_parts(paths, sup, os_version, settings, fetcher)
     }
 
+    /// The supervisor that runs this Armory's apps (shared, not a copy).
+    pub fn supervisor(&self) -> Supervisor {
+        self.sup.clone()
+    }
     pub fn with_parts(paths: Paths, sup: Supervisor, os_version: &str, settings: Settings, fetcher: Arc<dyn Fetcher>) -> Armory {
         let os_version = Version::parse(os_version).unwrap_or(Version { parts: [0, 0, 0], pre: None });
         Armory { paths, sup, fetcher, settings, os_version, sink: std::sync::Mutex::new(None) }

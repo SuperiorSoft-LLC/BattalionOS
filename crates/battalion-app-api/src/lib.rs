@@ -4,6 +4,7 @@
 //! Rules that keep it cheap to live with: unknown fields are ignored, optional parts stay optional,
 //! `contract` is a number an app and the OS compare, nothing here names an app.
 
+pub mod abi;
 pub mod catalog;
 pub mod manifest;
 pub mod runtime;

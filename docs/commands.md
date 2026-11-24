@@ -77,11 +77,13 @@ window that calls (its label from the runtime); neither takes an id.
 
 ## Lifetime
 
-App exit = its window closes; the app's process keeps running under the supervisor (per manifest).
-`os_exit` (the shell's Exit) ends the OS process only, app windows included. The exit handler calls
-`Armory::exit_os`: apps are let go, not stopped, and the next start calls `adopt_all`. An app whose
-manifest says `"onOsExit": "stop"` is stopped first; `"keep"` (the default) lets it run on.
-A window closed by hand never exits the OS while another window is open.
+An app runs on its own worker, owned by the OS (see `docs/app-abi.md`). Closing the OS window only hides it:
+apps and agents keep working, and a new start of the OS shows the window again. An app's own window closing
+leaves the app running. `os_exit` (the shell's Exit) is the only way the OS ends: the exit handler calls
+`Armory::exit_os`, which stops every app cleanly (the app's `stop`, its `stopTimeoutMs`, then its job), and then
+the OS ends. If the OS ends any other way (it is killed), every worker's job and stdin close with it and the apps
+end too. Nothing is adopted at the next start; a leftover of an older run is stopped by its recorded pid and start
+time only (`Supervisor::recover_all`), never by name.
 
 Added by BOS-11 (first run). The installer lays `first-run.json` beside the executable only for the apps left checked; the OS
 installs them in the background on open and writes `first-run.state.json` (the done marker) in the OS home once every one is in.

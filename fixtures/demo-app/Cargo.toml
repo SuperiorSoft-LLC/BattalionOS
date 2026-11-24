@@ -3,7 +3,17 @@ name = "demo-app"
 version.workspace = true
 edition.workspace = true
 license = "Apache-2.0"
-description = "Fixture app for the contract v1 tests; also the template for new apps"
+description = "Fixture app for the contract v1 tests: a library the OS runs on its own worker; also the template for new apps"
+
+[lib]
+name = "demo_app"
+crate-type = ["cdylib"]
+
+# A helper program of the package, run by the app itself (never by the OS): the init part and a
+# long sleeper the app starts as its own child (to prove the whole group ends with the app).
+[[bin]]
+name = "demo-helper"
+path = "src/helper.rs"
 
 [dependencies]
 battalion-app-api.workspace = true

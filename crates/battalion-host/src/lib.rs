@@ -5,6 +5,7 @@
 
 pub mod armory;
 pub mod firstrun;
+pub mod job;
 pub mod journal;
 pub mod lock;
 pub mod paths;
@@ -12,6 +13,7 @@ pub mod process;
 pub mod state;
 pub mod store;
 pub mod supervisor;
+pub mod worker;
 
 pub use journal::{Journal, JournalEntry, Pending};
 pub use lock::{Lock, LockError};

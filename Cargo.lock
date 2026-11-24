@@ -267,6 +267,7 @@ dependencies = [
  "battalion-host",
  "blake2",
  "ed25519-dalek",
+ "libloading",
  "minisign-verify",
  "serde",
  "serde_json",

@@ -14,20 +14,8 @@ use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-fn demo_exe() -> PathBuf {
-    static EXE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    EXE.get_or_init(|| {
-        let name = if cfg!(windows) { "demo-app.exe" } else { "demo-app" };
-        let look = || std::env::current_exe().unwrap().ancestors().skip(1).take(6).map(|d| d.join(name)).find(|p| p.is_file());
-        if let Some(p) = look() {
-            return p;
-        }
-        let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert!(std::process::Command::new("cargo").args(["build", "-p", "demo-app"]).current_dir(ws).status().unwrap().success());
-        look().expect("fixture exe")
-    })
-    .clone()
-}
+mod common;
+
 
 fn fast() -> SupSettings {
     SupSettings { ready_poll_ms: 20, health_interval_ms: 200, health_timeout_ms: 500, health_fail_limit: 2, backoff_initial_ms: 100, backoff_max_ms: 400, backoff_reset_after_ms: 60_000, max_restarts: 3, kill_wait_ms: 5_000, auto_restart: false }
@@ -126,8 +114,9 @@ impl World {
     }
 
     fn zip_bytes(&self, p: &Pkg) -> Vec<u8> {
-        let exec = if cfg!(windows) { "bin/demo-app.exe" } else { "bin/demo-app" };
-        let mut process = serde_json::json!({ platform_key(): { "exec": exec, "args": ["--mode", p.mode], "readyTimeoutMs": p.ready_ms, "stopTimeoutMs": 3000 } });
+        let exec = common::HELPER_IN_PACKAGE;
+        let lib = common::LIB_IN_PACKAGE;
+        let mut process = serde_json::json!({ platform_key(): { "library": lib, "args": ["--mode", p.mode], "readyTimeoutMs": p.ready_ms, "stopTimeoutMs": 3000 } });
         process[platform_key()]["args"] = serde_json::json!(["--mode", p.mode]);
         let mut manifest = serde_json::json!({
             "manifest": 1, "id": p.manifest_id.unwrap_or(p.id), "name": p.display.unwrap_or(p.id), "version": p.version,
@@ -151,8 +140,10 @@ impl World {
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         w.start_file("app.json", opts).unwrap();
         w.write_all(manifest.to_string().as_bytes()).unwrap();
+        w.start_file(lib, opts).unwrap();
+        w.write_all(&std::fs::read(common::demo_lib()).unwrap()).unwrap();
         w.start_file(exec, opts).unwrap();
-        w.write_all(&std::fs::read(demo_exe()).unwrap()).unwrap();
+        w.write_all(&std::fs::read(common::demo_helper()).unwrap()).unwrap();
         for (name, data) in &p.extra {
             w.start_file(name.as_str(), opts).unwrap();
             w.write_all(data).unwrap();
@@ -195,7 +186,7 @@ impl World {
     }
 
     fn armory_with(&self, st: Settings, fetcher: Option<Arc<dyn Fetcher>>) -> Armory {
-        let sup = Supervisor::with_settings(self.paths.clone(), fast());
+        let sup = common::sup(self.paths.clone(), fast());
         match fetcher {
             Some(f) => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, f),
             None => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 })),
@@ -372,7 +363,7 @@ fn crash_child() {
     let root = PathBuf::from(root);
     let paths = Paths::new(root.join("home"));
     let st = Settings { sources: vec![file_url(&root.join("catalog.json"))], ..Settings::default() };
-    let a = Armory::with_parts(paths.clone(), Supervisor::with_settings(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
+    let a = Armory::with_parts(paths.clone(), common::sup(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
     let plan = root.join("first-run.json");
     let o = firstrun::run(&a, &plan, &mut |_| {});
     println!("child finished without being killed: {o:?} ({id})");

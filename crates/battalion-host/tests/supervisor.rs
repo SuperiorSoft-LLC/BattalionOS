@@ -1,37 +1,25 @@
 // SPDX-License-Identifier: MPL-2.0
-//! Supervisor tests against the fixture app (real processes, real loopback HTTP).
+//! Supervisor tests against the demo library (real workers, real loopback HTTP, a fixture OS program).
 //! Each test has its own home folder; the fixture listens on port 0.
 
-use battalion_host::process::{self, ProcId, SpawnSpec};
+use battalion_host::process::{self, ProcId};
 use battalion_host::state::{AppState, Current};
 use battalion_host::supervisor::{platform_key, Settings, SupError, Supervisor};
 use battalion_host::{store, Paths};
-use std::path::{Path, PathBuf};
+use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn demo_exe() -> PathBuf {
-    static EXE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    EXE.get_or_init(find_demo).clone()
-}
-
-fn find_demo() -> PathBuf {
-    let name = if cfg!(windows) { "demo-app.exe" } else { "demo-app" };
-    let look = || std::env::current_exe().unwrap().ancestors().skip(1).take(6).map(|d| d.join(name)).find(|p| p.is_file());
-    if let Some(p) = look() {
-        return p;
-    }
-    let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let ok = std::process::Command::new("cargo").args(["build", "-p", "demo-app"]).current_dir(ws).status().unwrap().success();
-    assert!(ok, "could not build the fixture app");
-    look().expect("fixture app exe not found near the test binary")
-}
+mod common;
+use common::*;
 
 fn fast() -> Settings {
     Settings {
         ready_poll_ms: 20,
         health_interval_ms: 150,
-        health_timeout_ms: 500,
-        health_fail_limit: 2,
+        health_timeout_ms: 1500,
+        health_fail_limit: 3,
         backoff_initial_ms: 100,
         backoff_max_ms: 400,
         backoff_reset_after_ms: 60_000,
@@ -52,16 +40,14 @@ impl Home {
         paths.ensure().unwrap();
         Home { paths }
     }
-    /// Install the fixture as `id`. `args` pick the fixture mode.
+    /// Install the demo library as `id`. `args` pick the demo mode.
     fn install(&self, id: &str, args: &[&str], ready_timeout_ms: u64) {
         let vdir = self.paths.version_dir(id, "1.0.0").unwrap();
-        std::fs::create_dir_all(vdir.join("bin")).unwrap();
-        let exec = if cfg!(windows) { "bin/demo-app.exe" } else { "bin/demo-app" };
-        std::fs::copy(demo_exe(), vdir.join(exec)).unwrap();
+        lay_demo(&vdir);
         let manifest = serde_json::json!({
             "manifest": 1, "id": id, "name": id, "version": "1.0.0",
             "contract": { "min": 1, "max": 1 },
-            "process": { platform_key(): { "exec": exec, "args": args, "readyTimeoutMs": ready_timeout_ms, "stopTimeoutMs": 3000 } }
+            "process": { platform_key(): { "library": LIB_IN_PACKAGE, "args": args, "readyTimeoutMs": ready_timeout_ms, "stopTimeoutMs": 3000 } }
         });
         std::fs::write(vdir.join("app.json"), manifest.to_string()).unwrap();
         let cur = Current { version: "1.0.0".into(), previous: None, state: AppState::Stopped, public_key: String::new() };
@@ -71,7 +57,7 @@ impl Home {
         Current::load(&self.paths.current_json(id).unwrap()).unwrap().unwrap().state
     }
     fn sup(&self) -> Supervisor {
-        Supervisor::with_settings(self.paths.clone(), fast())
+        sup(self.paths.clone(), fast())
     }
 }
 impl Drop for Home {
@@ -136,32 +122,42 @@ fn suspend(pid: u32) {
     }
 }
 
+/// A process of the same program that the OS did not start: it sleeps.
+fn bystander(secs: u32) -> std::process::Child {
+    Command::new(demo_helper()).args(["--sleep", &secs.to_string()]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap()
+}
+
+fn child_pid(h: &Home, id: &str) -> u32 {
+    wait_for(10, || std::fs::read_to_string(h.paths.data_dir(id).unwrap().join("child.pid")).ok().and_then(|t| t.trim().parse().ok()))
+}
+
+/// The helper's pid after a restart (the file holds the previous one until the app writes it again).
+fn child_pid_fresh(h: &Home, id: &str, old: u32) -> u32 {
+    wait_for(10, || std::fs::read_to_string(h.paths.data_dir(id).unwrap().join("child.pid")).ok().and_then(|t| t.trim().parse().ok()).filter(|p| *p != old))
+}
+
+/// End exactly this process (not its tree), the way an outside kill would.
+fn kill_pid_only(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+    }
+}
+
 #[test]
 fn start_health_stop_and_a_same_named_bystander_survives() {
     let h = Home::new("basic");
     h.install("app-a", &[], 10_000);
-    // A process of the same image that the OS did not start.
-    let bystander = process::spawn_detached(&SpawnSpec {
-        exec: demo_exe(),
-        args: vec![],
-        env: [
-            ("BATTALION_CONTRACT", "1"),
-            ("BATTALION_READY_FILE", h.paths.root().join("bystander-ready.json").to_str().unwrap()),
-            ("BATTALION_TOKEN_FILE", h.paths.root().join("bystander-token").to_str().unwrap()),
-        ]
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect(),
-        cwd: h.paths.root().to_path_buf(),
-        log: h.paths.logs().join("bystander.log"),
-    })
-    .unwrap();
-
+    let mut by = bystander(60);
     let sup = h.sup();
     let s = sup.start("app-a").unwrap();
     assert_eq!(s.state, "running");
     let pid = s.pid.unwrap();
-    assert_ne!(pid, bystander.pid);
+    assert_ne!(pid, by.id());
     assert!(sup.health("app-a").unwrap().ok);
     assert!(Path::new(&h.paths.data_dir("app-a").unwrap()).exists(), "state dir created");
     assert!(sup.start("app-a").is_err(), "a second start of a running app is refused");
@@ -169,9 +165,138 @@ fn start_health_stop_and_a_same_named_bystander_survives() {
     let s = sup.stop("app-a").unwrap();
     assert_eq!(s.state, "stopped");
     assert!(!process::pid_running(pid), "the app is gone");
-    assert!(process::is_alive(&bystander), "stop is by pid: the other process of the same image lives");
+    assert!(process::pid_running(by.id()), "stop is by the app's own job: another process of the same program lives");
     assert!(sup.health("app-a").is_err());
-    process::kill_tree(&bystander);
+    let _ = by.kill();
+}
+
+#[test]
+fn the_worker_is_the_os_child_in_its_own_job_and_its_grandchild_ends_with_it() {
+    let h = Home::new("job");
+    h.install("kid", &["--mode", "child"], 10_000);
+    let sup = h.sup();
+    let s = sup.start("kid").unwrap();
+    let worker = s.pid.unwrap();
+    assert_eq!(parent_of(worker), Some(std::process::id()), "the worker is a child of the OS (here: this test)");
+    assert!(in_job(worker), "the worker is in its job");
+    let grandchild = child_pid(&h, "kid");
+    assert_eq!(parent_of(grandchild), Some(worker), "the app's own helper is the worker's child");
+    assert!(in_job(grandchild), "and it joined the app's job");
+    assert!(process::pid_running(grandchild));
+    // A clean stop: the worker ends, and the group goes with it.
+    sup.stop("kid").unwrap();
+    wait_for(10, || (!process::pid_running(worker) && !process::pid_running(grandchild)).then_some(()));
+    // Killing the worker from outside also takes the group (auto restart is on in `fast`, so a new worker follows).
+    sup.start("kid").unwrap();
+    let w2 = pid_of(&sup, "kid").unwrap();
+    let g2 = child_pid_fresh(&h, "kid", grandchild);
+    kill_pid_only(w2);
+    wait_for(10, || (!process::pid_running(g2)).then_some(()));
+    sup.pause("kid");
+    let _ = sup.stop("kid");
+}
+
+/// Run the fixture OS (`serve`) on a home with the given apps; returns it, each app's worker pid and its own pid.
+fn fixture_os_serving(h: &Home, ids: &[&str]) -> (std::process::Child, std::collections::HashMap<String, u32>, u32) {
+    let mut cmd = Command::new(fixture_os());
+    cmd.arg("serve").arg(h.paths.root()).args(ids).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut os = cmd.spawn().unwrap();
+    let mut lines = BufReader::new(os.stdout.take().unwrap());
+    let (mut apps, mut os_pid) = (std::collections::HashMap::new(), 0);
+    loop {
+        let mut l = String::new();
+        assert!(lines.read_line(&mut l).unwrap() > 0, "the fixture OS ended early");
+        let f: Vec<&str> = l.split_whitespace().collect();
+        match f.as_slice() {
+            ["UP", id, pid] => {
+                apps.insert(id.to_string(), pid.parse().unwrap());
+            }
+            ["FAIL", ..] => panic!("fixture OS: {l}"),
+            ["READY", pid] => {
+                os_pid = pid.parse().unwrap();
+                break;
+            }
+            _ => {}
+        }
+    }
+    // Keep reading its stdout so it never blocks on a full pipe.
+    std::thread::spawn(move || {
+        let mut sink = String::new();
+        while lines.read_line(&mut sink).unwrap_or(0) > 0 {
+            sink.clear();
+        }
+    });
+    (os, apps, os_pid)
+}
+
+#[test]
+fn when_the_os_is_killed_its_apps_and_their_children_end() {
+    let h = Home::new("oskill");
+    h.install("kid", &["--mode", "child"], 10_000);
+    let (mut os, apps, os_pid) = fixture_os_serving(&h, &["kid"]);
+    let worker = apps["kid"];
+    let grandchild = child_pid(&h, "kid");
+    assert!(process::pid_running(worker) && process::pid_running(grandchild));
+    // The OS is killed (no clean exit): by its pid, nothing else.
+    kill_pid_only(os_pid);
+    let _ = os.wait();
+    wait_for(15, || (!process::pid_running(worker) && !process::pid_running(grandchild)).then_some(()));
+}
+
+#[test]
+fn exit_stops_every_app_cleanly_then_the_os_ends() {
+    let h = Home::new("osexit");
+    h.install("kid", &["--mode", "child"], 10_000);
+    h.install("plain", &[], 10_000);
+    let (mut os, apps, _) = fixture_os_serving(&h, &["kid", "plain"]);
+    let grandchild = child_pid(&h, "kid");
+    writeln!(os.stdin.as_mut().unwrap(), "exit").unwrap();
+    let status = os.wait().unwrap();
+    assert!(status.success());
+    for (id, pid) in &apps {
+        assert!(!process::pid_running(*pid), "{id} ended at Exit");
+        assert_eq!(h.state(id), AppState::Stopped, "{id}");
+    }
+    wait_for(10, || (!process::pid_running(grandchild)).then_some(()));
+}
+
+#[test]
+fn the_worker_refuses_to_run_when_the_os_did_not_start_it() {
+    let h = Home::new("byhand");
+    h.install("app-a", &[], 10_000);
+    let lib = h.paths.version_dir("app-a", "1.0.0").unwrap().join(LIB_IN_PACKAGE);
+    // By hand: no handshake at all.
+    let out = Command::new(fixture_os()).arg("--bos-app-worker").arg(&lib).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("started by BattalionOS only"));
+    // By hand with a made-up nonce on one side only.
+    let mut c = Command::new(fixture_os()).arg("--bos-app-worker").arg(&lib).env("BATTALION_WORKER_NONCE", "abc").stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+    writeln!(c.stdin.as_mut().unwrap(), "wrong").unwrap();
+    let out = c.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("handshake"));
+}
+
+#[test]
+fn the_os_own_environment_is_not_the_apps_but_the_users_tools_are() {
+    let h = Home::new("env");
+    h.install("envy", &["--mode", "env"], 10_000);
+    // The manifest names the prefix to scrub (the OS knows no app's names); BATTALION_ is always scrubbed.
+    let mp = h.paths.version_dir("envy", "1.0.0").unwrap().join("app.json");
+    let mut m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&mp).unwrap()).unwrap();
+    m["process"][platform_key()]["envScrub"] = serde_json::json!(["ZZAPP_"]);
+    std::fs::write(&mp, m.to_string()).unwrap();
+    // The worker inherits this process's environment: plant one of each family and a plain one.
+    std::env::set_var("ZZAPP_TEST_LEAK", "1");
+    std::env::set_var("BATTALION_TEST_LEAK", "1");
+    std::env::set_var("BOS_USER_TOOL", "kept");
+    let sup = h.sup();
+    sup.start("envy").unwrap();
+    let seen = std::fs::read_to_string(h.paths.data_dir("envy").unwrap().join("env.txt")).unwrap();
+    assert!(seen.contains("BOS_USER_TOOL=kept"), "{seen}");
+    assert!(!seen.contains("ZZAPP_TEST_LEAK") && !seen.contains("BATTALION_TEST_LEAK"), "{seen}");
+    assert!(seen.contains("BATTALION_APP_ID=envy"), "contract values are set: {seen}");
+    sup.stop("envy").unwrap();
 }
 
 #[test]
@@ -202,7 +327,8 @@ fn killing_a_crashing_and_a_hanging_app_never_touches_its_neighbour() {
     // 3. C dies again and again (killed as soon as it is back): backoff, then given up (failed), not looped forever.
     sup.start("app-c").unwrap();
     wait_for(40, || {
-        if matches!(h.state("app-c"), AppState::Failed(_)) {
+        // (A start that fails passes through Failed for a moment; only "gave up" is the end.)
+        if matches!(h.state("app-c"), AppState::Failed(_)) && sup.status("app-c").is_ok_and(|s| s.last_error.is_some_and(|e| e.contains("gave up"))) {
             return Some(());
         }
         if let Some(pid) = pid_of(&sup, "app-c") {
@@ -247,51 +373,49 @@ fn an_app_that_hangs_or_never_gets_ready_is_killed_and_left_stopped() {
     sup.stop("app-b").unwrap();
 }
 
+fn write_record(run: &Path, pid: u32, start: &str) {
+    std::fs::create_dir_all(run).unwrap();
+    std::fs::write(
+        run.join("proc.json"),
+        serde_json::json!({"id": {"pid": pid, "start": start}, "version": "1.0.0", "url": "http://127.0.0.1:1", "health": "/health", "stop_timeout_ms": 3000}).to_string(),
+    )
+    .unwrap();
+}
+
 #[test]
-fn the_os_ends_and_apps_keep_running_the_next_start_adopts_them() {
-    let h = Home::new("adopt");
-    h.install("app-a", &[], 10_000);
-    h.install("app-b", &[], 10_000);
-    h.install("app-gone", &[], 10_000);
+fn a_leftover_recorded_by_an_older_run_is_stopped_by_pid_and_start_time_never_by_name() {
+    let h = Home::new("leftover");
+    h.install("old", &[], 10_000);
+    h.install("other", &[], 10_000);
     let sup = h.sup();
-    for id in ["app-a", "app-b", "app-gone"] {
-        sup.start(id).unwrap();
-    }
-    let (a, b) = (pid_of(&sup, "app-a").unwrap(), pid_of(&sup, "app-b").unwrap());
-    let (a0, b0) = (counter(&sup, "app-a"), counter(&sup, "app-b"));
-    let gone = proc_id(&sup, "app-gone");
+    sup.start("other").unwrap();
+    let other = pid_of(&sup, "other").unwrap();
+    // An older run's process, recorded with its start time; and a same-program process that is not recorded.
+    let mut leftover = bystander(60);
+    let mut by = bystander(60);
+    let start = process::start_token_of(leftover.id()).unwrap();
+    let run = h.paths.root().join("run").join("old");
+    write_record(&run, leftover.id(), &start);
+    let cp = h.paths.current_json("old").unwrap();
+    let mut cur = Current::load(&cp).unwrap().unwrap();
+    cur.transition(&cp, AppState::Starting).unwrap();
+    cur.transition(&cp, AppState::Running).unwrap();
 
-    // The OS ends: supervisor gone, no app stopped.
-    sup.release_all();
-    drop(sup);
-    // One app dies while the OS is away.
-    process::kill_tree(&gone);
-    std::thread::sleep(Duration::from_millis(1500));
-    assert!(process::pid_running(a) && process::pid_running(b), "both apps outlived the OS");
-
-    let sup2 = h.sup();
-    let results = sup2.adopt_all();
-    assert_eq!(results.len(), 3);
-    for (id, r) in &results {
-        match id.as_str() {
-            "app-a" | "app-b" => assert!(r.as_ref().unwrap().is_some(), "{id} adopted"),
-            _ => assert!(r.as_ref().unwrap().is_none(), "{id} was not running"),
-        }
-    }
-    assert_eq!(pid_of(&sup2, "app-a"), Some(a), "same process, not a restart");
-    assert_eq!(pid_of(&sup2, "app-b"), Some(b));
-    assert!(counter(&sup2, "app-a") > a0 && counter(&sup2, "app-b") > b0, "counters never reset");
-    assert_eq!(h.state("app-gone"), AppState::Stopped, "the dead one is settled, not stuck 'running'");
-    assert_eq!(sup2.start("app-gone").unwrap().state, "running", "and can be started again");
-
-    // The adopted app is supervised again: kill it and it comes back.
-    process::kill_tree(&ProcId { pid: a, start: String::new() });
-    wait_for(20, || pid_of(&sup2, "app-a").filter(|p| *p != a && sup2.health("app-a").is_ok()));
-    // Stopping an adopted app works like any other.
-    assert_eq!(sup2.stop("app-b").unwrap().state, "stopped");
-    assert!(!process::pid_running(b));
-    sup2.stop("app-a").unwrap();
-    sup2.stop("app-gone").unwrap();
+    let next = h.sup();
+    // (One app's recovery only: `other` belongs to the live supervisor of this run, not to an older one.)
+    assert_eq!(next.recover("old").unwrap(), true);
+    let _ = leftover.wait();
+    assert!(!process::pid_running(leftover.id()), "the recorded leftover was stopped");
+    assert!(process::pid_running(by.id()), "the same program, not recorded: not touched");
+    assert_eq!(h.state("old"), AppState::Stopped);
+    assert!(!run.join("proc.json").exists());
+    // A record whose start time does not match (a reused pid) is not ours: left alone.
+    write_record(&run, by.id(), "1");
+    let _ = next.recover("old");
+    assert!(process::pid_running(by.id()), "pid reused by another process: not touched");
+    assert_eq!(pid_of(&sup, "other"), Some(other), "another app of ours is not touched");
+    sup.stop("other").unwrap();
+    let _ = by.kill();
 }
 
 #[test]
@@ -299,42 +423,29 @@ fn a_foreign_process_on_the_run_files_is_refused_not_killed() {
     let h = Home::new("foreign");
     h.install("app-a", &[], 10_000);
     let sup = h.sup();
-    // Somebody else started the fixture with this app's ready file. No record of ours names it.
+    // Somebody else's process is named by this app's ready file. No record of ours names it.
     let run = h.paths.root().join("run").join("app-a");
     std::fs::create_dir_all(&run).unwrap();
-    let foreign = process::spawn_detached(&SpawnSpec {
-        exec: demo_exe(),
-        args: vec![],
-        env: [
-            ("BATTALION_CONTRACT", "1"),
-            ("BATTALION_READY_FILE", run.join("ready.json").to_str().unwrap()),
-            ("BATTALION_TOKEN_FILE", run.join("their-token").to_str().unwrap()),
-        ]
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect(),
-        cwd: h.paths.root().to_path_buf(),
-        log: h.paths.logs().join("foreign.log"),
-    })
-    .unwrap();
-    wait_for(10, || run.join("ready.json").exists().then_some(()));
+    let mut foreign = bystander(60);
+    std::fs::write(run.join("ready.json"), serde_json::json!({"contract": 1, "pid": foreign.id(), "url": "http://127.0.0.1:9"}).to_string()).unwrap();
 
     match sup.start("app-a") {
-        Err(SupError::Foreign { pid }) => assert_eq!(pid, foreign.pid),
+        Err(SupError::Foreign { pid }) => assert_eq!(pid, foreign.id()),
         other => panic!("expected Foreign, got {other:?}"),
     }
-    assert!(process::is_alive(&foreign), "refused, not killed");
+    assert!(process::pid_running(foreign.id()), "refused, not killed");
     assert_eq!(h.state("app-a"), AppState::Stopped, "state untouched");
     assert!(run.join("ready.json").exists(), "its files are left alone");
     // A stop call on a running-looking app must not reach it either.
-    let mut cur = Current::load(&h.paths.current_json("app-a").unwrap()).unwrap().unwrap();
-    cur.transition(&h.paths.current_json("app-a").unwrap(), AppState::Starting).unwrap();
-    cur.transition(&h.paths.current_json("app-a").unwrap(), AppState::Running).unwrap();
+    let cp = h.paths.current_json("app-a").unwrap();
+    let mut cur = Current::load(&cp).unwrap().unwrap();
+    cur.transition(&cp, AppState::Starting).unwrap();
+    cur.transition(&cp, AppState::Running).unwrap();
     assert!(matches!(sup.stop("app-a"), Err(SupError::Foreign { .. })));
-    assert!(process::is_alive(&foreign), "stop did not kill a process it did not start");
-    assert!(sup.adopt("app-a").unwrap().is_none(), "no record: nothing to adopt");
-    assert!(process::is_alive(&foreign), "adopt did not touch it either");
-    process::kill_tree(&foreign);
+    assert!(process::pid_running(foreign.id()), "stop did not kill a process it did not start");
+    assert_eq!(sup.recover("app-a").ok(), Some(true), "the stale state is settled");
+    assert!(process::pid_running(foreign.id()), "recover did not touch it either");
+    let _ = foreign.kill();
 }
 
 #[test]
@@ -363,4 +474,29 @@ fn settings_come_from_os_json_with_defaults() {
     assert_eq!(s.health_interval_ms, 123);
     assert!(!s.auto_restart);
     assert_eq!(s.max_restarts, Settings::default().max_restarts);
+}
+
+#[test]
+fn an_app_that_aborts_or_returns_an_error_leaves_the_os_and_another_app_running() {
+    let h = Home::new("crash");
+    h.install("steady", &[], 10_000);
+    h.install("aborts", &["--mode", "abort", "--delay-ms", "2500"], 10_000);
+    h.install("fails", &["--mode", "crash", "--delay-ms", "2500"], 10_000);
+    let sup = h.sup();
+    sup.start("steady").unwrap();
+    let (steady, c0) = (pid_of(&sup, "steady").unwrap(), counter(&sup, "steady"));
+    for id in ["aborts", "fails"] {
+        let first = sup.start(id).unwrap().pid.unwrap();
+        // The worker died with the app (abort) or ended with its code (run returned 1): restarted by the existing rules.
+        let again = wait_for(30, || pid_of(&sup, id).filter(|p| *p != first && sup.health(id).is_ok()));
+        assert_ne!(again, first, "{id} restarted with a new worker");
+        assert!(sup.status(id).unwrap().restarts >= 1, "{id}");
+        sup.pause(id);
+    }
+    assert_eq!(pid_of(&sup, "steady"), Some(steady), "the other app kept its worker");
+    assert!(counter(&sup, "steady") > c0, "and kept running");
+    assert_eq!(h.state("steady"), AppState::Running);
+    for id in ["aborts", "fails", "steady"] {
+        let _ = sup.stop(id);
+    }
 }

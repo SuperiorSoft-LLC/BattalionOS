@@ -16,6 +16,13 @@ updates it, stops it and removes it, without restarting itself. It does this wit
 - `battalion-host`: the app manager (store, supervisor, Armory engine: catalog, package check, install, update, rollback, remove).
 - `battalion-desktop`: the BattalionOS window.
 
+An app ships a **library** per target (`.dll`, `.dylib`, `.so`), never a program: `process.<target>.library` in
+`app.json`, and the package check refuses `process.<target>.exec`. BattalionOS starts its own worker (its own program
+with an internal argument, before any window code), the worker loads the library and calls `run` on the app's thread;
+the worker is the OS's child, in a Job Object (Windows) or its own process group, and the OS holds its stdin (end of
+file = stop). The C ABI is in [app-abi.md](app-abi.md). Helper programs inside the package that the app itself runs
+(a CLI) are allowed; the OS never starts them.
+
 The OS names no app. In its code and docs an app is only "an app".
 
 ## Who manages it

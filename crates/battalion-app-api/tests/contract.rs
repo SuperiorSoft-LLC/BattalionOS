@@ -9,7 +9,7 @@ fn good() -> Value {
     json!({
         "manifest": 1, "id": "example", "name": "Example", "version": "1.2.0",
         "contract": {"min": 1, "max": 1},
-        "process": { P: {"exec": "bin/example.exe"} },
+        "process": { P: {"library": "lib/example.dll"} },
         "permissions": ["window"]
     })
 }
@@ -52,23 +52,21 @@ fn bad_manifests_are_refused_by_reason() {
     assert_eq!(refuse(|v| v["contract"] = json!({"min": 0, "max": 1})), ManifestError::BadContractRange { min: 0, max: 1 });
     assert_eq!(refuse(|v| v["contract"] = json!({"min": 2, "max": 3})), ManifestError::ContractNotSupported { os: 1, min: 2, max: 3 });
     assert_eq!(refuse(|v| v["minOs"] = json!("new")), ManifestError::BadMinOs("new".into()));
-    assert_eq!(refuse(|v| v["onOsExit"] = json!("kill")), ManifestError::BadOnOsExit("kill".into()));
-    for ok in ["keep", "stop"] {
-        let mut v = good();
-        v["onOsExit"] = json!(ok);
-        assert!(Manifest::parse(&v.to_string(), P, CONTRACT).is_ok());
-    }
+    // The old exit policy is gone: apps always stop with the OS. A manifest that still says it is not refused.
+    let mut v = good();
+    v["onOsExit"] = json!("keep");
+    assert!(Manifest::parse(&v.to_string(), P, CONTRACT).is_ok());
     assert_eq!(refuse(|v| v["permissions"] = json!(["root"])), ManifestError::UnknownPermission("root".into()));
     assert_eq!(refuse(|v| v["cli"] = json!([{"name": "Bad Name", "exec": "bin/x"}])), ManifestError::BadCliName("Bad Name".into()));
-    assert_eq!(refuse(|v| v["process"][P]["exec"] = json!(" ")), ManifestError::EmptyExec("process"));
+    assert_eq!(refuse(|v| v["process"][P]["library"] = json!(" ")), ManifestError::EmptyExec("process"));
     // no process for this platform, no UI
-    assert_eq!(refuse(|v| v["process"] = json!({"linux-x86_64": {"exec": "bin/x"}})), ManifestError::NothingToRun);
+    assert_eq!(refuse(|v| v["process"] = json!({"linux-x86_64": {"library": "lib/x.so"}})), ManifestError::NothingToRun);
 }
 
 #[test]
 fn paths_that_leave_the_package_are_refused() {
-    for p in ["../x.exe", "/abs/x.exe", "C:/x.exe", "bin\\..\\..\\x.exe", "bin//x.exe", ""] {
-        let e = refuse(|v| v["process"][P]["exec"] = json!(p));
+    for p in ["../x.dll", "/abs/x.dll", "C:/x.dll", "bin\\..\\..\\x.dll", "bin//x.dll", ""] {
+        let e = refuse(|v| v["process"][P]["library"] = json!(p));
         assert!(matches!(e, ManifestError::UnsafePath { .. } | ManifestError::EmptyExec(_)), "{p}: {e:?}");
     }
     assert!(matches!(refuse(|v| v["icon"] = json!("../icon.png")), ManifestError::UnsafePath { field: "icon", .. }));
@@ -137,4 +135,24 @@ fn schemas_are_valid_json_and_fixture_manifest_loads() {
     }
     let fixture = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/demo-app/app.json")).unwrap();
     Manifest::parse(&fixture, P, CONTRACT).unwrap();
+}
+
+#[test]
+fn an_app_is_a_library_exec_is_refused_with_a_clear_message() {
+    let e = refuse(|v| v["process"][P] = json!({"exec": "bin/example.exe"}));
+    assert_eq!(e, ManifestError::ExecRefused(P.into()));
+    let text = e.to_string();
+    assert!(text.contains("process.windows-x86_64.exec is not allowed") && text.contains("library"), "{text}");
+    // Both given: still refused (the OS never starts a program for an app).
+    let e = refuse(|v| v["process"][P]["exec"] = json!("bin/example.exe"));
+    assert_eq!(e, ManifestError::ExecRefused(P.into()));
+    // The library must be the target's kind.
+    assert!(matches!(refuse(|v| v["process"][P]["library"] = json!("lib/example.so")), ManifestError::WrongLibraryKind { .. }));
+    let mut v = good();
+    v["process"] = json!({"macos-aarch64": {"library": "lib/x.dylib"}, "linux-x86_64": {"library": "lib/x.so"}});
+    assert!(Manifest::parse(&v.to_string(), "linux-x86_64", CONTRACT).is_ok());
+    // A helper program the app runs itself is not the OS's business: cli entries stay allowed.
+    let mut v = good();
+    v["cli"] = json!([{"name": "tool", "exec": "bin/tool.exe"}]);
+    assert!(Manifest::parse(&v.to_string(), P, CONTRACT).is_ok());
 }

@@ -9,6 +9,12 @@ pub const MAIN: &str = "main";
 pub const LOGIN: &str = "login";
 pub const APP_PREFIX: &str = "app-";
 
+/// Closing this window only hides it: apps and agents keep working, and a new start of the OS shows
+/// it again. Exit (`os_exit`) is the only way the OS ends. Other windows really close.
+pub fn close_hides_window(label: &str) -> bool {
+    label == MAIN
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Caller {
     Main,
@@ -88,6 +94,13 @@ pub fn authorize_self(label: &str, command: &str) -> Result<String, Denied> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closing_the_main_window_hides_it_and_keeps_apps_running() {
+        assert!(close_hides_window(MAIN));
+        assert!(!close_hides_window(LOGIN));
+        assert!(!close_hides_window("app-aa"));
+    }
 
     #[test]
     fn app_a_cannot_act_on_b() {

@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
-//! The app supervisor: one detached process per app. Start it with the contract environment, wait
-//! for its ready file, probe its health, restart with backoff, stop it (POST stop, then a tree kill
-//! by pid), adopt it again after the OS restarted, and never touch a process it did not start.
+//! The app supervisor: one app worker per app, owned by the OS. The OS starts its own program as the
+//! app's worker (see [`crate::worker`]), the worker loads the app's library and runs it on its own
+//! thread. The worker is the OS's child, in its own job (Windows Job Object; unix process group), and
+//! the OS holds its stdin: end of file means stop, so when the OS ends for any reason the app ends too.
+//! Stopping is: close stdin (the app's `stop` is called), wait `stopTimeoutMs`, end the job.
+//! Health, restart with backoff and the ready file are as in contract v1. A leftover recorded by an
+//! older run is stopped by its recorded pid and start time, never by name.
 //!
-//! Isolation is the process boundary: apps share nothing but the supervisor's bookkeeping, and
-//! each app has its own entry, lock, monitor thread and run folder.
+//! Isolation is the worker boundary: apps share nothing but the supervisor's bookkeeping, and each
+//! app has its own worker, entry, lock, monitor thread and run folder.
 //!
 //! ```text
 //! <home>/run/<id>/ready.json   written by the app (BATTALION_READY_FILE)
-//! <home>/run/<id>/token        per-start secret for the stop call (BATTALION_TOKEN_FILE)
-//! <home>/run/<id>/proc.json    our record: pid + start time of the process WE started
+//! <home>/run/<id>/token        per-start secret the app may use (BATTALION_TOKEN_FILE)
+//! <home>/run/<id>/proc.json    our record: pid + start time of the worker WE started
 //! <home>/logs/<id>.log         its stdout and stderr
 //! ```
 //! A process is ours only when `proc.json` names it and the OS agrees on pid and start time.
@@ -19,7 +23,7 @@
 
 use crate::lock::{Lock, LockError};
 use crate::paths::{BadAppId, Paths};
-use crate::process::{self, ProcId, SpawnSpec};
+use crate::process::{self, ProcId, Worker, WorkerSpec};
 use crate::state::{AppState, Current};
 use crate::store;
 use battalion_app_api::manifest::ProcessSpec;
@@ -148,14 +152,14 @@ struct Record {
     version: String,
     url: String,
     health: String,
-    stop: String,
     stop_timeout_ms: u64,
 }
 
 #[derive(Clone)]
 struct Live {
     rec: Record,
-    token: String,
+    /// The worker, owned by the OS. The last reference dropped ends it and its job.
+    worker: Arc<Worker>,
     since: Instant,
 }
 
@@ -174,6 +178,8 @@ struct Entry {
 struct Inner {
     paths: Paths,
     settings: Settings,
+    /// The OS's own program, started with the worker argument. Tests name their fixture OS here.
+    worker_exe: PathBuf,
     apps: Mutex<HashMap<String, Arc<Entry>>>,
 }
 
@@ -193,7 +199,12 @@ impl Supervisor {
         Supervisor::with_settings(paths, settings)
     }
     pub fn with_settings(paths: Paths, settings: Settings) -> Supervisor {
-        Supervisor { inner: Arc::new(Inner { paths, settings, apps: Mutex::new(HashMap::new()) }) }
+        let exe = std::env::current_exe().unwrap_or_default();
+        Supervisor::with_worker_exe(paths, settings, exe)
+    }
+    /// `worker_exe` is the program that answers to the worker argument (the OS itself).
+    pub fn with_worker_exe(paths: Paths, settings: Settings, worker_exe: PathBuf) -> Supervisor {
+        Supervisor { inner: Arc::new(Inner { paths, settings, worker_exe, apps: Mutex::new(HashMap::new()) }) }
     }
     pub fn settings(&self) -> &Settings {
         &self.inner.settings
@@ -218,7 +229,7 @@ impl Supervisor {
         self.status(id)
     }
 
-    /// Ask the app to stop (POST stop), then kill its tree by pid if it does not go in time.
+    /// Ask the app to stop (its worker sees end of file on stdin and calls the app's `stop`), then end the worker's job if it does not go in time.
     /// An app that is not running is `Ok`. A foreign process is refused.
     pub fn stop(&self, id: &str) -> Result<AppStatus, SupError> {
         let e = self.entry(id);
@@ -260,83 +271,64 @@ impl Supervisor {
         probe(&live.rec, &self.inner.settings).map_err(SupError::NotReady)
     }
 
-    /// After an OS restart: take over every app of ours that is still running. For each app with a
-    /// run record or a running state: adopt it, or clean up after it. Apps keep their pids.
-    pub fn adopt_all(&self) -> Vec<(String, Result<Option<AppStatus>, SupError>)> {
+    /// When the OS starts: settle what an older run left behind. A worker or process recorded in
+    /// `proc.json` that still runs is stopped by its recorded pid and start time (never by name),
+    /// and an app whose state says up with nothing behind it is set to stopped. Apps are not
+    /// adopted: an app belongs to the OS run that started it.
+    pub fn recover_all(&self) -> Vec<(String, Result<bool, SupError>)> {
         let mut out = Vec::new();
         let Ok(rd) = std::fs::read_dir(self.inner.paths.apps()) else { return out };
         let mut ids: Vec<String> = rd.flatten().filter(|d| d.path().is_dir()).map(|d| d.file_name().to_string_lossy().to_string()).collect();
         ids.sort();
         for id in ids {
             if battalion_app_api::manifest::valid_id(&id) {
-                let r = self.adopt(&id);
+                let r = self.recover(&id);
                 out.push((id, r));
             }
         }
         out
     }
 
-    /// `Ok(Some)` = adopted and running; `Ok(None)` = nothing of ours is running (state fixed up).
-    pub fn adopt(&self, id: &str) -> Result<Option<AppStatus>, SupError> {
+    /// `Ok(true)` = a leftover was stopped or a state was settled.
+    pub fn recover(&self, id: &str) -> Result<bool, SupError> {
         let e = self.entry(id);
         let _op = e.op.lock().unwrap();
         let cur_path = self.inner.paths.current_json(id)?;
-        let Some(mut cur) = Current::load(&cur_path).map_err(io_err)? else { return Ok(None) };
+        let Some(mut cur) = Current::load(&cur_path).map_err(io_err)? else { return Ok(false) };
         if e.live.lock().unwrap().is_some() {
-            return self.status(id).map(Some); // already supervised
+            return Ok(false); // ours, this run
         }
         let run = self.run_dir(id)?;
         let rec: Option<Record> = store::read_json(&run.join("proc.json")).map_err(io_err)?;
         let was_up = matches!(cur.state, AppState::Starting | AppState::Running | AppState::Stopping);
-        let Some(rec) = rec else {
-            if was_up {
-                self.mark_dead(&mut cur, &cur_path, "no process record after the OS restarted");
+        let mut did = false;
+        if let Some(rec) = rec {
+            if process::is_alive(&rec.id) {
+                // Recorded by us (pid and start time match): ours to stop, by pid.
+                process::kill_tree(&rec.id);
+                process::wait_gone(&rec.id, Settings::ms(self.inner.settings.kill_wait_ms));
             }
-            return Ok(None);
-        };
-        if !process::is_alive(&rec.id) {
             self.cleanup(&run);
-            if was_up {
-                self.mark_dead(&mut cur, &cur_path, "the app ended while the OS was away");
-            }
-            return Ok(None);
+            did = true;
         }
-        // Ours (pid and start time match our record) and alive. Is it answering?
-        let token = std::fs::read_to_string(run.join("token")).unwrap_or_default().trim().to_string();
-        if probe(&rec, &self.inner.settings).is_err() {
-            // Ours but silent: it hung while the OS was away. Ours to kill, by pid.
-            process::kill_tree(&rec.id);
-            process::wait_gone(&rec.id, Settings::ms(self.inner.settings.kill_wait_ms));
-            self.cleanup(&run);
-            if was_up {
-                self.mark_dead(&mut cur, &cur_path, "the app did not answer after the OS restarted; killed");
-            }
-            return Ok(None);
+        if was_up {
+            self.mark_dead(&mut cur, &cur_path, "the app ended when the OS ended");
+            did = true;
         }
-        match cur.state {
-            AppState::Running => {}
-            AppState::Starting => cur.transition(&cur_path, AppState::Running).map_err(io_err)?,
-            AppState::Stopped => {
-                cur.transition(&cur_path, AppState::Starting).map_err(io_err)?;
-                cur.transition(&cur_path, AppState::Running).map_err(io_err)?;
-            }
-            _ => {
-                // Stopping, Updating, Failed...: leave the state to the action that owns it; the
-                // process is still ours and supervised.
-            }
-        }
-        *e.live.lock().unwrap() = Some(Live { rec, token, since: Instant::now() });
-        let gen = e.gen.fetch_add(1, Ordering::SeqCst) + 1;
-        self.spawn_monitor(id, &e, gen);
-        self.status(id).map(Some)
+        Ok(did)
     }
 
-    /// The OS ends: every monitor thread ends, no app is stopped. Apps run on; the next OS adopts them.
-    pub fn release_all(&self) {
-        for e in self.inner.apps.lock().unwrap().values() {
-            e.gen.fetch_add(1, Ordering::SeqCst);
-            *e.live.lock().unwrap() = None;
+    /// The OS exits: stop every running app cleanly (the app's `stop`, the timeout, then the job).
+    /// Returns (id, error) of an app that could not be stopped; the exit goes on regardless.
+    pub fn stop_all(&self) -> Vec<(String, String)> {
+        let ids: Vec<String> = self.inner.apps.lock().unwrap().iter().filter(|(_, e)| e.live.lock().unwrap().is_some()).map(|(k, _)| k.clone()).collect();
+        let mut failed = Vec::new();
+        for id in ids {
+            if let Err(e) = self.stop(&id) {
+                failed.push((id, e.to_string()));
+            }
         }
+        failed
     }
 
     // ---- start ------------------------------------------------------------------------------
@@ -388,7 +380,7 @@ impl Supervisor {
         let version = cur.version.clone();
         let vdir = paths.version_dir(id, &version)?;
         let manifest_text = std::fs::read_to_string(vdir.join("app.json")).map_err(io_err)?;
-        let manifest = Manifest::parse(&manifest_text, &platform_key(), CONTRACT).map_err(|x| SupError::NotReady(format!("manifest: {x:?}")))?;
+        let manifest = Manifest::parse(&manifest_text, &platform_key(), CONTRACT).map_err(|x| SupError::NotReady(format!("manifest: {x}")))?;
         let spec: &ProcessSpec = manifest.process_for(&platform_key()).ok_or(SupError::NoProcessPart)?;
 
         let state_dir = state_dir_of(&manifest, paths, id)?;
@@ -398,6 +390,16 @@ impl Supervisor {
         let log = paths.logs().join(format!("{id}.log"));
 
         cur.transition(&cur_path, AppState::Starting).map_err(io_err)?;
+        // The OS's own BATTALION_* and whatever the manifest scrubs (`envScrub` prefixes) are not the
+        // app's; the contract values are set, the manifest's own values next, and the rest (the
+        // user's tools) passes through.
+        let env_remove: Vec<String> = std::env::vars_os()
+            .filter_map(|(k, _)| k.into_string().ok())
+            .filter(|k| {
+                let u = k.to_ascii_uppercase();
+                u.starts_with("BATTALION_") || spec.env_scrub.iter().any(|p| u.starts_with(&p.to_ascii_uppercase()))
+            })
+            .collect();
         let mut envs: Vec<(String, String)> = spec.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         envs.extend([
             (env::CONTRACT.into(), CONTRACT.to_string()),
@@ -408,17 +410,31 @@ impl Supervisor {
             (env::READY_FILE.into(), ready_path.display().to_string()),
             (env::TOKEN_FILE.into(), run.join("token").display().to_string()),
         ]);
-        let spawn = process::spawn_detached(&SpawnSpec {
-            exec: vdir.join(&spec.exec),
+        let context = battalion_app_api::abi::Context {
+            contract: CONTRACT,
+            abi: battalion_app_api::abi::ABI_VERSION,
+            app_id: id.into(),
+            app_version: version.clone(),
+            app_dir: vdir.display().to_string(),
+            state_dir: state_dir.display().to_string(),
+            ready_file: ready_path.display().to_string(),
+            token_file: run.join("token").display().to_string(),
             args: spec.args.clone(),
+        };
+        let spawn = process::spawn_worker(&WorkerSpec {
+            exe: self.inner.worker_exe.clone(),
+            library: vdir.join(&spec.library),
             env: envs,
+            env_remove,
             cwd: vdir.clone(),
             log: log.clone(),
+            context: serde_json::to_string(&context).unwrap_or_default(),
         });
-        let pid = match spawn {
-            Ok(p) => p,
-            Err(x) => return self.fail_start(&mut cur, &cur_path, &run, None, e, format!("could not start {}: {x}", spec.exec)),
+        let worker = match spawn {
+            Ok(w) => Arc::new(w),
+            Err(x) => return self.fail_start(&mut cur, &cur_path, &run, None, e, format!("could not start the worker for {}: {x}", spec.library)),
         };
+        let pid = worker.id.clone();
 
         // Wait for the ready file; a process that dies first ends the wait at once.
         let deadline = Instant::now() + Duration::from_millis(spec.ready_timeout_ms);
@@ -426,15 +442,15 @@ impl Supervisor {
             if let Ok(text) = std::fs::read_to_string(&ready_path) {
                 match ReadyFile::parse(&text, CONTRACT) {
                     Ok(r) => break r,
-                    Err(x) => return self.fail_start(&mut cur, &cur_path, &run, Some(&pid), e, x.to_string()),
+                    Err(x) => return self.fail_start(&mut cur, &cur_path, &run, Some(&worker), e, x.to_string()),
                 }
             }
-            if !process::is_alive(&pid) {
+            if !process::is_alive(&worker.id) {
                 let tail = process::log_tail(&log, 400);
-                return self.fail_start(&mut cur, &cur_path, &run, Some(&pid), e, format!("exited before it was ready. {tail}"));
+                return self.fail_start(&mut cur, &cur_path, &run, Some(&worker), e, format!("exited before it was ready. {tail}"));
             }
             if Instant::now() >= deadline {
-                return self.fail_start(&mut cur, &cur_path, &run, Some(&pid), e, format!("no ready file after {} ms", spec.ready_timeout_ms));
+                return self.fail_start(&mut cur, &cur_path, &run, Some(&worker), e, format!("no ready file after {} ms", spec.ready_timeout_ms));
             }
             std::thread::sleep(Settings::ms(st.ready_poll_ms));
         };
@@ -443,31 +459,31 @@ impl Supervisor {
             version,
             url: ready.url.clone(),
             health: ready.health.clone(),
-            stop: ready.stop.clone(),
             stop_timeout_ms: spec.stop_timeout_ms,
         };
         // First health call must pass inside what is left of the ready window.
         loop {
             match probe(&rec, st) {
                 Ok(_) => break,
-                Err(m) if Instant::now() >= deadline => return self.fail_start(&mut cur, &cur_path, &run, Some(&pid), e, format!("ready but not healthy: {m}")),
+                Err(m) if Instant::now() >= deadline => return self.fail_start(&mut cur, &cur_path, &run, Some(&worker), e, format!("ready but not healthy: {m}")),
                 Err(_) => std::thread::sleep(Settings::ms(st.ready_poll_ms)),
             }
         }
         store::write_json(&run.join("proc.json"), &rec).map_err(io_err)?;
         cur.transition(&cur_path, AppState::Running).map_err(io_err)?;
         *e.last_error.lock().unwrap() = None;
-        *e.live.lock().unwrap() = Some(Live { rec, token, since: Instant::now() });
+        *e.live.lock().unwrap() = Some(Live { rec, worker, since: Instant::now() });
         let gen = e.gen.fetch_add(1, Ordering::SeqCst) + 1;
         drop(app_lock);
         self.spawn_monitor(id, e, gen);
         Ok(())
     }
 
-    fn fail_start(&self, cur: &mut Current, cur_path: &std::path::Path, run: &std::path::Path, pid: Option<&ProcId>, e: &Entry, why: String) -> Result<(), SupError> {
-        if let Some(p) = pid {
-            process::kill_tree(p);
-            process::wait_gone(p, Settings::ms(self.inner.settings.kill_wait_ms));
+    fn fail_start(&self, cur: &mut Current, cur_path: &std::path::Path, run: &std::path::Path, worker: Option<&Arc<Worker>>, e: &Entry, why: String) -> Result<(), SupError> {
+        if let Some(w) = worker {
+            w.kill();
+            process::wait_gone(&w.id, Settings::ms(self.inner.settings.kill_wait_ms));
+            w.try_exit();
         }
         self.cleanup(run);
         let _ = cur.transition(cur_path, AppState::Failed(why.clone()));
@@ -483,16 +499,16 @@ impl Supervisor {
         let mut cur = Current::load(&cur_path).map_err(io_err)?.ok_or_else(|| SupError::NotInstalled(id.into()))?;
         let run = self.run_dir(id)?;
         let live = e.live.lock().unwrap().clone();
-        let rec = match live {
-            Some(l) => Some((l.rec, l.token)),
+        // `live` = a worker of this run. Without it only a leftover of an older run can be ours: the
+        // record and the OS must agree on pid and start time.
+        let (rec, worker) = match live {
+            Some(l) => (Some(l.rec), Some(l.worker)),
             None => {
-                // After an OS restart without adopt: still ours if the record and the OS agree.
                 let rec: Option<Record> = store::read_json(&run.join("proc.json")).map_err(io_err)?;
-                let token = std::fs::read_to_string(run.join("token")).unwrap_or_default().trim().to_string();
-                rec.filter(|r| process::is_alive(&r.id)).map(|r| (r, token))
+                (rec.filter(|r| process::is_alive(&r.id)), None)
             }
         };
-        let Some((rec, token)) = rec else {
+        let Some(rec) = rec else {
             // Nothing of ours is running. A live ready-file pid here is somebody else's: say so, touch nothing.
             if let Ok(text) = std::fs::read_to_string(run.join("ready.json")) {
                 if let Ok(rf) = serde_json::from_str::<ReadyFile>(&text) {
@@ -510,16 +526,27 @@ impl Supervisor {
         if cur.state == AppState::Running {
             cur.transition(&cur_path, AppState::Stopping).map_err(io_err)?;
         }
-        // Polite first. A hung app does not answer; the call times out and the kill follows.
-        let _ = process::http("POST", &rec.url, &rec.stop, Some(&token), Settings::ms(self.inner.settings.health_timeout_ms));
-        if !process::wait_gone(&rec.id, Duration::from_millis(rec.stop_timeout_ms)) {
-            process::kill_tree(&rec.id);
-            if !process::wait_gone(&rec.id, Settings::ms(self.inner.settings.kill_wait_ms)) {
-                return Err(SupError::Io(format!("process {} did not end after a tree kill", rec.id.pid)));
+        match &worker {
+            Some(w) => {
+                // Polite first: the worker sees end of file and calls the app's stop. A hung app does
+                // not end; the timeout passes and the job is ended.
+                w.close_stdin();
+                if !process::wait_gone(&rec.id, Duration::from_millis(rec.stop_timeout_ms)) {
+                    w.kill();
+                    if !process::wait_gone(&rec.id, Settings::ms(self.inner.settings.kill_wait_ms)) {
+                        return Err(SupError::Io(format!("worker {} did not end after its job was ended", rec.id.pid)));
+                    }
+                } else {
+                    w.kill(); // the worker ended on its own; whatever the app started in the job goes with it
+                }
+                w.try_exit();
             }
-        } else {
-            // The root ended on its own; children of a wrapper may remain. By pid group only.
-            process::kill_tree(&rec.id);
+            None => {
+                process::kill_tree(&rec.id);
+                if !process::wait_gone(&rec.id, Settings::ms(self.inner.settings.kill_wait_ms)) {
+                    return Err(SupError::Io(format!("process {} did not end after a tree kill", rec.id.pid)));
+                }
+            }
         }
         *e.live.lock().unwrap() = None;
         self.cleanup(&run);
@@ -586,9 +613,10 @@ impl Supervisor {
                 return; // stopped, replaced or paused while we waited for the lock
             }
             let Some(live) = e.live.lock().unwrap().take() else { return };
-            // Ours (record + start time): kill the tree by pid. Another app is never in reach.
-            process::kill_tree(&live.rec.id);
+            // Ours (our worker, our job): end it. Another app is never in reach.
+            live.worker.kill();
             process::wait_gone(&live.rec.id, Settings::ms(self.inner.settings.kill_wait_ms));
+            live.worker.try_exit();
             if let (Ok(run), Ok(cp)) = (self.run_dir(id), self.inner.paths.current_json(id)) {
                 self.cleanup(&run);
                 if let Ok(Some(mut cur)) = Current::load(&cp) {

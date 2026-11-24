@@ -15,22 +15,10 @@ use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod common;
+
 // ---- fixture app --------------------------------------------------------------------------
 
-fn demo_exe() -> PathBuf {
-    static EXE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    EXE.get_or_init(|| {
-        let name = if cfg!(windows) { "demo-app.exe" } else { "demo-app" };
-        let look = || std::env::current_exe().unwrap().ancestors().skip(1).take(6).map(|d| d.join(name)).find(|p| p.is_file());
-        if let Some(p) = look() {
-            return p;
-        }
-        let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert!(std::process::Command::new("cargo").args(["build", "-p", "demo-app"]).current_dir(ws).status().unwrap().success());
-        look().expect("fixture exe")
-    })
-    .clone()
-}
 
 fn fast() -> SupSettings {
     SupSettings { ready_poll_ms: 20, health_interval_ms: 200, health_timeout_ms: 500, health_fail_limit: 2, backoff_initial_ms: 100, backoff_max_ms: 400, backoff_reset_after_ms: 60_000, max_restarts: 3, kill_wait_ms: 5_000, auto_restart: false }
@@ -101,11 +89,13 @@ struct Pkg {
     on_exit: Option<&'static str>,
     /// Name of the manifest file at the package root (tests of refusals only).
     root_manifest: &'static str,
+    /// A manifest that names a program (`exec`) instead of a library.
+    use_exec: bool,
 }
 
 impl Pkg {
     fn new(id: &'static str, version: &'static str) -> Pkg {
-        Pkg { id, version, mode: "normal", schema: 1, init: false, contract: (1, 1), min_os: None, manifest_id: None, extra: vec![], signer: 7, sha_wrong: false, ready_ms: 5000, display: None, icon: None, on_exit: None, root_manifest: "app.json" }
+        Pkg { id, version, mode: "normal", schema: 1, init: false, contract: (1, 1), min_os: None, manifest_id: None, extra: vec![], signer: 7, sha_wrong: false, ready_ms: 5000, display: None, icon: None, on_exit: None, root_manifest: "app.json", use_exec: false }
     }
 }
 
@@ -131,9 +121,13 @@ impl World {
     }
 
     fn zip_bytes(&self, p: &Pkg) -> Vec<u8> {
-        let exec = if cfg!(windows) { "bin/demo-app.exe" } else { "bin/demo-app" };
-        let mut process = serde_json::json!({ platform_key(): { "exec": exec, "args": ["--mode", p.mode], "readyTimeoutMs": p.ready_ms, "stopTimeoutMs": 3000 } });
+        let exec = common::HELPER_IN_PACKAGE;
+        let lib = common::LIB_IN_PACKAGE;
+        let mut process = serde_json::json!({ platform_key(): { "library": lib, "args": ["--mode", p.mode], "readyTimeoutMs": p.ready_ms, "stopTimeoutMs": 3000 } });
         process[platform_key()]["args"] = serde_json::json!(["--mode", p.mode]);
+        if p.use_exec {
+            process = serde_json::json!({ platform_key(): { "exec": exec } });
+        }
         let mut manifest = serde_json::json!({
             "manifest": 1, "id": p.manifest_id.unwrap_or(p.id), "name": p.display.unwrap_or(p.id), "version": p.version,
             "contract": { "min": p.contract.0, "max": p.contract.1 },
@@ -156,8 +150,10 @@ impl World {
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         w.start_file(p.root_manifest, opts).unwrap();
         w.write_all(manifest.to_string().as_bytes()).unwrap();
+        w.start_file(lib, opts).unwrap();
+        w.write_all(&std::fs::read(common::demo_lib()).unwrap()).unwrap();
         w.start_file(exec, opts).unwrap();
-        w.write_all(&std::fs::read(demo_exe()).unwrap()).unwrap();
+        w.write_all(&std::fs::read(common::demo_helper()).unwrap()).unwrap();
         for (name, data) in &p.extra {
             w.start_file(name.as_str(), opts).unwrap();
             w.write_all(data).unwrap();
@@ -200,7 +196,7 @@ impl World {
     }
 
     fn armory_with(&self, st: Settings, fetcher: Option<Arc<dyn Fetcher>>) -> Armory {
-        let sup = Supervisor::with_settings(self.paths.clone(), fast());
+        let sup = common::sup(self.paths.clone(), fast());
         match fetcher {
             Some(f) => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, f),
             None => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 })),
@@ -244,14 +240,12 @@ trait SupOf {
 }
 impl SupOf for Armory {
     fn sup(&self) -> Supervisor {
-        Supervisor::with_settings(self.paths().clone(), fast())
+        self.supervisor()
     }
 }
 
-/// Health of a running app through a fresh supervisor that adopts it.
+/// The version of the running app: what the OS recorded for its worker (the app is answering).
 fn version_answering(w: &World, id: &str) -> String {
-    let sup = Supervisor::with_settings(w.paths.clone(), fast());
-    sup.adopt(id).unwrap().expect("adopted a running app");
     let v = std::fs::read_to_string(w.paths.root().join("run").join(id).join("proc.json")).unwrap();
     let rec: serde_json::Value = serde_json::from_str(&v).unwrap();
     rec["version"].as_str().unwrap().to_string()
@@ -278,7 +272,7 @@ fn install_runs_the_app_and_initialises_it() {
     assert!(battalion_host::Journal::open(w.paths.journal()).unwrap().pending().unwrap().is_empty());
     assert_eq!(a.installed().unwrap().len(), 1);
 
-    let sup = Supervisor::with_settings(w.paths.clone(), fast());
+    let sup = common::sup(w.paths.clone(), fast());
     sup.start("demo-one").unwrap();
     assert_eq!(w.state("demo-one"), Some(AppState::Running));
     sup.stop("demo-one").unwrap();
@@ -294,6 +288,7 @@ fn a_bad_package_installs_nothing() {
         ("manifest names another id", Pkg { manifest_id: Some("other-app"), ..Pkg::new("bad-one", "1.0.0") }, |e| matches!(e, ArmoryError::IdMismatch { .. })),
         ("contract outside this OS", Pkg { contract: (2, 3), ..Pkg::new("bad-one", "1.0.0") }, |e| matches!(e, ArmoryError::ContractNotSupported { .. })),
         ("needs a newer OS", Pkg { min_os: Some("9.0.0"), ..Pkg::new("bad-one", "1.0.0") }, |e| matches!(e, ArmoryError::OsTooOld { .. })),
+        ("a program instead of a library", Pkg { use_exec: true, ..Pkg::new("bad-one", "1.0.0") }, |e| matches!(e, ArmoryError::Manifest(m) if m.contains("is not allowed") && m.contains("library"))),
         ("zip path leaves the package", Pkg { extra: vec![("../evil.txt".into(), b"x".to_vec())], ..Pkg::new("bad-one", "1.0.0") }, |e| matches!(e, ArmoryError::ZipPath(_))),
         ("absolute zip path", Pkg { extra: vec![("/abs.txt".into(), b"x".to_vec())], ..Pkg::new("bad-one", "1.0.0") }, |e| matches!(e, ArmoryError::ZipPath(_))),
         ("drive zip path", Pkg { extra: vec![("C:/abs.txt".into(), b"x".to_vec())], ..Pkg::new("bad-one", "1.0.0") }, |e| matches!(e, ArmoryError::ZipPath(_))),
@@ -501,8 +496,9 @@ fn update_to_a_good_version_keeps_the_state_and_the_previous_version() {
 }
 
 fn process_pid(w: &World, id: &str) -> Option<u32> {
-    let sup = Supervisor::with_settings(w.paths.clone(), fast());
-    sup.adopt(id).ok().flatten().and_then(|s| s.pid)
+    let v = std::fs::read_to_string(w.paths.root().join("run").join(id).join("proc.json")).ok()?;
+    let rec: serde_json::Value = serde_json::from_str(&v).ok()?;
+    rec["id"]["pid"].as_u64().map(|p| p as u32)
 }
 
 #[test]
@@ -584,7 +580,7 @@ fn crash_child() {
     let (Ok(root), Ok(op), Ok(id)) = (std::env::var("BOS_CHILD_ROOT"), std::env::var("BOS_CHILD_OP"), std::env::var("BOS_CHILD_ID")) else { return };
     let paths = Paths::new(PathBuf::from(&root).join("home"));
     let st = Settings { sources: vec![file_url(&PathBuf::from(&root).join("catalog.json"))], ..Settings::default() };
-    let a = Armory::with_parts(paths.clone(), Supervisor::with_settings(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
+    let a = Armory::with_parts(paths.clone(), common::sup(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
     let r = match op.as_str() {
         "install" => a.install(&id, "stable").map(|_| ()),
         "update" => a.update(&id, &UpdateOptions::default()).map(|_| ()),
@@ -670,8 +666,8 @@ fn killed_at_each_update_step_the_app_ends_on_one_good_version() {
         assert_eq!(cur.version, want, "{at}");
         assert!(w.staging_is_empty(), "{at}: staging left behind");
         // Whatever it ended on, that version really starts and answers.
-        let sup = Supervisor::with_settings(w.paths.clone(), fast());
-        let _ = sup.adopt("ku-one");
+        let sup = common::sup(w.paths.clone(), fast());
+        let _ = sup.recover("ku-one");
         if w.state("ku-one") != Some(AppState::Running) {
             sup.start("ku-one").unwrap_or_else(|e| panic!("{at}: version {want} does not start: {e}"));
         }
@@ -798,22 +794,20 @@ fn updating_one_app_never_touches_another_app() {
 }
 
 #[test]
-fn the_os_exit_lets_apps_run_on_unless_the_manifest_says_stop() {
+fn the_os_exit_stops_every_app_cleanly() {
     let w = World::new("exit");
-    w.publish(&Pkg::new("exit-keep", "1.0.0"));
-    let sup = Supervisor::with_settings(w.paths.clone(), fast());
+    w.publish(&Pkg::new("exit-one", "1.0.0"));
+    let sup = common::sup(w.paths.clone(), fast());
     let os = Armory::with_parts(w.paths.clone(), sup.clone(), "1.0.0", w.settings(), Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
-    os.install("exit-keep", "stable").unwrap();
-    w.publish(&Pkg { on_exit: Some("stop"), ..Pkg::new("exit-stop", "1.0.0") });
-    os.install("exit-stop", "stable").unwrap();
-    sup.start("exit-keep").unwrap();
-    sup.start("exit-stop").unwrap();
-    let keep_pid = sup.status("exit-keep").unwrap().pid;
-    assert_eq!(os.stop_on_exit_ids(), ["exit-stop"]);
+    os.install("exit-one", "stable").unwrap();
+    w.publish(&Pkg::new("exit-two", "1.0.0"));
+    os.install("exit-two", "stable").unwrap();
+    sup.start("exit-one").unwrap();
+    sup.start("exit-two").unwrap();
+    let pids = [sup.status("exit-one").unwrap().pid.unwrap(), sup.status("exit-two").unwrap().pid.unwrap()];
     assert!(os.exit_os().is_empty());
-    assert_eq!(w.state("exit-stop"), Some(AppState::Stopped));
-    assert_eq!(w.state("exit-keep"), Some(AppState::Running));
-    // The next OS start adopts the app it let go of: same process.
-    let next = Supervisor::with_settings(w.paths.clone(), fast());
-    assert_eq!(next.adopt("exit-keep").unwrap().and_then(|s| s.pid), keep_pid);
+    for (id, pid) in ["exit-one", "exit-two"].iter().zip(pids) {
+        assert_eq!(w.state(id), Some(AppState::Stopped));
+        assert!(!process::pid_running(pid), "{id} ended with the OS");
+    }
 }

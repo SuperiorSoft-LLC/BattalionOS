@@ -36,10 +36,6 @@ pub struct Manifest {
     pub cli: Vec<CliSpec>,
     #[serde(default)]
     pub permissions: Vec<String>,
-    /// What happens to the running app when BattalionOS exits: `keep` (default; it runs on and the
-    /// next start adopts it) or `stop`.
-    #[serde(default, rename = "onOsExit")]
-    pub on_os_exit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -50,7 +46,17 @@ pub struct ContractRange {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProcessSpec {
-    pub exec: String,
+    /// The app's library inside the package (`.dll`, `.dylib` or `.so`, by target). BattalionOS loads
+    /// it on the app's own worker and calls its `run`; see [`crate::abi`].
+    #[serde(default)]
+    pub library: String,
+    /// Refused: an app is a library, not a program. Read only so the package check can say so.
+    #[serde(default, skip_serializing)]
+    pub exec: Option<String>,
+    /// Name prefixes (`MYAPP_`) of the OS's own environment that the app must not inherit. Variables
+    /// starting `BATTALION_` are always removed; the contract values are then set; the rest passes.
+    #[serde(default, rename = "envScrub")]
+    pub env_scrub: Vec<String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
@@ -119,7 +125,10 @@ pub enum ManifestError {
     /// The OS speaks a contract outside the app's range.
     ContractNotSupported { os: u32, min: u32, max: u32 },
     BadMinOs(String),
-    BadOnOsExit(String),
+    /// `process.<target>.exec`: an app is a library; BattalionOS never starts a program for it.
+    ExecRefused(String),
+    /// The library's extension does not fit the target (`.dll` windows, `.dylib` macos, `.so` linux).
+    WrongLibraryKind { target: String, library: String },
     /// A path that is absolute, has `..`, a drive, or an empty segment.
     UnsafePath { field: &'static str, path: String },
     EmptyExec(&'static str),
@@ -141,9 +150,10 @@ impl std::fmt::Display for ManifestError {
             BadContractRange { min, max } => write!(f, "contract range {min}..{max} is empty or starts at 0"),
             ContractNotSupported { os, min, max } => write!(f, "app needs contract {min}..{max}, this OS speaks {os}"),
             BadMinOs(v) => write!(f, "minOs '{v}' is not major.minor.patch"),
-            BadOnOsExit(v) => write!(f, "onOsExit '{v}' is not 'keep' or 'stop'"),
+            ExecRefused(t) => write!(f, "process.{t}.exec is not allowed: an app ships a library (process.{t}.library), not a program; BattalionOS runs it on its own worker"),
+            WrongLibraryKind { target, library } => write!(f, "process.{target}.library '{library}' is not a library for that target (windows .dll, macos .dylib, linux .so)"),
             UnsafePath { field, path } => write!(f, "{field} path '{path}' leaves the package"),
-            EmptyExec(w) => write!(f, "{w} has no exec"),
+            EmptyExec(w) => write!(f, "{w} has no library (or exec)"),
             BadCliName(n) => write!(f, "cli name '{n}' is not allowed"),
             UnknownPermission(p) => write!(f, "permission '{p}' is not known"),
             NothingToRun => write!(f, "app has neither a process part for this platform nor a UI part"),
@@ -205,11 +215,6 @@ impl Manifest {
                 return Err(BadMinOs(v.clone()));
             }
         }
-        if let Some(v) = &self.on_os_exit {
-            if v != "keep" && v != "stop" {
-                return Err(BadOnOsExit(v.clone()));
-            }
-        }
         let check = |field: &'static str, p: &str| {
             if safe_rel_path(p) {
                 Ok(())
@@ -220,11 +225,31 @@ impl Manifest {
         if let Some(i) = &self.icon {
             check("icon", i)?;
         }
-        for spec in self.process.values() {
-            if spec.exec.trim().is_empty() {
+        for (target, spec) in &self.process {
+            if spec.exec.is_some() {
+                return Err(ExecRefused(target.clone()));
+            }
+            if spec.library.trim().is_empty() {
                 return Err(EmptyExec("process"));
             }
-            check("process.exec", &spec.exec)?;
+            check("process.library", &spec.library)?;
+            if let Some(bad) = spec.env_scrub.iter().find(|p| p.is_empty() || !p.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')) {
+                return Err(UnsafePath { field: "process.envScrub", path: bad.clone() });
+            }
+            let ext = if target.starts_with("windows") {
+                Some(".dll")
+            } else if target.starts_with("macos") {
+                Some(".dylib")
+            } else if target.starts_with("linux") {
+                Some(".so")
+            } else {
+                None
+            };
+            if let Some(ext) = ext {
+                if !spec.library.to_ascii_lowercase().ends_with(ext) {
+                    return Err(WrongLibraryKind { target: target.clone(), library: spec.library.clone() });
+                }
+            }
         }
         if let Some(ui) = &self.ui {
             check("ui.entry", &ui.entry)?;

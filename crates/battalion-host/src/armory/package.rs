@@ -184,8 +184,8 @@ impl Armory {
             }
         }
         if let Some(spec) = m.process_for(&platform_key()) {
-            if !dir.join(&spec.exec).is_file() {
-                return Err(ArmoryError::Manifest(format!("process exec '{}' is not in the package", spec.exec)));
+            if !dir.join(&spec.library).is_file() {
+                return Err(ArmoryError::Manifest(format!("process library '{}' is not in the package", spec.library)));
             }
         }
         Ok(m)

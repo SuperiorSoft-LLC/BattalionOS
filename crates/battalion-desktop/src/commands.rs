@@ -245,8 +245,7 @@ pub async fn os_remove_app(window: WebviewWindow, app: AppHandle, host: State<'_
     Ok(json!({"ok": true}))
 }
 
-/// End the OS process only. Running apps are let go (or stopped, when their manifest says `onOsExit: stop`)
-/// by the exit handler in main.rs; the next start adopts the rest.
+/// Exit: the exit handler in main.rs stops every running app cleanly, then the OS ends.
 #[tauri::command]
 pub async fn os_exit(window: WebviewWindow, app: AppHandle) -> R<()> {
     authorize_shell(window.label(), "os_exit").map_err(|e| e.to_string())?;
