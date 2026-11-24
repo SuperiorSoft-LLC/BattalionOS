@@ -23,6 +23,9 @@ fn main() {
         let _ = battalion_host::firstrun::seed_sources(&paths, &plan);
     }
     let host = Host::new(paths);
+    // Started with `--open <app-id>` (a shortcut, the command line): the shell opens that app when it has loaded.
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    *host.open_request.lock().unwrap() = battalion_desktop::launch::open_request(&argv);
     // Apps belong to the run that started them; a leftover of an older run is stopped by its recorded pid.
     for (id, r) in host.sup.recover_all() {
         if let Err(e) = r {
@@ -31,10 +34,16 @@ fn main() {
     }
     let app = tauri::Builder::default()
         // Single instance: a second launch focuses the first one's main window.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        // `--open <app-id>` of that second start is handed to this run (BOS-19); the rest of its line is ignored.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
+            }
+            if let Some(id) = battalion_desktop::launch::open_request(&args[args.len().min(1)..]) {
+                *app.state::<Host>().open_request.lock().unwrap_or_else(|p| p.into_inner()) = Some(id);
+                let _ = tauri::Emitter::emit(app, battalion_desktop::events::OPEN_REQUEST, ());
             }
         }))
         .manage(host)
@@ -74,7 +83,8 @@ fn main() {
             os_frame_pick_file,
             os_frame_open_external,
             os_frame_login_open,
-            os_frame_login_close
+            os_frame_login_close,
+            os_take_open_request
         ])
         .setup(|app| {
             // Armory progress goes to every window as an event; the shell shows it.
@@ -88,6 +98,8 @@ fn main() {
             std::thread::spawn(move || {
                 let host = h2.state::<Host>();
                 battalion_desktop::host::run_first_run(&h2, &host);
+                // Start menu: one shortcut per installed app (after first run, which may have installed some).
+                tauri::async_runtime::block_on(battalion_desktop::commands::sync_shortcuts(&host));
             });
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("BattalionOS")

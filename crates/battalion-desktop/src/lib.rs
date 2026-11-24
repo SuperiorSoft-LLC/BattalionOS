@@ -6,7 +6,10 @@ pub mod access;
 pub mod badge;
 pub mod events;
 pub mod frame_calls;
+pub mod launch;
 pub mod serve;
+#[cfg(feature = "gui")]
+pub mod shortcuts;
 pub mod webview2;
 
 #[cfg(feature = "gui")]

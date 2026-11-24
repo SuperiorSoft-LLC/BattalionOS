@@ -50,6 +50,10 @@ export interface Os {
   frameLoginClose(id: string): Promise<void>;
   /** The sign-in window of an app reached an address (`os://frame-login-url`) or ended (`os://frame-login-closed`); returns the unsubscribe. */
   onFrameLogin(cb: (e: { id: string; url?: string; closed?: boolean }) => void): () => void;
+  /** BOS-19: the app a start from outside asked for (`--open <id>`), once; `null` when none (`os_take_open_request`). */
+  takeOpenRequest(): Promise<string | null>;
+  /** A start from outside asked for an app while this window runs (`os://open-request`); returns the unsubscribe. */
+  onOpenRequest(cb: () => void): () => void;
   openLogin(): Promise<void>;
   /** Ends the OS process only; running apps keep running. */
   exit(): Promise<void>;
@@ -96,6 +100,11 @@ export const hostOs: Os = {
     const a = tauri().event.listen("os://frame-login-url", (e) => cb(e.payload as { id: string; url: string }));
     const b = tauri().event.listen("os://frame-login-closed", (e) => cb({ ...(e.payload as { id: string }), closed: true }));
     return () => [a, b].forEach((s) => void s.then((off) => off()));
+  },
+  takeOpenRequest: () => call("os_take_open_request"),
+  onOpenRequest(cb) {
+    const sub = tauri().event.listen("os://open-request", () => cb());
+    return () => void sub.then((off) => off());
   },
   openLogin: () => call("os_open_login"),
   exit: () => call("os_exit"),

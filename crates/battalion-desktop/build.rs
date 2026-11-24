@@ -28,6 +28,7 @@ const COMMANDS: &[&str] = &[
     "os_frame_open_external",
     "os_frame_login_open",
     "os_frame_login_close",
+    "os_take_open_request",
 ];
 
 fn main() {

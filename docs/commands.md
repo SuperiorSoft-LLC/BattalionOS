@@ -148,3 +148,15 @@ installs them in the background on open and writes `first-run.state.json` (the d
 | `os_first_run_retry` | | main | `{outcome}` (text); runs the first-run install again (Retry). Does nothing once the marker says done |
 
 Event `os://first-run` `{status, ids?, id?, error?}`: `start` (ids), `installed` (id), `done` (ids), `offline` or `failed` (id, error), `already-done`, `nothing`.
+
+Added by BOS-19 (start from outside). `BattalionOS --open <app-id>` starts the OS, or hands the request to the running one
+(single instance), and the app opens inside the window as by its icon. The id is checked (the app id grammar); an app that is not
+installed shows the Armory; every other argument is ignored. The OS writes one Start menu shortcut per installed app
+(`Start Menu\Programs\BattalionOS Apps\<name>.lnk`, running `BattalionOS.exe --open <id>`, the app's `.ico` or the OS's icon): after an install,
+update, rollback or remove, and at every start. The map of what it wrote is `shortcuts.json` in the OS home.
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_take_open_request` | | main | the app id of a pending `--open`, once, else `null` |
+
+Event `os://open-request`: a second start asked for an app; the shell calls `os_take_open_request`.

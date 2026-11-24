@@ -72,6 +72,29 @@ export function App({ os }: { os: Os }) {
     },
     [os, m, loadInstalled],
   );
+  // BOS-19: a start from outside (`BattalionOS --open <id>`, a Start menu shortcut): the app opens as by its icon; an app that is
+  // not installed shows its place in the Armory.
+  const takeRequest = useCallback(async () => {
+    try {
+      const id = await os.takeOpenRequest();
+      if (!id) return;
+      const apps = await os.listApps();
+      if (apps.some((a) => a.id === id)) {
+        await open(id);
+      } else {
+        setNotice(`${id} is not installed here. Install it from the Armory.`);
+        setArmory(true);
+      }
+    } catch (e) {
+      setNotice(`Could not open the requested app: ${errText(e)}`);
+    }
+  }, [os, open]);
+  useEffect(() => {
+    void takeRequest();
+    return os.onOpenRequest(() => void takeRequest());
+    // Once per window start and per request; `open` changes with the model and must not re-run a request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [os]);
   const minimize = useCallback((id: string) => dispatch({ type: "view-minimize", id }), []);
   const closeView = useCallback((id: string) => dispatch({ type: "view-close", id }), []);
   const retry = useCallback(

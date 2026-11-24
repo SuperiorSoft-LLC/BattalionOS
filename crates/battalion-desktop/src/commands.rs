@@ -336,8 +336,25 @@ pub async fn os_install_app(window: WebviewWindow, app: AppHandle, host: State<'
     Ok(json!({"ok": true}))
 }
 
+/// (BOS-19) The app a start from outside asked for (`--open <id>`), once: the shell calls this when it has loaded and when it
+/// hears `os://open-request`. `null` when there is none.
+#[tauri::command]
+pub async fn os_take_open_request(window: WebviewWindow, host: State<'_, Host>) -> R<Option<String>> {
+    authorize_shell(window.label(), "os_take_open_request").map_err(|e| e.to_string())?;
+    Ok(host.open_request.lock().unwrap_or_else(|p| p.into_inner()).take())
+}
+
+/// Keep the Start menu in step with the installed apps (one shortcut each). A failure is logged, never an install failure.
+pub async fn sync_shortcuts(host: &Host) {
+    let (p, a) = (host.paths.clone(), host.armory.clone());
+    if let Ok(Err(e)) = blocking(move || crate::shortcuts::sync(&p, &a)).await {
+        eprintln!("start menu shortcuts: {e}");
+    }
+}
+
 /// Tell every window that app `id` changed: the shell reloads its list.
 async fn announce(app: &AppHandle, host: &Host, id: &str) {
+    sync_shortcuts(host).await;
     // The app was stopped or replaced by this action: its badge goes; a running app sets it again.
     if host.badges.set(id, None) {
         paint_badge(app, id, None);

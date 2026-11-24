@@ -21,13 +21,15 @@ pub struct Host {
     pub pages: std::sync::Arc<Mutex<HashMap<String, Page>>>,
     /// The badge each app has set on itself (`os_badge`).
     pub badges: crate::badge::Badges,
+    /// The app a start from outside asked for (`--open <id>`), until the shell takes it (BOS-19).
+    pub open_request: Mutex<Option<String>>,
 }
 
 impl Host {
     pub fn new(paths: Paths) -> Host {
         let sup = Supervisor::new(paths.clone());
         let armory = std::sync::Arc::new(Armory::new(paths.clone(), sup.clone(), env!("CARGO_PKG_VERSION")));
-        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default() }
+        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default(), open_request: Mutex::new(None) }
     }
 }
 
