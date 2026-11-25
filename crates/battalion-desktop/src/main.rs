@@ -29,15 +29,14 @@ fn main() {
     // Started with `--open <app-id>` (a shortcut, the command line): the shell opens that app when it has loaded.
     let argv: Vec<String> = std::env::args().skip(1).collect();
     *host.open_request.lock().unwrap() = battalion_desktop::launch::open_request(&argv);
+    // BOS-34: a second start is the process Windows lets take the foreground; it hands that right on before the
+    // single-instance plugin signals the running OS, so the running one may bring its window to the front.
+    battalion_desktop::front::allow_any_to_take_foreground();
     let app = tauri::Builder::default()
         // Single instance: a second launch focuses the first one's main window.
         // `--open <app-id>` of that second start is handed to this run (BOS-19); the rest of its line is ignored.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            battalion_desktop::front::bring_main_to_front(app);
             if let Some(id) = battalion_desktop::launch::open_request(&args[args.len().min(1)..]) {
                 *app.state::<Host>().open_request.lock().unwrap_or_else(|p| p.into_inner()) = Some(id);
                 let _ = tauri::Emitter::emit(app, battalion_desktop::events::OPEN_REQUEST, ());
@@ -134,6 +133,8 @@ fn main() {
             #[cfg(feature = "dev")]
             let win = win.data_directory(app.state::<Host>().paths.root().join("webview-os"));
             win.build()?;
+            // BOS-34: the notification area icon while the OS runs: Open (the window, in front) and Exit (as Start > Exit).
+            battalion_desktop::front::tray(app.handle())?;
             Ok(())
         })
         .build(tauri::generate_context!())

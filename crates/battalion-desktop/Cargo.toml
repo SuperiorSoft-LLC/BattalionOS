@@ -19,10 +19,13 @@ battalion-app-api.workspace = true
 battalion-host = { path = "../battalion-host" }
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2.12.6", optional = true }
+tauri = { version = "2.12.6", optional = true, features = ["tray-icon"] }
 tauri-plugin-single-instance = { version = "2", optional = true }
 rfd = { version = "0.17", optional = true }
 open = { version = "5", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 tauri-build = { version = "2", optional = true }

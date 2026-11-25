@@ -18,4 +18,6 @@ pub mod commands;
 #[cfg(feature = "dev")]
 pub mod devmode;
 #[cfg(feature = "gui")]
+pub mod front;
+#[cfg(feature = "gui")]
 pub mod host;

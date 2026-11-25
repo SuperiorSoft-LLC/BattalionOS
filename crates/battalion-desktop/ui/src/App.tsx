@@ -2,7 +2,8 @@
 // The shell: reads the installed list from the host, owns the model, wires the views. An app opens inside this window (os_open_app_window
 // -> os://app-open): its page fills the app area above the taskbar, in a frame that is hidden, never reloaded, on minimize.
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
-import { RefusalBanner } from "../kit";
+import { Button, RefusalBanner } from "../kit";
+import { closeAsks, closeNoticeSeen, CLOSE_NOTICE_TEXT } from "./closeNotice";
 import { Armory } from "./Armory";
 import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
@@ -129,6 +130,11 @@ export function App({ os }: { os: Os }) {
   );
   const exit = useCallback(() => void os.exit().catch((e) => setNotice(`Could not exit: ${errText(e)}`)), [os]);
 
+  // BOS-34: X hides the window; the first time it says so first, with Exit beside it.
+  const [closeNotice, setCloseNotice] = useState(false);
+  const hideWindow = useCallback(() => { closeNoticeSeen(localStorage); setCloseNotice(false); void os.window.close(); }, [os]);
+  const closeWindow = useCallback(() => (closeAsks(localStorage) ? setCloseNotice(true) : void os.window.close()), [os]);
+
   const ids = useMemo(() => desktopIds(m), [m]);
   const icons = useMemo(() => iconIds(m), [m]);
   const openArmory = useCallback(() => { setArmory(true); void loadCatalog(); void os.osUpdateCheck().then(setOsInfo, () => {}); }, [loadCatalog, os]);
@@ -139,7 +145,16 @@ export function App({ os }: { os: Os }) {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <ResizeEdges win={os.window} />
-      <TitleBar win={os.window} appName={m.active ? labelOf(m, m.active) : null} />
+      <TitleBar win={os.window} appName={m.active ? labelOf(m, m.active) : null} onClose={closeWindow} />
+      {closeNotice && (
+        <div role="alertdialog" aria-label="BattalionOS keeps running" className="mx-3 mt-2 flex flex-col gap-2 rounded-lg border bg-card p-3">
+          <p className="text-sm">{CLOSE_NOTICE_TEXT}</p>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={hideWindow}>Hide the window</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setCloseNotice(false); exit(); }}>Exit BattalionOS</Button>
+          </div>
+        </div>
+      )}
       <div className="px-3 pt-2 empty:hidden">
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>

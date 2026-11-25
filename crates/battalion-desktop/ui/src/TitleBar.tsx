@@ -42,7 +42,7 @@ function DevMark() {
 }
 
 /** The bar: the BattalionOS mark, the name of the app on screen (if any), and minimize / maximize / close. */
-export function TitleBar({ win, appName }: { win: OsWindow; appName: string | null }) {
+export function TitleBar({ win, appName, onClose }: { win: OsWindow; appName: string | null; onClose?: () => void }) {
   return (
     <header data-tauri-drag-region data-testid="os-title-bar" className="flex h-10 shrink-0 select-none items-center gap-2 border-b bg-background pl-3">
       <Boxes className="pointer-events-none size-4 text-danger" aria-hidden />
@@ -61,7 +61,7 @@ export function TitleBar({ win, appName }: { win: OsWindow; appName: string | nu
         <button type="button" aria-label="Maximize" title="Maximize" className={btn} onClick={() => void win.toggleMaximize()}>
           <Square className="size-3.5!" />
         </button>
-        <button type="button" aria-label="Close" title="Close" className={`${btn} hover:bg-danger hover:text-white`} onClick={() => void win.close()}>
+        <button type="button" aria-label="Close" title="Close" className={`${btn} hover:bg-danger hover:text-white`} onClick={() => (onClose ? onClose() : void win.close())}>
           <X />
         </button>
       </div>
