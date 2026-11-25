@@ -26,11 +26,22 @@ folder), so your compiler can overwrite the original while the app runs (Windows
 ## Run it
 
 ```powershell
-# from a BattalionOS checkout (builds the OS with the dev feature and starts it)
-scripts/bos-dev.ps1 -App C:\path\to\app-folder -AppUrl http://127.0.0.1:5173     # -AppUrl: the app's own dev server, optional
-scripts/bos-dev.ps1 -App C:\path\to\app-folder -OsWatch                           # also rebuild + restart the OS when its Rust changes
+# run from the BattalionOS checkout (builds the OS with the dev feature and starts it)
+scripts/bos-dev.ps1 -App C:\path	opp-folder -AppUrl http://127.0.0.1:5173     # -AppUrl: the app's own dev server, optional
+scripts/bos-dev.ps1 -App C:\path	opp-folder -OsWatch                           # also rebuild + restart the OS when its Rust changes
 scripts/bos-dev.ps1 -Stop                                                         # stop the dev OS and its dev server, by pid
+scripts/bos-dev.ps1 -Stop -DevRoot D:\my-dev-data                                 # the same, when the start used -DevRoot
 ```
+
+- **Where it builds.** The dev OS is built into its own folder, `%LOCALAPPDATA%os-dev-target\os` (change it with `-OsTargetDir`), never the checkout's
+  normal `target`. The script says the folder at the end. The first build takes several minutes; later starts rebuild only what changed.
+- **A second start.** While a dev OS runs from the same data folder, running the script again starts nothing and prints the pid and the `-Stop` command.
+  `-Stop` ends the watcher, the OS and the screens' dev server, by the pids it recorded (never by image name), and tells you what it ended.
+- **Logs.** `<DevRoot>\logs`: `os.log` (the OS), `os-build.log` (the build; its end holds the errors), `ui.log` (the screens' dev server).
+  A failure prints one plain line and names the log.
+- **Disk.** Below `-MinFreeGb` free GB (default 8) on the target folder's drive the script stops with one line instead of starting a build.
+- **Times.** The summary prints how long the start took. With `-OsWatch` each rebuild prints `OS rebuilt and restarted in N s` (about 5 s for a small change).
+  A change to the OS screens shows in under a second.
 
 Without `-AppUrl` the OS serves the page from the folder (files are read at every request; reload the page to see a change).
 
@@ -63,8 +74,10 @@ next good build starts the app again. An app you stopped yourself is left stoppe
 ## Infantry AI
 
 ```powershell
-# from the infantry-ai checkout: builds the library in dev form, lays the folder, starts the page's dev server and the dev OS
+# run from the infantry-ai checkout (a second checkout, next to BattalionOS): builds the library in dev form, lays the folder, starts the page's dev server and the dev OS
 scripts/bos-dev-app.ps1 -Os C:\path\to\BattalionOS [-Watch]
 ```
 
 `-Watch` rebuilds only the library when `rust/` changes and copies it into the folder; the OS restarts the app by itself.
+
+The two checkouts: `scripts/bos-dev.ps1` is run from the BattalionOS checkout; `scripts/bos-dev-app.ps1` is run from the infantry-ai checkout and is given the BattalionOS checkout with `-Os` (it calls `bos-dev.ps1` there).
