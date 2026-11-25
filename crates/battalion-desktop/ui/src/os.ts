@@ -99,6 +99,14 @@ const call = <T,>(cmd: string, args?: Record<string, unknown>) => tauri().core.i
 type TauriWindow = { minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; startDragging(): Promise<void>; startResizeDragging(d: string): Promise<void>; isMaximized(): Promise<boolean>; onResized(cb: () => void): Promise<() => void> };
 const win = () => (tauri() as unknown as { window: { getCurrentWindow(): TauriWindow } }).window.getCurrentWindow();
 
+/** BOS-31: a developer build says so (the window mark), and reports its dev apps' reloads and load failures. Absent in a release build. */
+export interface DevAppEvent { id: string; status: "started" | "restarted" | "failed"; ms?: number; error?: string }
+export const devMark = (): Promise<boolean> => (call<{ dev?: boolean }>("os_window_info").then((r) => r.dev === true, () => false));
+export const onDevApp = (cb: (e: DevAppEvent) => void): (() => void) => {
+  const sub = tauri().event.listen("os://dev-app", (e) => cb(e.payload as DevAppEvent));
+  return () => void sub.then((off) => off());
+};
+
 export const hostOs: Os = {
   window: {
     minimize: () => win().minimize(),

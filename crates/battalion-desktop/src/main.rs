@@ -22,6 +22,9 @@ fn main() {
     if let Some(plan) = battalion_host::firstrun::plan_path_beside_exe() {
         let _ = battalion_host::firstrun::seed_sources(&paths, &plan);
     }
+    // BOS-31, developer builds only: `--dev-app <folder> [--dev-url <loopback url>]` (repeatable) takes an app from its folder.
+    #[cfg(feature = "dev")]
+    let dev_ids = battalion_desktop::devmode::register_from_args(&paths, &std::env::args().skip(1).collect::<Vec<_>>());
     let host = Host::new(paths);
     // Started with `--open <app-id>` (a shortcut, the command line): the shell opens that app when it has loaded.
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -83,7 +86,9 @@ fn main() {
             os_update_check,
             os_update_install
         ])
-        .setup(|app| {
+        .setup(move |app| {
+            #[cfg(feature = "dev")]
+            battalion_desktop::devmode::start(app.handle(), &dev_ids);
             // Apps belong to the run that started them; a leftover of an older run is stopped by its recorded pid. This runs only
             // here, in the first instance: a second start is handed to the running one by the single-instance plugin before setup and
             // must never stop that one's apps (BOS-19).
@@ -119,12 +124,16 @@ fn main() {
                 // Start menu: one shortcut per installed app (after first run, which may have installed some).
                 tauri::async_runtime::block_on(battalion_desktop::commands::sync_shortcuts(&host));
             });
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("BattalionOS")
+            let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title(if battalion_host::dev::ENABLED { "BattalionOS (dev)" } else { "BattalionOS" })
                 .inner_size(1200.0, 800.0)
                 // BOS-27: no Windows title bar; the shell draws the bar (the OS's own, or the app's when it has one).
                 .decorations(false)
-                .build()?;
+                ;
+            // BOS-31, developer builds: the OS window's own web data, inside the dev data folder (never beside the exe or in a shared place).
+            #[cfg(feature = "dev")]
+            let win = win.data_directory(app.state::<Host>().paths.root().join("webview-os"));
+            win.build()?;
             Ok(())
         })
         .build(tauri::generate_context!())

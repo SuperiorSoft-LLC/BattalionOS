@@ -40,7 +40,8 @@ pub struct Page {
     pub version: String,
     pub origin: String,
     pub url: String,
-    _server: AppServer,
+    /// `None` when the page comes from a dev app's own dev server (BOS-31): nothing of ours serves it.
+    _server: Option<AppServer>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,18 +68,25 @@ pub fn page_of(paths: &Paths, sup: &Supervisor, pages: &Mutex<HashMap<String, Pa
         }
     }
     pages.remove(id); // drops the old server: its port is free for the new one
-    let vdir = paths.version_dir(id, &cur.version).map_err(|e| e.0)?;
+    let vdir = paths.content_dir(id, &cur.version).map_err(|e| e.0)?;
     let text = std::fs::read_to_string(vdir.join("app.json")).map_err(|e| e.to_string())?;
     let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))?;
     let ui = m.ui.as_ref().ok_or_else(|| format!("app '{id}' has no page"))?;
     let entry = ui.entry.trim_start_matches('/').to_string();
     let page_dir = std::path::Path::new(&entry).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf());
+    // BOS-31: a dev app with a dev server url shows that page (its own hot reload works); the same frame, origin check and
+    // permissions as an installed app. Only loopback (checked again here).
+    if let Some(u) = battalion_host::dev::load(paths, id).and_then(|d| d.dev_url) {
+        let origin = battalion_host::dev::dev_url_origin(&u)?;
+        pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: u.clone(), _server: None });
+        return Ok(PageInfo { id: id.into(), version: cur.version, origin, url: u });
+    }
     let port = battalion_host::uiport::port_for(paths, id).map_err(|e| e.to_string())?;
     let app_url = app_url_of(sup, id);
     let srv = AppServer::start_on(vdir, page_dir, ui.connect.clone(), port, Some(app_url)).map_err(|e| format!("the page of '{id}' could not be served on port {port}: {e}"))?;
     let origin = srv.origin();
     let url = format!("{origin}/{entry}");
-    pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: url.clone(), _server: srv });
+    pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: url.clone(), _server: Some(srv) });
     Ok(PageInfo { id: id.into(), version: cur.version, origin, url })
 }
 
@@ -87,7 +95,7 @@ pub fn page_exists(paths: &Paths, id: &str) -> Result<(), String> {
     let cur = battalion_host::Current::load(&paths.current_json(id).map_err(|e| e.0)?)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("app '{id}' is not installed"))?;
-    let vdir = paths.version_dir(id, &cur.version).map_err(|e| e.0)?;
+    let vdir = paths.content_dir(id, &cur.version).map_err(|e| e.0)?;
     let text = std::fs::read_to_string(vdir.join("app.json")).map_err(|e| e.to_string())?;
     let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))?;
     m.ui.as_ref().map(|_| ()).ok_or_else(|| format!("app '{id}' has no page"))
@@ -99,7 +107,7 @@ pub fn permissions_of(paths: &Paths, id: &str) -> Result<Vec<String>, String> {
     let cur = battalion_host::Current::load(&paths.current_json(id).map_err(|e| e.0)?)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("app '{id}' is not installed"))?;
-    let vdir = paths.version_dir(id, &cur.version).map_err(|e| e.0)?;
+    let vdir = paths.content_dir(id, &cur.version).map_err(|e| e.0)?;
     let text = std::fs::read_to_string(vdir.join("app.json")).map_err(|e| e.to_string())?;
     let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))?;
     Ok(m.permissions.clone())
@@ -123,7 +131,7 @@ pub fn open_app_window(app: &AppHandle, host: &Host, id: &str) -> Result<(), Str
     let cur = battalion_host::Current::load(&host.paths.current_json(id).map_err(|e| e.0)?)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("app '{id}' is not installed"))?;
-    let vdir = host.paths.version_dir(id, &cur.version).map_err(|e| e.0)?;
+    let vdir = host.paths.content_dir(id, &cur.version).map_err(|e| e.0)?;
     let text = std::fs::read_to_string(vdir.join("app.json")).map_err(|e| e.to_string())?;
     let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))?;
     let ui = m.ui.as_ref().ok_or_else(|| format!("app '{id}' has no window"))?;

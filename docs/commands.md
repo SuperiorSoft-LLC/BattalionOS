@@ -185,3 +185,8 @@ the Armory shows it as one row in Installed, with no Open and no Remove, and it 
 Event `os://os-update` (`{current, available}`): a check finished (when the Armory opens, and once a day). Progress of the install is
 `os://armory-progress` with `id` `battalionos`, `op` `update`. Test builds only (cargo feature `test-update`): `BATTALION_OS_UPDATE_FEED`
 and `BATTALION_OS_UPDATE_PUBKEY` replace the feed address and the key.
+
+## Developer builds (BOS-31)
+
+A build with the cargo feature `dev` (never a release build) adds: `os_window_info` answers `dev: true`; the event `os://dev-app` (`{id, status: started|restarted|failed, ms?, error?}`); and
+the command line `--dev-app <folder> [--dev-url <loopback url>]`. No command is added. See [develop-an-app.md](develop-an-app.md).

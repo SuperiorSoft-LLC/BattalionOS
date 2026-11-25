@@ -4,6 +4,7 @@
 //! Knows no app by name.
 
 pub mod armory;
+pub mod dev;
 pub mod firstrun;
 pub mod job;
 pub mod journal;

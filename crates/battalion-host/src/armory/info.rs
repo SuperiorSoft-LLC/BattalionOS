@@ -50,7 +50,7 @@ impl Armory {
             name: Option<String>,
             icon: Option<String>,
         }
-        let Ok(vdir) = self.paths.version_dir(id, version) else { return (None, None) };
+        let Ok(vdir) = self.paths.content_dir(id, version) else { return (None, None) };
         let Some(card) = std::fs::read_to_string(vdir.join("app.json")).ok().and_then(|t| serde_json::from_str::<Card>(&t).ok()) else { return (None, None) };
         let icon = card.icon.as_deref().filter(|p| safe_rel_path(p)).and_then(|rel| {
             let mime = mime_of(rel)?;

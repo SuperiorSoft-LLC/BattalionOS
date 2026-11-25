@@ -62,3 +62,5 @@ never shared with the OS or with another app.
 - A guard test (`crates/battalion-host/tests/line.rs`) fails if an OS crate depends on a plugin host, SDK or WIT
   crate, or if OS source carries the word (a type, field, command, route, event or UI text). This page is the
   only place the word may appear.
+
+Developing an app without packaging it: [develop-an-app.md](develop-an-app.md).

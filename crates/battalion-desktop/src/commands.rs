@@ -26,7 +26,8 @@ pub async fn os_window_info(window: WebviewWindow) -> R<Value> {
         Caller::App(id) => Value::String(id),
         _ => Value::Null,
     };
-    Ok(json!({"label": label, "app": app}))
+    // `dev` is true only in a developer build (BOS-31): the shell shows a "dev" mark.
+    Ok(json!({"label": label, "app": app, "dev": battalion_host::dev::ENABLED}))
 }
 
 #[tauri::command]

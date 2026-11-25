@@ -21,3 +21,7 @@ pub const FRAME_LOGIN_CLOSED: &str = "os://frame-login-closed";
 pub const OPEN_REQUEST: &str = "os://open-request";
 /// (BOS-30) `{current, available: {version, notes} | null}`: a check of the OS's own feed finished (the Armory shows it).
 pub const OS_UPDATE: &str = "os://os-update";
+
+/// `{id, status, ms?, error?}` (BOS-31, developer builds only): a dev app started (`started`), restarted after its library changed
+/// (`restarted`, `ms` from the change seen to ready) or did not start (`failed`, `error`; the watching goes on).
+pub const DEV_APP: &str = "os://dev-app";

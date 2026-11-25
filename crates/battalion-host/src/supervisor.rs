@@ -378,7 +378,7 @@ impl Supervisor {
         }
 
         let version = cur.version.clone();
-        let vdir = paths.version_dir(id, &version)?;
+        let vdir = paths.content_dir(id, &version)?;
         let manifest_text = std::fs::read_to_string(vdir.join("app.json")).map_err(io_err)?;
         let manifest = Manifest::parse(&manifest_text, &platform_key(), CONTRACT).map_err(|x| SupError::NotReady(format!("manifest: {x}")))?;
         let spec: &ProcessSpec = manifest.process_for(&platform_key()).ok_or(SupError::NoProcessPart)?;
@@ -388,9 +388,14 @@ impl Supervisor {
         // An app with a page gets the page's origin before it starts: one port that stays the same between runs, so the app
         // can let exactly that origin reach its socket and the page keeps its saved settings.
         let ui_origin = match manifest.ui {
-            Some(_) => Some(crate::uiport::origin_for(paths, id).map_err(io_err)?),
+            // A dev app with its own dev server: that server's origin is the page's origin (loopback only, checked at registration).
+            Some(_) => match crate::dev::load(paths, id).and_then(|d| d.dev_url) {
+                Some(u) => Some(crate::dev::dev_url_origin(&u).map_err(SupError::Io)?),
+                None => Some(crate::uiport::origin_for(paths, id).map_err(io_err)?),
+            },
             None => None,
         };
+        let library = crate::dev::library_to_load(paths, id, &vdir.join(&spec.library)).map_err(SupError::Io)?;
         let token = process::random_token();
         store::write_atomic(&run.join("token"), token.as_bytes()).map_err(io_err)?;
         let log = paths.logs().join(format!("{id}.log"));
@@ -407,6 +412,10 @@ impl Supervisor {
             })
             .collect();
         let mut envs: Vec<(String, String)> = spec.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        // BOS-31: what a developer registered for this dev app (a free port for its server, say) goes on top of its manifest's own.
+        if let Some(d) = crate::dev::load(paths, id) {
+            envs.extend(d.env);
+        }
         envs.extend([
             (env::CONTRACT.into(), CONTRACT.to_string()),
             (env::APP_ID.into(), id.into()),
@@ -433,7 +442,7 @@ impl Supervisor {
         };
         let spawn = process::spawn_worker(&WorkerSpec {
             exe: self.inner.worker_exe.clone(),
-            library: vdir.join(&spec.library),
+            library,
             env: envs,
             env_remove,
             cwd: vdir.clone(),
@@ -689,7 +698,9 @@ impl Supervisor {
 
 pub(crate) fn state_dir_of(m: &Manifest, paths: &Paths, id: &str) -> Result<PathBuf, SupError> {
     // A manifest that names its own folder wins (`state.dir.<os>`); the OS never deletes it.
-    let own = m.state.as_ref().and_then(|s| s.dir.get(std::env::consts::OS)).filter(|d| !d.is_empty());
+    // BOS-31: a dev app never uses the folder its manifest names (that is the installed app's real data): it has its own under the
+    // OS's own data folder.
+    let own = m.state.as_ref().and_then(|s| s.dir.get(std::env::consts::OS)).filter(|d| !d.is_empty()).filter(|_| crate::dev::load(paths, id).is_none());
     match own {
         Some(d) => Ok(PathBuf::from(expand_env(d))),
         None => Ok(paths.data_dir(id)?),

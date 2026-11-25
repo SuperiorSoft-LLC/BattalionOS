@@ -9,5 +9,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: "./",
   build: { outDir: "dist", rollupOptions: { input: { index: resolve(import.meta.dirname, "index.html"), login: resolve(import.meta.dirname, "login.html") } } },
+  // BOS-31: the dev server of the OS's own screens, on this PC's loopback only (never --host), on a port the dev script chooses.
+  server: { host: "127.0.0.1", port: Number(process.env.BOS_UI_PORT ?? 1431), strictPort: true },
   test: { include: ["test/**/*.test.ts"], environment: "node" },
 });

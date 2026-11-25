@@ -15,5 +15,7 @@ pub mod webview2;
 
 #[cfg(feature = "gui")]
 pub mod commands;
+#[cfg(feature = "dev")]
+pub mod devmode;
 #[cfg(feature = "gui")]
 pub mod host;

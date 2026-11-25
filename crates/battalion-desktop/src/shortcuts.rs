@@ -24,7 +24,7 @@ pub fn wanted(paths: &Paths, armory: &Armory) -> Vec<Want> {
     list.into_iter()
         .filter(|a| a.state != "removing")
         .map(|a| {
-            let icon = paths.version_dir(&a.id, &a.version).ok().and_then(|v| ico_of(&v));
+            let icon = paths.content_dir(&a.id, &a.version).ok().and_then(|v| ico_of(&v));
             Want { name: a.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| a.id.clone()), id: a.id, icon }
         })
         .collect()

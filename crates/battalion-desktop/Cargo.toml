@@ -10,6 +10,8 @@ build = "build.rs"
 default = ["gui"]
 # The Tauri part. Without it the crate is the pure logic (labels, access, scheme server), fast to test.
 test-update = []
+# BOS-31 developer mode (compile time; never in a release build): an app from a folder, live reload, its own identity.
+dev = ["battalion-host/dev"]
 gui = ["dep:tauri", "dep:tauri-plugin-single-instance", "dep:tauri-build", "dep:rfd", "dep:open"]
 
 [dependencies]

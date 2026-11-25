@@ -17,6 +17,8 @@ ureq = "2"
 libloading = "0.7"
 
 [features]
+# BOS-31 developer mode: an app from a folder, live reload. Never in a release build.
+dev = []
 # Tests only: BATTALION_KILL_AT=<journal step> ends the process at that step (a power cut).
 crash-points = []
 
