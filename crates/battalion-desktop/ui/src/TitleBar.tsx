@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 // The OS window has no Windows title bar: this is its bar, always on top (desktop, Armory, first run, above any open app). The look is
-// the old Infantry AI bar (black, thin border, 40px high, 44px buttons), copied here; nothing is imported from an app. The bar is a Tauri
+// the old app bar (black, thin border, 40px high, 44px buttons), copied here; nothing is imported from an app. The bar is a Tauri
 // drag region (drag, double click to maximize). The window edges and corners are thin strips above everything (a frame would swallow the
 // pointer), so the window resizes from every side, also where an app's frame reaches the edge.
 import { Boxes, Minus, Square, X } from "lucide-react";

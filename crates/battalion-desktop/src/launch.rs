@@ -68,8 +68,8 @@ mod tests {
     }
     #[test]
     fn open_takes_the_id_and_ignores_the_rest() {
-        assert_eq!(open_request(&s(&["--open", "infantry-ai"])), Some("infantry-ai".into()));
-        assert_eq!(open_request(&s(&["--x", "--open=infantry-ai", "--y"])), Some("infantry-ai".into()));
+        assert_eq!(open_request(&s(&["--open", "demo-app"])), Some("demo-app".into()));
+        assert_eq!(open_request(&s(&["--x", "--open=demo-app", "--y"])), Some("demo-app".into()));
         assert_eq!(open_request(&s(&["--popout", "--open", "a-b", "junk"])), Some("a-b".into()));
         assert_eq!(open_request(&s(&["--open"])), None);
         assert_eq!(open_request(&s(&[])), None);
@@ -82,7 +82,7 @@ mod tests {
     }
     #[test]
     fn file_names_are_one_safe_segment() {
-        assert_eq!(shortcut_file("Infantry AI"), "Infantry AI.lnk");
+        assert_eq!(shortcut_file("Demo App"), "Demo App.lnk");
         assert_eq!(shortcut_file(r"a/b\c:d"), "a b c d.lnk");
         assert_eq!(shortcut_file("  ..  "), "App.lnk");
     }

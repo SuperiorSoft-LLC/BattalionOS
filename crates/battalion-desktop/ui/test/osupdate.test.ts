@@ -25,8 +25,8 @@ describe("the BattalionOS row", () => {
   });
   it("confirms in words and names an app that reports work in flight", () => {
     expect(confirmText(info({ running: ["a"] }))).toBe("BattalionOS restarts; every running app stops first and starts again.");
-    const t = confirmText(info({ running: ["a", "b"], busy: [{ id: "a", name: "Infantry AI", busy: 2 }] }));
-    expect(t).toContain("Infantry AI reports work in flight");
+    const t = confirmText(info({ running: ["a", "b"], busy: [{ id: "a", name: "Demo App", busy: 2 }] }));
+    expect(t).toContain("Demo App reports work in flight");
   });
   it("a failed update says why and can be tried again", async () => {
     const seen: OsPhase[] = [];
