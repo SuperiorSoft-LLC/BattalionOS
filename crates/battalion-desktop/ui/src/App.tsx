@@ -9,7 +9,7 @@ import { Desktop } from "./Desktop";
 import { FirstRun } from "./FirstRun";
 import { errText, type ArmoryOp, type Os } from "./os";
 import { armoryHasUpdate, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
-import { appView, barItems, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
+import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
 import { ResizeEdges, TitleBar } from "./TitleBar";
 
@@ -67,8 +67,9 @@ export function App({ os }: { os: Os }) {
         // The host checks the app and says `os://app-open`; the view shows "Starting…" while a stopped app starts.
         await os.openAppWindow(id);
         dispatch({ type: "view-open", id });
-        const v = appView(m, id);
-        if (v.kind === "installed" && !v.running) {
+        // The list this callback holds can be older than the app (the first open of a new window, a fresh install): read it again.
+        const fresh = m.installed.some((a) => a.id === id) ? m : reduce(m, { type: "installed-loaded", apps: await os.listApps() });
+        if (needsStart(fresh, id)) {
           void loadInstalled();
           await os.startApp(id);
         }

@@ -276,6 +276,42 @@ pub fn log_tail(path: &Path, max: usize) -> String {
     String::from_utf8_lossy(&b[from..]).trim().to_string()
 }
 
+/// The app's last plain reason line: the last non-empty line of its log, without a leading `[tag] ` of the app's own log
+/// (kept only when the line is nothing else). Empty when the log has no text. Names no app and no wording.
+pub fn reason_line(log_text: &str) -> String {
+    let line = log_text.lines().map(str::trim).filter(|l| !l.is_empty()).last().unwrap_or("");
+    if let Some(rest) = line.strip_prefix('[').and_then(|r| r.split_once(']')).map(|(_, r)| r.trim()) {
+        if !rest.is_empty() {
+            return rest.to_string();
+        }
+    }
+    line.chars().take(400).collect()
+}
+
+/// What the person reads when a worker exits before it is ready: the app's last plain reason line, or a plain fallback.
+pub fn exit_reason(path: &Path) -> String {
+    let r = reason_line(&log_tail(path, 4000));
+    if r.is_empty() { "exited before it was ready (it wrote no reason).".to_string() } else { r }
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::reason_line;
+    #[test]
+    fn last_plain_line_without_the_apps_log_tag() {
+        let log = "[app] starting
+[app] refusing to start (code 3)
+The app is already running with this data. End it, then press Retry.
+";
+        assert_eq!(reason_line(log), "The app is already running with this data. End it, then press Retry.");
+        assert_eq!(reason_line("[app] could not open the data folder
+"), "could not open the data folder");
+        assert_eq!(reason_line("[only a tag]
+"), "[only a tag]");
+        assert_eq!(reason_line(""), "");
+    }
+}
+
 /// 32 hex characters from the OS-seeded hasher: a per-start secret for the stop call.
 pub fn random_token() -> String {
     use std::hash::{BuildHasher, Hasher};

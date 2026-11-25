@@ -133,6 +133,10 @@ export function appView(m: Model, id: string): AppView {
   return { kind: "available" };
 }
 
+/** BOS-32: opening an installed app that is not running starts it. Decided on a model that HAS the app: a window that has just
+ *  opened (`--open <id>`, the first start) holds an empty list until the first read, and would otherwise skip the start. */
+export const needsStart = (m: Model, id: string): boolean => { const v = appView(m, id); return v.kind === "installed" && !v.running; };
+
 /** The installed apps that get a desktop icon: any state but absent and being removed. */
 export const desktopIds = (m: Model): string[] => m.installed.filter((a) => a.state !== "absent" && a.state !== "removing").map((a) => a.id);
 

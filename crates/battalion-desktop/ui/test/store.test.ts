@@ -2,12 +2,22 @@
 import { describe, expect, it } from "vitest";
 import { normalizeCatalog, type AppStateName, type Catalog, type InstalledApp } from "../src/os";
 import { place } from "../src/grid";
-import { appLabel, appView, availableOf, browseIds, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems } from "../src/store";
+import { appLabel, appView, availableOf, browseIds, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems, needsStart } from "../src/store";
 
 const app = (id: string, state: AppStateName): InstalledApp => ({ id, version: "1.0.0", state, channel: "stable" });
 const cat = (over: Partial<Catalog> = {}): Catalog => ({ apps: [{ id: "notes", source: "s", compatible: true }, { id: "old-one", source: "s", compatible: false }], rejected: [], sourceErrors: [], fromCache: false, ...over });
 const withInstalled = (...apps: InstalledApp[]): Model => reduce(initial, { type: "installed-loaded", apps });
 const err = (e: unknown) => String(e);
+
+describe("opening an app (BOS-32)", () => {
+  it("a stopped app is started; a running one and an unknown one are not", () => {
+    expect(needsStart(withInstalled(app("notes", "stopped")), "notes")).toBe(true);
+    expect(needsStart(withInstalled(app("notes", "running")), "notes")).toBe(false);
+    // The first open of a window: the list was not read yet, so the app is unknown (this is why the first open used to need Retry).
+    expect(needsStart(initial, "notes")).toBe(false);
+    expect(needsStart(reduce(initial, { type: "installed-loaded", apps: [app("notes", "stopped")] }), "notes")).toBe(true);
+  });
+});
 
 describe("app states", () => {
   const cases: [AppStateName, string][] = [

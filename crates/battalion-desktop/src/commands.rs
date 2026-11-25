@@ -56,7 +56,7 @@ pub async fn os_list_apps(window: WebviewWindow, app: AppHandle, host: State<'_,
 pub async fn os_app_status(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
     authorize_app(window.label(), &id).map_err(|e| e.to_string())?;
     let sup = host.sup.clone();
-    let s = blocking(move || sup.status(&id)).await?.map_err(|e| format!("{e:?}"))?;
+    let s = blocking(move || sup.status(&id)).await?.map_err(|e| e.to_string())?;
     Ok(status_json(&s))
 }
 
@@ -64,7 +64,7 @@ pub async fn os_app_status(window: WebviewWindow, host: State<'_, Host>, id: Str
 pub async fn os_app_health(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
     authorize_app(window.label(), &id).map_err(|e| e.to_string())?;
     let sup = host.sup.clone();
-    let h = blocking(move || sup.health(&id)).await?.map_err(|e| format!("{e:?}"))?;
+    let h = blocking(move || sup.health(&id)).await?.map_err(|e| e.to_string())?;
     Ok(json!(format!("{h:?}")))
 }
 
@@ -72,7 +72,7 @@ pub async fn os_app_health(window: WebviewWindow, host: State<'_, Host>, id: Str
 pub async fn os_start_app(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
     authorize_shell(window.label(), "os_start_app").map_err(|e| e.to_string())?;
     let sup = host.sup.clone();
-    let s = blocking(move || sup.start(&id)).await?.map_err(|e| format!("{e:?}"))?;
+    let s = blocking(move || sup.start(&id)).await?.map_err(|e| e.to_string())?;
     Ok(status_json(&s))
 }
 
@@ -81,7 +81,7 @@ pub async fn os_stop_app(window: WebviewWindow, app: AppHandle, host: State<'_, 
     authorize_shell(window.label(), "os_stop_app").map_err(|e| e.to_string())?;
     let sup = host.sup.clone();
     let id2 = id.clone();
-    let s = blocking(move || sup.stop(&id)).await?.map_err(|e| format!("{e:?}"))?;
+    let s = blocking(move || sup.stop(&id)).await?.map_err(|e| e.to_string())?;
     if host.badges.set(&id2, None) {
         paint_badge(&app, &id2, None);
     }

@@ -465,8 +465,8 @@ impl Supervisor {
                 }
             }
             if !process::is_alive(&worker.id) {
-                let tail = process::log_tail(&log, 400);
-                return self.fail_start(&mut cur, &cur_path, &run, Some(&worker), e, format!("exited before it was ready. {tail}"));
+                let why = process::exit_reason(&log);
+                return self.fail_start(&mut cur, &cur_path, &run, Some(&worker), e, why);
             }
             if Instant::now() >= deadline {
                 return self.fail_start(&mut cur, &cur_path, &run, Some(&worker), e, format!("no ready file after {} ms", spec.ready_timeout_ms));
