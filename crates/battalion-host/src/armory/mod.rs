@@ -25,6 +25,7 @@ pub mod catalog;
 pub mod exit;
 pub mod info;
 pub mod install;
+pub mod osupdate;
 pub mod package;
 pub mod progress;
 pub mod recover;

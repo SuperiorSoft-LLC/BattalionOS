@@ -265,6 +265,7 @@ dependencies = [
 name = "battalion-host"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "battalion-app-api",
  "battalion-host",
  "blake2",
