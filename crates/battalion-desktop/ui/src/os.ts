@@ -20,6 +20,7 @@ export interface InstalledApp {
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
 export interface AppPage { id: string; version: string; origin: string; url: string }
+import type { OsUpdateInfo } from "./osUpdate";
 export type ArmoryOp= "install" | "update" | "rollback" | "remove";
 /** `os://armory-progress`: bytes, total and percent only while the stage is `download`. */
 export interface ArmoryProgress { id: string; op: ArmoryOp; stage: string; bytes?: number | null; total?: number | null; percent?: number | null }
@@ -74,6 +75,14 @@ export interface Os {
   onChange(cb: () => void): () => void;
   /** Install, update, rollback and remove progress; returns the unsubscribe. */
   onProgress(cb: (p: ArmoryProgress) => void): () => void;
+  /** BOS-30: what the OS knows about its own update (`os_update_state`; no network). */
+  osUpdateState(): Promise<OsUpdateInfo>;
+  /** Read the OS feed now (`os_update_check`). A missing feed is not an error: the answer is what was known. */
+  osUpdateCheck(): Promise<OsUpdateInfo>;
+  /** Download, verify, stop the apps, install, start again (`os_update_install`). Returns only when it did not work. */
+  osUpdateInstall(): Promise<void>;
+  /** A check of the OS feed finished (`os://os-update`); returns the unsubscribe. */
+  onOsUpdate(cb: (i: OsUpdateInfo) => void): () => void;
 }
 
 interface Tauri {
@@ -144,6 +153,13 @@ export const hostOs: Os = {
   },
   onProgress(cb) {
     const sub = tauri().event.listen("os://armory-progress", (e) => cb(e.payload as ArmoryProgress));
+    return () => void sub.then((off) => off());
+  },
+  osUpdateState: () => call("os_update_state"),
+  osUpdateCheck: () => call("os_update_check"),
+  osUpdateInstall: async () => void (await call("os_update_install")),
+  onOsUpdate(cb) {
+    const sub = tauri().event.listen("os://os-update", (e) => cb(e.payload as OsUpdateInfo));
     return () => void sub.then((off) => off());
   },
 };

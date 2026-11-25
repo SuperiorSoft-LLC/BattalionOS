@@ -29,6 +29,9 @@ const COMMANDS: &[&str] = &[
     "os_frame_login_open",
     "os_frame_login_close",
     "os_take_open_request",
+    "os_update_state",
+    "os_update_check",
+    "os_update_install",
 ];
 
 fn main() {

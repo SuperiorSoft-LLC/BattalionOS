@@ -23,13 +23,15 @@ pub struct Host {
     pub badges: crate::badge::Badges,
     /// The app a start from outside asked for (`--open <id>`), until the shell takes it (BOS-19).
     pub open_request: Mutex<Option<String>>,
+    /// BOS-30: the newer BattalionOS the last check found, and whether an install runs.
+    pub os_update: Mutex<crate::osupdate::OsUpdateState>,
 }
 
 impl Host {
     pub fn new(paths: Paths) -> Host {
         let sup = Supervisor::new(paths.clone());
         let armory = std::sync::Arc::new(Armory::new(paths.clone(), sup.clone(), env!("CARGO_PKG_VERSION")));
-        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default(), open_request: Mutex::new(None) }
+        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default(), open_request: Mutex::new(None), os_update: Default::default() }
     }
 }
 

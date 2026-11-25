@@ -119,3 +119,30 @@ fn the_window_has_no_windows_title_bar_and_only_main_may_drive_it() {
         assert!(!app.contains(&format!("allow-{c}\"")) || c == "close", "{c} is not for app windows");
     }
 }
+
+#[test]
+fn the_os_update_commands_are_shell_only_and_never_granted_to_an_app_window() {
+    // BOS-30: only the shell window may read, check or run an update of the OS itself.
+    let app = read("capabilities/app.json");
+    let main = read("capabilities/main.json");
+    let src = read("src/commands.rs");
+    for (name, perm) in [("os_update_state", "os-update-state"), ("os_update_check", "os-update-check"), ("os_update_install", "os-update-install")] {
+        assert!(main.contains(&format!("allow-{perm}\"")), "main is granted {name}");
+        assert!(!app.contains(perm), "{name} is not for app windows");
+        let body = src.split(&format!("pub async fn {name}(")).nth(1).unwrap().split("#[tauri::command]").next().unwrap();
+        assert!(body.contains("authorize_shell("), "{name} is for the shell only");
+    }
+}
+
+#[test]
+fn a_release_build_has_no_door_to_another_feed_or_key() {
+    // BOS-30: the feed and key overrides exist only behind the `test-update` feature, and the release workflow never names it.
+    let src = read("src/osupdate.rs");
+    let code: String = src.split("#[cfg(test)]").next().unwrap().lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    for var in ["BATTALION_OS_UPDATE_FEED", "BATTALION_OS_UPDATE_PUBKEY"] {
+        let at = code.find(var).expect("the override is there");
+        assert!(code[..at].rfind("#[cfg(feature = \"test-update\")]").is_some_and(|f| at - f < 200), "{var} must sit behind the test-update feature");
+    }
+    assert!(!read("Cargo.toml").contains("default = [\"gui\", \"test-update\"]"), "test-update is not a default feature");
+    assert!(read("Cargo.toml").contains("default = [\"gui\"]"));
+}

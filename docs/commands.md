@@ -170,3 +170,18 @@ update, rollback or remove, and at every start. The map of what it wrote is `sho
 | `os_take_open_request` | | main | the app id of a pending `--open`, once, else `null` |
 
 Event `os://open-request`: a second start asked for an app; the shell calls `os_take_open_request`.
+
+## BattalionOS updates itself (BOS-30)
+
+The OS has its own signed feed (`latest.json`, address and key as data in `tauri.conf.json`, `plugins.updater`). It is not an app:
+the Armory shows it as one row in Installed, with no Open and no Remove, and it is never an argument of an app command.
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_update_state` | | main | `{current, available: {version, notes} \| null, installing, busy: [{id, name, busy}], running: [id]}`; no network |
+| `os_update_check` | | main | the same, after reading the feed. No feed, 404 or offline: `available` stays as it was, no error |
+| `os_update_install` | | main | downloads and verifies the signature first; only then stops every app, starts the installer (per user, no admin) and ends the OS. The installer starts the OS again; the apps that ran start again. A bad signature, a broken download or a failed stop is an error and nothing was stopped |
+
+Event `os://os-update` (`{current, available}`): a check finished (when the Armory opens, and once a day). Progress of the install is
+`os://armory-progress` with `id` `battalionos`, `op` `update`. Test builds only (cargo feature `test-update`): `BATTALION_OS_UPDATE_FEED`
+and `BATTALION_OS_UPDATE_PUBKEY` replace the feed address and the key.

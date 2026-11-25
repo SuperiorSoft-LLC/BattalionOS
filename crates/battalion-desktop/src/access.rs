@@ -44,7 +44,8 @@ impl std::fmt::Display for Denied {
 }
 
 pub fn app_label(id: &str) -> Result<String, Denied> {
-    if valid_id(id) {
+    // BOS-30: "battalionos" is the Armory row of the OS itself. It is not an app: no app command (remove, start, open) takes it.
+    if valid_id(id) && id != crate::osupdate::OS_ROW {
         Ok(format!("{APP_PREFIX}{id}"))
     } else {
         Err(Denied::BadAppId(id.to_string()))
@@ -64,7 +65,7 @@ pub fn caller_of(label: &str) -> Result<Caller, Denied> {
 
 /// May the window `label` act on app `target`? Main: any app. An app window: only itself. Login: none.
 pub fn authorize_app(label: &str, target: &str) -> Result<(), Denied> {
-    if !valid_id(target) {
+    if !valid_id(target) || target == crate::osupdate::OS_ROW {
         return Err(Denied::BadAppId(target.to_string()));
     }
     match caller_of(label)? {
@@ -125,6 +126,22 @@ mod tests {
         assert!(authorize_self("main", "os_badge").is_err());
         assert!(authorize_self("login", "os_badge").is_err());
         assert!(authorize_self("app-../x", "os_badge").is_err());
+    }
+    #[test]
+    fn the_os_row_is_not_an_app() {
+        // BOS-30: no app command can name the BattalionOS row, so it cannot be removed, started, stopped or opened as an app.
+        assert!(matches!(app_label("battalionos"), Err(Denied::BadAppId(_))));
+        assert!(matches!(authorize_app("main", "battalionos"), Err(Denied::BadAppId(_))));
+    }
+    #[test]
+    fn the_update_commands_are_for_the_shell_only() {
+        // BOS-30: an app window, the sign-in window or an unknown one may not read, check or run an OS update.
+        for c in ["os_update_state", "os_update_check", "os_update_install"] {
+            assert_eq!(authorize_shell("main", c), Ok(()));
+            for who in ["app-aa", "login", "evil"] {
+                assert!(authorize_shell(who, c).is_err(), "{who} must not call {c}");
+            }
+        }
     }
     #[test]
     fn labels_must_be_well_formed() {

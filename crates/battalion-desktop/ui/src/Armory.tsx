@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button, Chip, EmptyState, ListRow, ProgressLine, RefusalBanner, Tabs, TabsContent, TabsList, TabsTrigger } from "../kit";
 import { AppIcon } from "./AppIcon";
 import type { ArmoryOp } from "./os";
+import { confirmText, osRowActions, OS_ROW, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, availableOf, browseIds, desktopIds, iconOf, labelOf, offline, previousOf, progressOf, type Model } from "./store";
 
 export interface ArmoryActions {
@@ -132,7 +133,73 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
   );
 }
 
-export function Armory({ m, a }: { m: Model; a: ArmoryActions }) {
+/** What the BattalionOS row needs: what the OS knows, how the last action went, and the two things it can do. */
+export interface OsRowProps {
+  info: OsUpdateInfo | null;
+  phase: OsPhase;
+  install(): void;
+  dismiss(): void;
+}
+
+/** BOS-30: BattalionOS itself in Installed. Not an app: its version, "Update to X" (confirmed in words), progress, a plain error with
+ *  Retry. No Open, no Remove. */
+function OsRow({ m, os }: { m: Model; os: OsRowProps }) {
+  const [confirm, setConfirm] = useState(false);
+  if (!os.info) return null;
+  const info = os.info;
+  const working = os.phase.kind === "working" || info.installing;
+  const actions = osRowActions(info, os.phase);
+  return (
+    <div className="flex flex-col gap-1" data-installed={OS_ROW}>
+      <ListRow
+        row={{ id: OS_ROW, title: "BattalionOS", subtitle: `version ${info.current}` }}
+        icon={<Boxes className="size-5" />}
+        trailing={
+          <span className="flex items-center gap-1">
+            {info.available && !working && <Chip tone="amber">Update {info.available.version}</Chip>}
+            {working && <Chip tone="blue">{progressOf(m, OS_ROW)?.text ?? "Updating…"}</Chip>}
+            {!info.available && !working && <Chip tone="green">Up to date</Chip>}
+            {actions.map((label) => (
+              <Button key={label} size="xs" onClick={() => setConfirm(true)} aria-label={label}>
+                {label}
+              </Button>
+            ))}
+          </span>
+        }
+      />
+      {confirm && !working && (
+        <div role="alertdialog" aria-label="Update BattalionOS" className="flex flex-col gap-2 rounded-lg border bg-card p-3">
+          <p className="text-sm">{confirmText(info)}</p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                setConfirm(false);
+                os.install();
+              }}
+            >
+              Update and restart
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirm(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {working && <Progress m={m} id={OS_ROW} fallback="Updating" />}
+      {os.phase.kind === "failed" && (
+        <div className="flex flex-col gap-1">
+          <RefusalBanner text={`Update failed: ${os.phase.error}`} onDismiss={os.dismiss} />
+          <Button size="sm" variant="outline" className="self-start" onClick={() => os.install()}>
+            Retry
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: OsRowProps }) {
   const [page, setPage] = useState<string | null>(null);
   const off = offline(m);
   const browse = browseIds(m);
@@ -220,6 +287,7 @@ export function Armory({ m, a }: { m: Model; a: ArmoryActions }) {
               {browse.map(browseRow)}
             </TabsContent>
             <TabsContent value="installed" className="mt-3 flex flex-col gap-2">
+              {osRow && <OsRow m={m} os={osRow} />}
               {installed.length === 0 && <EmptyState icon={<Boxes />} title="Nothing installed yet" hint="Install an app from Browse and it appears on the desktop." />}
               {installed.map(installedRow)}
             </TabsContent>

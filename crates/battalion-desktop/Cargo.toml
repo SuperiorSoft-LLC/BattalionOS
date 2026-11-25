@@ -9,6 +9,7 @@ build = "build.rs"
 [features]
 default = ["gui"]
 # The Tauri part. Without it the crate is the pure logic (labels, access, scheme server), fast to test.
+test-update = []
 gui = ["dep:tauri", "dep:tauri-plugin-single-instance", "dep:tauri-build", "dep:rfd", "dep:open"]
 
 [dependencies]

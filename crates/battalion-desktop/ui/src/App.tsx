@@ -8,6 +8,7 @@ import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
 import { FirstRun } from "./FirstRun";
 import { errText, type ArmoryOp, type Os } from "./os";
+import { armoryHasUpdate, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, barItems, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
 import { ResizeEdges, TitleBar } from "./TitleBar";
@@ -16,6 +17,8 @@ export function App({ os }: { os: Os }) {
   const [m, dispatch] = useReducer(reduce, initial);
   const [armory, setArmory] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [osInfo, setOsInfo] = useState<OsUpdateInfo | null>(null);
+  const [osPhase, setOsPhase] = useState<OsPhase>({ kind: "idle" });
 
   const loadInstalled = useCallback(async () => {
     try {
@@ -39,7 +42,11 @@ export function App({ os }: { os: Os }) {
     const offChange = os.onChange(() => void loadInstalled());
     const offProgress = os.onProgress((p) => dispatch({ type: "progress", p }));
     const offOpen = os.onOpen((id) => dispatch({ type: "view-open", id }));
+    // BOS-30: the OS's own update. A host without it (or a feed that is down) leaves the row hidden; nothing is shown as an error.
+    void os.osUpdateState().then(setOsInfo, () => {});
+    const offOs = os.onOsUpdate(setOsInfo);
     return () => {
+      offOs();
       offChange();
       offProgress();
       offOpen();
@@ -123,7 +130,7 @@ export function App({ os }: { os: Os }) {
 
   const ids = useMemo(() => desktopIds(m), [m]);
   const icons = useMemo(() => iconIds(m), [m]);
-  const openArmory = useCallback(() => { setArmory(true); void loadCatalog(); }, [loadCatalog]);
+  const openArmory = useCallback(() => { setArmory(true); void loadCatalog(); void os.osUpdateCheck().then(setOsInfo, () => {}); }, [loadCatalog, os]);
   const view = useCallback((id: string) => appView(m, id), [m]);
   const label = useCallback((id: string) => (id === ARMORY_ICON ? "Armory" : labelOf(m, id)), [m]);
   const icon = useCallback((id: string) => iconOf(m, id), [m]);
@@ -135,11 +142,11 @@ export function App({ os }: { os: Os }) {
       <div className="px-3 pt-2 empty:hidden">
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
-      <Desktop ids={icons} view={view} label={label} icon={icon} badge={(id) => m.installed.find((a) => a.id === id)?.badge ?? null} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
+      <Desktop ids={icons} view={view} label={label} icon={icon} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
         <AppFrames m={m} os={os} close={closeView} minimize={minimize} retry={(id) => void retry(id)} />
         {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
-        {armory && <Armory m={m} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
+        {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
       <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} />
     </div>

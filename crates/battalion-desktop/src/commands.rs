@@ -449,3 +449,126 @@ pub async fn os_first_run_retry(window: WebviewWindow, app: AppHandle, host: Sta
     .await?;
     Ok(json!({"outcome": format!("{out:?}")}))
 }
+
+// ---- BOS-30: BattalionOS updates itself ------------------------------------------------------------------------------------
+
+fn os_version(app: &AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// What the Armory shows about the OS: the version, a newer one if the last check found it, and what the confirm needs to name
+/// (apps that report work in flight, apps that will be stopped). Never reads the network.
+async fn os_update_json(app: &AppHandle, host: &Host) -> Value {
+    let (available, installing) = {
+        let s = host.os_update.lock().unwrap_or_else(|p| p.into_inner());
+        (s.available.clone(), s.installing)
+    };
+    let a = host.armory.clone();
+    let (busy, running) = blocking(move || (a.os_busy_apps(), a.os_running_apps())).await.unwrap_or_default();
+    json!({"current": os_version(app), "available": available.map(|u| json!({"version": u.version, "notes": u.notes})), "installing": installing, "busy": busy, "running": running})
+}
+
+/// What the OS knows about its own update now. No network.
+#[tauri::command]
+pub async fn os_update_state(window: WebviewWindow, app: AppHandle, host: State<'_, Host>) -> R<Value> {
+    authorize_shell(window.label(), "os_update_state").map_err(|e| e.to_string())?;
+    Ok(os_update_json(&app, &host).await)
+}
+
+/// Read the OS's own feed. A feed that is missing, 404, offline or broken is not an error here: the Armory keeps working and
+/// the answer is what was known before.
+#[tauri::command]
+pub async fn os_update_check(window: WebviewWindow, app: AppHandle, host: State<'_, Host>) -> R<Value> {
+    authorize_shell(window.label(), "os_update_check").map_err(|e| e.to_string())?;
+    check_os_update(&app, &host).await;
+    Ok(os_update_json(&app, &host).await)
+}
+
+/// One check of the feed; the result is kept in the host and told to the shell. Used by the command and by the daily timer.
+pub async fn check_os_update(app: &AppHandle, host: &Host) {
+    let Some(feed) = crate::osupdate::feed() else { return };
+    let (a, cur) = (host.armory.clone(), os_version(app));
+    // Only a real read changes what is known: "nothing newer" clears it, an error (no feed, 404, offline) keeps it.
+    match blocking(move || a.os_check(&feed, &cur)).await {
+        Ok(Ok(found)) => host.os_update.lock().unwrap_or_else(|p| p.into_inner()).available = found,
+        Ok(Err(e)) => eprintln!("os update check: {e}"),
+        Err(e) => eprintln!("os update check: {e}"),
+    }
+    let state = os_update_json(app, host).await;
+    let _ = app.emit(crate::events::OS_UPDATE, state);
+}
+
+/// Update BattalionOS: download and verify the signature BEFORE anything stops, then stop every app the normal way, hand over to the
+/// installer and end. A bad signature, a broken download or an app that will not stop is an error and the running version, and its
+/// apps, are as they were. The installer (per user, no admin) starts the OS again; the apps that ran start again at that start.
+#[tauri::command]
+pub async fn os_update_install(window: WebviewWindow, app: AppHandle, host: State<'_, Host>) -> R<Value> {
+    authorize_shell(window.label(), "os_update_install").map_err(|e| e.to_string())?;
+    let (upd, feed) = {
+        let mut s = host.os_update.lock().unwrap_or_else(|p| p.into_inner());
+        if s.installing {
+            return Err("an update is already running".into());
+        }
+        let upd = s.available.clone().ok_or("there is no newer BattalionOS to install")?;
+        s.installing = true;
+        (upd, crate::osupdate::feed().ok_or("this build has no update feed")?)
+    };
+    let a = host.armory.clone();
+    let app2 = app.clone();
+    let upd2 = upd.clone();
+    let r = blocking(move || {
+        let mut last = 0u8;
+        let r = a.os_prepare(&feed, &upd2, &mut |got, total| {
+            let pct = if total > 0 { Some((got.min(total) * 100 / total) as u8) } else { None };
+            if pct.is_some() && pct == Some(last) {
+                return;
+            }
+            last = pct.unwrap_or(0);
+            let _ = app2.emit(crate::events::ARMORY_PROGRESS, json!({"id": crate::osupdate::OS_ROW, "op": "update", "stage": "download", "bytes": got, "total": if total > 0 { json!(total) } else { Value::Null }, "percent": pct}));
+        });
+        if r.is_ok() {
+            let _ = app2.emit(crate::events::ARMORY_PROGRESS, json!({"id": crate::osupdate::OS_ROW, "op": "update", "stage": "install"}));
+        }
+        r
+    })
+    .await?;
+    let finish_err = |host: &Host| host.os_update.lock().unwrap_or_else(|p| p.into_inner()).installing = false;
+    let (msi, stopped) = match r {
+        Ok(x) => x,
+        Err(e) => {
+            finish_err(&host);
+            return Err(e.to_string());
+        }
+    };
+    // Every app is stopped. Hand over: a hidden helper outlives this process, waits for it to end, runs the installer and
+    // starts the OS again. When it cannot even start, the apps start again here and the OS goes on as it was.
+    if let Err(e) = spawn_installer(&msi) {
+        let a = host.armory.clone();
+        let _ = blocking(move || a.os_resume_apps()).await;
+        finish_err(&host);
+        return Err(format!("could not start the installer: {e}"));
+    }
+    let _ = stopped;
+    app.exit(0);
+    Ok(json!({"ok": true}))
+}
+
+#[cfg(windows)]
+fn spawn_installer(msi: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    let exe = std::env::current_exe()?;
+    // CREATE_NO_WINDOW | DETACHED_PROCESS: no console, and it outlives this process.
+    std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &crate::osupdate::installer_script()])
+        .env("BOS_UPD_PID", std::process::id().to_string())
+        .env("BOS_UPD_MSI", msi)
+        .env("BOS_UPD_EXE", exe)
+        .creation_flags(0x0800_0000 | 0x0000_0008)
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(not(windows))]
+fn spawn_installer(_msi: &std::path::Path) -> std::io::Result<()> {
+    Err(std::io::Error::other("updating BattalionOS in place is only done on Windows for now"))
+}

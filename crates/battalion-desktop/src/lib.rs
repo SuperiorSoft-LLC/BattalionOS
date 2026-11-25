@@ -7,6 +7,7 @@ pub mod badge;
 pub mod events;
 pub mod frame_calls;
 pub mod launch;
+pub mod osupdate;
 pub mod serve;
 #[cfg(feature = "gui")]
 pub mod shortcuts;

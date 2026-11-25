@@ -78,7 +78,10 @@ fn main() {
             os_frame_open_external,
             os_frame_login_open,
             os_frame_login_close,
-            os_take_open_request
+            os_take_open_request,
+            os_update_state,
+            os_update_check,
+            os_update_install
         ])
         .setup(|app| {
             // Apps belong to the run that started them; a leftover of an older run is stopped by its recorded pid. This runs only
@@ -95,6 +98,19 @@ fn main() {
                 let _ = tauri::Emitter::emit(&handle, battalion_desktop::events::ARMORY_PROGRESS, p);
             });
             app.state::<Host>().armory.set_progress_sink(Some(sink));
+            // BOS-30: an OS update stopped the apps and wrote the list of what ran; this start (the new version, or the old one
+            // after an installer that was cancelled) starts them again. Then the OS checks its own feed, and once a day after that.
+            let h3 = app.handle().clone();
+            std::thread::spawn(move || {
+                let host = h3.state::<Host>();
+                for (id, e) in host.armory.os_resume_apps() {
+                    eprintln!("start {id} after the update: {e}");
+                }
+                loop {
+                    tauri::async_runtime::block_on(battalion_desktop::commands::check_os_update(&h3, &host));
+                    std::thread::sleep(std::time::Duration::from_secs(battalion_desktop::osupdate::CHECK_EVERY_SECS));
+                }
+            });
             // First open: install what the installer asked for (its checkbox), in the background, with progress events.
             let h2 = app.handle().clone();
             std::thread::spawn(move || {

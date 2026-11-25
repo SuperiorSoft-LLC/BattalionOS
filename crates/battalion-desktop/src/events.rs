@@ -19,3 +19,5 @@ pub const FRAME_LOGIN_URL: &str = "os://frame-login-url";
 pub const FRAME_LOGIN_CLOSED: &str = "os://frame-login-closed";
 /// (BOS-19) A start from outside asked for app `id` (`--open <id>`): the shell asks `os_take_open_request` and opens it.
 pub const OPEN_REQUEST: &str = "os://open-request";
+/// (BOS-30) `{current, available: {version, notes} | null}`: a check of the OS's own feed finished (the Armory shows it).
+pub const OS_UPDATE: &str = "os://os-update";
