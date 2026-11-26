@@ -23,10 +23,11 @@ describe("the BattalionOS row", () => {
     expect(armoryHasUpdate([app("a")], info())).toBe(true);
     expect(armoryHasUpdate([app("a", "2.0.0")], null)).toBe(true);
   });
-  it("confirms in words and names an app that reports work in flight", () => {
+  it("confirms in words and names an app that is still busy", () => {
     expect(confirmText(info({ running: ["a"] }))).toBe("BattalionOS restarts; every running app stops first and starts again.");
     const t = confirmText(info({ running: ["a", "b"], busy: [{ id: "a", name: "Demo App", busy: 2 }] }));
-    expect(t).toContain("Demo App reports work in flight");
+    expect(t).toContain("Demo App is finishing current work, which would be cut short.");
+    expect(t).not.toMatch(/in flight|unit/);
   });
   it("a failed update says why and can be tried again", async () => {
     const seen: OsPhase[] = [];

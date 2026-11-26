@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Drives the fixture the way the OS will: BATTALION_* env, ready file, health, stop.
 
-use battalion_app_api::{env, Health, ReadyFile};
+use battalion_app_api::{Health, ReadyFile};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -17,6 +17,7 @@ impl Drop for Run {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -27,13 +28,15 @@ fn start(mode: &str, extra: &[&str]) -> Run {
     std::fs::create_dir_all(&dir).unwrap();
     let ready = dir.join("ready.json");
     std::fs::write(dir.join("token"), "s3cret").unwrap();
+    let args: Vec<&str> = [&["--mode", mode][..], extra].concat();
+    let ctx = serde_json::json!({
+        "contract": 1, "abi": battalion_app_api::abi::ABI_VERSION, "appId": "demo-app", "appVersion": "0.0.0",
+        "appDir": dir, "stateDir": dir.join("state"), "readyFile": ready, "tokenFile": dir.join("token"),
+        "args": args,
+    });
     let child = Command::new(env!("CARGO_BIN_EXE_demo-app"))
-        .args(["--mode", mode])
-        .args(extra)
-        .env(env::CONTRACT, "1")
-        .env(env::STATE_DIR, dir.join("state"))
-        .env(env::READY_FILE, &ready)
-        .env(env::TOKEN_FILE, dir.join("token"))
+        .arg(ctx.to_string())
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -64,17 +67,19 @@ fn http(url: &str, req: &str, timeout: Duration) -> Option<(u16, String)> {
 }
 
 #[test]
-fn normal_is_ready_healthy_and_stops_only_with_the_token() {
+fn normal_is_ready_healthy_and_stops_when_the_os_says_stop() {
     let mut r = start("normal", &[]);
     let ready = ReadyFile::parse(&wait_ready(&r, Duration::from_secs(10)).expect("ready file"), 1).unwrap();
     assert_eq!(ready.pid, r.child.id());
     let (code, body) = http(&ready.url, "GET /health HTTP/1.1", Duration::from_secs(2)).unwrap();
     let h: Health = serde_json::from_str(&body).unwrap();
     assert!(code == 200 && h.ok && h.busy == Some(0) && h.detail.unwrap().starts_with("counter="));
-    assert_eq!(http(&ready.url, "POST /stop HTTP/1.1", Duration::from_secs(2)).unwrap().0, 401, "no bearer, no stop");
+    // Since BOS-18 the OS stops a library app with `battalion_app_stop`, not over HTTP: a POST /stop does nothing.
+    http(&ready.url, "POST /stop HTTP/1.1
+Authorization: Bearer s3cret", Duration::from_secs(2)).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
     assert!(r.child.try_wait().unwrap().is_none());
-    let (code, _) = http(&ready.url, "POST /stop HTTP/1.1\r\nAuthorization: Bearer s3cret", Duration::from_secs(2)).unwrap();
-    assert_eq!(code, 200);
+    writeln!(r.child.stdin.as_mut().unwrap(), "stop").unwrap();
     let t = Instant::now();
     while r.child.try_wait().unwrap().is_none() {
         assert!(t.elapsed() < Duration::from_secs(5), "did not exit after stop");
@@ -129,8 +134,11 @@ fn wrong_contract_is_refused_by_the_ready_parser() {
 
 #[test]
 fn init_creates_its_marker_in_the_state_dir() {
-    let r = start("normal", &["--init"]);
-    let mut r = r;
-    assert!(r.child.wait().unwrap().success());
-    assert!(r.dir.join("state").join("init.done").exists());
+    // Since BOS-18 the init part is the package's helper program (the app runs it), not a flag of the app.
+    let dir = std::env::temp_dir().join(format!("bos-demo-init-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let ok = Command::new(env!("CARGO_BIN_EXE_demo-helper")).arg("--init").env(battalion_app_api::env::STATE_DIR, dir.join("state")).status().unwrap();
+    assert!(ok.success());
+    assert!(dir.join("state").join("init.done").exists());
+    let _ = std::fs::remove_dir_all(&dir);
 }

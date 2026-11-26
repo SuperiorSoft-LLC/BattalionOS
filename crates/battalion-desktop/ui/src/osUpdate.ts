@@ -9,7 +9,7 @@ export interface OsUpdateInfo {
   current: string;
   available: { version: string; notes: string } | null;
   installing: boolean;
-  /** Running apps that report work in flight. */
+  /** Running apps that are still doing something (health `busy` above 0). */
   busy: { id: string; name: string; busy: number }[];
   running: string[];
 }
@@ -27,12 +27,12 @@ export function armoryHasUpdate(installed: InstalledApp[], info: OsUpdateInfo | 
   return !!info?.available || installed.some((a) => !!a.available);
 }
 
-/** The confirm, in words: the restart, the apps that stop first, and the apps with work in flight by name. */
+/** The confirm, in words: the restart, the apps that stop first, and, by name, the apps still busy. */
 export function confirmText(info: OsUpdateInfo): string {
   const stop = info.running.length > 0 ? "BattalionOS restarts; every running app stops first and starts again." : "BattalionOS restarts.";
   if (info.busy.length === 0) return stop;
   const names = info.busy.map((b) => b.name).join(", ");
-  return `${stop} ${names} ${info.busy.length === 1 ? "reports" : "report"} work in flight, which would be interrupted.`;
+  return `${stop} ${names} ${info.busy.length === 1 ? "is" : "are"} finishing current work, which would be cut short.`;
 }
 
 export interface OsUpdateApi {

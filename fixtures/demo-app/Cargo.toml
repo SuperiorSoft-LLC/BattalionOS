@@ -7,10 +7,16 @@ description = "Fixture app for the contract v1 tests: a library the OS runs on i
 
 [lib]
 name = "demo_app"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 # A helper program of the package, run by the app itself (never by the OS): the init part and a
 # long sleeper the app starts as its own child (to prove the whole group ends with the app).
+# A test runner (BOS-WORDING-1): runs the library in its own process from a context JSON given as an argument,
+# so tests/modes.rs can drive each mode, crash and abort included, the way the OS worker does.
+[[bin]]
+name = "demo-app"
+path = "src/main.rs"
+
 [[bin]]
 name = "demo-helper"
 path = "src/helper.rs"
