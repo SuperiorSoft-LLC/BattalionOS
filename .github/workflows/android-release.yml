@@ -1,5 +1,8 @@
 # BattalionOS Android test build: a signed arm64 APK of crates/battalion-android, published to a GitHub release of
-# THIS repo and to this repo's own update feed. Started by hand only (workflow_dispatch).
+# THIS repo and to this repo's own update feed. Started by hand (workflow_dispatch) or by pushing an annotated tag
+# bos-android-v<version> (a tag push runs the workflow from the tagged commit, so it need not be on the default branch).
+# Tag push: version = the tag name without "bos-android-v"; versionCode = major*10000 + minor*100 + patch
+# (0.1.1 -> 101; minor and patch must stay below 100; a -suffix is not allowed on a tag push).
 #
 # Rules:
 #   1. The release keystore comes from CI secrets only: BOS_ANDROID_KEYSTORE_B64, BOS_ANDROID_KEYSTORE_PASSWORD,
@@ -12,6 +15,8 @@
 name: android-release
 
 on:
+  push:
+    tags: ['bos-android-v*']
   workflow_dispatch:
     inputs:
       version:
@@ -33,14 +38,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      VERSION: ${{ inputs.version }}
-      VERSION_CODE: ${{ inputs.version_code }}
+      IN_VERSION: ${{ inputs.version }}
+      IN_VERSION_CODE: ${{ inputs.version_code }}
       KS_B64: ${{ secrets.BOS_ANDROID_KEYSTORE_B64 }}
       KS_PASS: ${{ secrets.BOS_ANDROID_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.BOS_ANDROID_KEY_ALIAS }}
       KEY_PASS: ${{ secrets.BOS_ANDROID_KEY_PASSWORD }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Version from the inputs or the tag
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            v="${GITHUB_REF_NAME#bos-android-v}"
+            [[ "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "::error::tag $GITHUB_REF_NAME is not bos-android-v<major>.<minor>.<patch>"; exit 1; }
+            ma=$((10#${BASH_REMATCH[1]})); mi=$((10#${BASH_REMATCH[2]})); pa=$((10#${BASH_REMATCH[3]}))
+            (( mi < 100 && pa < 100 )) || { echo "::error::minor and patch must be below 100 for the versionCode rule"; exit 1; }
+            vc=$(( ma*10000 + mi*100 + pa ))
+          else
+            v="$IN_VERSION"; vc="$IN_VERSION_CODE"
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"; echo "VERSION_CODE=$vc" >> "$GITHUB_ENV"
+          echo "version $v, versionCode $vc"
       - name: Require the signing secrets and a plain version
         run: |
           set -euo pipefail
