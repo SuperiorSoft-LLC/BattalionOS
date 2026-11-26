@@ -3,13 +3,13 @@
 # ("com.google.firebase.components:<class>" meta-data, e.g. ML Kit's registrars behind os_scan_code) must survive R8
 # with its no-argument constructor and the ComponentRegistrar interface. Usage: check-release-apk.sh <apk> [build-tools dir]
 set -euo pipefail
-apk="$1"
+apk="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"   # absolute: the unzip below runs from a temp dir
 bt="${2:-${ANDROID_HOME:?set ANDROID_HOME or pass the build-tools dir}/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)}"
 ext=""; [ -x "$bt/aapt2.exe" ] && ext=".exe"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 regs="$("$bt/aapt2$ext" dump xmltree --file AndroidManifest.xml "$(cygpath -w "$apk" 2>/dev/null || echo "$apk")" | grep -o '"com.google.firebase.components:[^"]*"' | sed 's/"com.google.firebase.components://; s/"$//' | sort -u)"
 [ -n "$regs" ] || { echo "check-release-apk: no component registrars in the manifest of $apk (is ML Kit still linked?)"; exit 1; }
-(cd "$tmp" && unzip -q -o "$(cd "$(dirname "$apk")" && pwd)/$(basename "$apk")" 'classes*.dex')
+(cd "$tmp" && unzip -q -o "$apk" 'classes*.dex')
 for d in "$tmp"/classes*.dex; do "$bt/dexdump$ext" "$(cygpath -w "$d" 2>/dev/null || echo "$d")"; done > "$tmp/dump.txt"
 bad=0
 for c in $regs; do
