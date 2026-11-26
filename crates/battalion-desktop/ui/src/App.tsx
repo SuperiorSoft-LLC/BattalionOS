@@ -18,6 +18,7 @@ import { ResizeEdges, TitleBar } from "./TitleBar";
 export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => Promise<string | null> }) {
   const [m, dispatch] = useReducer(reduce, initial);
   const [armory, setArmory] = useState(false);
+  const [start, setStart] = useState(false);
   // AND-UI-1: the layout follows the host's platform. Until it answers the shell is the desktop one (Windows is unchanged).
   const [layout, setLayout] = useState<Layout>("desktop");
   useEffect(() => void platform().then((p) => setLayout(layoutFor(p, navigator.userAgent))), [platform]);
@@ -140,10 +141,11 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const hideWindow = useCallback(() => { closeNoticeSeen(localStorage); setCloseNotice(false); void os.window.close(); }, [os]);
   const closeWindow = useCallback(() => (closeAsks(localStorage) ? setCloseNotice(true) : void os.window.close()), [os]);
 
-  // The back gesture on a phone: the Armory closes first, then an open app goes back to the desktop (it keeps its state).
-  useBackGesture(phone, backStep(armory, m.active) !== null, () => {
-    const step = backStep(armory, m.active);
-    if (step === "close-armory") setArmory(false);
+  // The back gesture on a phone: the Start menu closes first, then the Armory, then an open app goes back to the desktop (it keeps its state).
+  useBackGesture(phone, backStep(armory, m.active, start) !== null, () => {
+    const step = backStep(armory, m.active, start);
+    if (step === "close-start") setStart(false);
+    else if (step === "close-armory") setArmory(false);
     else if (step === "to-desktop" && m.active) minimize(m.active);
   });
 
@@ -176,7 +178,7 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} phone={phone} />
+      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} />
     </div>
   );
 }
