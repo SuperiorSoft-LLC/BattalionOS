@@ -171,6 +171,9 @@ struct Entry {
     /// Bumped by every start and stop; a monitor thread of an older value ends itself.
     gen: AtomicU64,
     paused: AtomicBool,
+    /// AND-1: the app runs as its page only (a `ui` and no process part for this platform): no worker,
+    /// no health, nothing to restart. Same states as a process app (starting, running, stopping, stopped).
+    page: AtomicBool,
     restarts: AtomicU32,
     last_error: Mutex<Option<String>>,
 }
@@ -189,6 +192,11 @@ pub struct Supervisor {
 }
 
 pub fn platform_key() -> String {
+    // AND-1: an Android OS runs pages only (no native app content), so every Android device (the x86_64
+    // emulator too) takes the feed's one `android-aarch64` package.
+    if cfg!(target_os = "android") {
+        return "android-aarch64".into();
+    }
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
@@ -295,7 +303,7 @@ impl Supervisor {
         let _op = e.op.lock().unwrap();
         let cur_path = self.inner.paths.current_json(id)?;
         let Some(mut cur) = Current::load(&cur_path).map_err(io_err)? else { return Ok(false) };
-        if e.live.lock().unwrap().is_some() {
+        if e.live.lock().unwrap().is_some() || e.page.load(Ordering::SeqCst) {
             return Ok(false); // ours, this run
         }
         let run = self.run_dir(id)?;
@@ -321,7 +329,7 @@ impl Supervisor {
     /// The OS exits: stop every running app cleanly (the app's `stop`, the timeout, then the job).
     /// Returns (id, error) of an app that could not be stopped; the exit goes on regardless.
     pub fn stop_all(&self) -> Vec<(String, String)> {
-        let ids: Vec<String> = self.inner.apps.lock().unwrap().iter().filter(|(_, e)| e.live.lock().unwrap().is_some()).map(|(k, _)| k.clone()).collect();
+        let ids: Vec<String> = self.inner.apps.lock().unwrap().iter().filter(|(_, e)| e.live.lock().unwrap().is_some() || e.page.load(Ordering::SeqCst)).map(|(k, _)| k.clone()).collect();
         let mut failed = Vec::new();
         for id in ids {
             if let Err(e) = self.stop(&id) {
@@ -338,7 +346,7 @@ impl Supervisor {
         let st = &self.inner.settings;
         let cur_path = paths.current_json(id)?;
         let mut cur = Current::load(&cur_path).map_err(io_err)?.ok_or_else(|| SupError::NotInstalled(id.into()))?;
-        if e.live.lock().unwrap().is_some() {
+        if e.live.lock().unwrap().is_some() || e.page.load(Ordering::SeqCst) {
             return Err(SupError::WrongState(format!("app '{id}' is already running")));
         }
         let app_lock = match Lock::try_acquire(&paths.app_lock(id)?) {
@@ -381,7 +389,20 @@ impl Supervisor {
         let vdir = paths.content_dir(id, &version)?;
         let manifest_text = std::fs::read_to_string(vdir.join("app.json")).map_err(io_err)?;
         let manifest = Manifest::parse(&manifest_text, &platform_key(), CONTRACT).map_err(|x| SupError::NotReady(format!("manifest: {x}")))?;
-        let spec: &ProcessSpec = manifest.process_for(&platform_key()).ok_or(SupError::NoProcessPart)?;
+        let Some(spec) = manifest.process_for(&platform_key()) else {
+            // AND-1 page runner: an app with a page and no process part for this platform opens as its page.
+            if manifest.ui.is_none() {
+                return Err(SupError::NoProcessPart);
+            }
+            std::fs::create_dir_all(state_dir_of(&manifest, paths, id)?).map_err(io_err)?;
+            cur.transition(&cur_path, AppState::Starting).map_err(io_err)?;
+            cur.transition(&cur_path, AppState::Running).map_err(io_err)?;
+            *e.last_error.lock().unwrap() = None;
+            e.page.store(true, Ordering::SeqCst);
+            drop(app_lock);
+            return Ok(());
+        };
+        let spec: &ProcessSpec = spec;
 
         let state_dir = state_dir_of(&manifest, paths, id)?;
         std::fs::create_dir_all(&state_dir).map_err(io_err)?;
@@ -517,6 +538,16 @@ impl Supervisor {
         let cur_path = self.inner.paths.current_json(id)?;
         let mut cur = Current::load(&cur_path).map_err(io_err)?.ok_or_else(|| SupError::NotInstalled(id.into()))?;
         let run = self.run_dir(id)?;
+        if e.page.swap(false, Ordering::SeqCst) {
+            // A page-only app: nothing to end but its state.
+            if cur.state == AppState::Running {
+                cur.transition(&cur_path, AppState::Stopping).map_err(io_err)?;
+            }
+            if cur.state == AppState::Stopping {
+                cur.transition(&cur_path, AppState::Stopped).map_err(io_err)?;
+            }
+            return Ok(());
+        }
         let live = e.live.lock().unwrap().clone();
         // `live` = a worker of this run. Without it only a leftover of an older run can be ours: the
         // record and the OS must agree on pid and start time.

@@ -542,3 +542,35 @@ fn an_app_with_a_page_gets_one_origin_that_stays_and_only_that_origin_gets_in() 
     assert!(!h.paths.ui_port_file("app-plain").unwrap().exists(), "no port is kept for an app without a page");
     h.sup().stop("app-plain").unwrap();
 }
+
+/// AND-1: an app with a page and no process part for this platform opens as its page (no worker),
+/// stops by state, and a second start is refused like any running app. Without a page it is refused.
+#[test]
+fn a_page_only_app_runs_as_its_page_and_stops() {
+    let h = Home::new("page-only");
+    let install = |id: &str, ui: bool| {
+        let vdir = h.paths.version_dir(id, "1.0.0").unwrap();
+        std::fs::create_dir_all(vdir.join("ui")).unwrap();
+        std::fs::write(vdir.join("ui/index.html"), "<p>page</p>").unwrap();
+        let mut m = serde_json::json!({ "manifest": 1, "id": id, "name": id, "version": "1.0.0", "contract": { "min": 1, "max": 1 } });
+        if ui {
+            m["ui"] = serde_json::json!({ "entry": "ui/index.html" });
+        }
+        std::fs::write(vdir.join("app.json"), m.to_string()).unwrap();
+        let cur = Current { version: "1.0.0".into(), previous: None, state: AppState::Stopped, public_key: String::new() };
+        store::write_json(&h.paths.current_json(id).unwrap(), &cur).unwrap();
+    };
+    install("page-app", true);
+    install("bare-app", false);
+    let s = h.sup();
+    let st = s.start("page-app").unwrap();
+    assert_eq!(st.state, "running");
+    assert_eq!(st.pid, None);
+    assert_eq!(h.state("page-app"), AppState::Running);
+    assert!(matches!(s.start("page-app"), Err(SupError::WrongState(_))));
+    assert_eq!(s.stop("page-app").unwrap().state, "stopped");
+    assert_eq!(s.start("page-app").unwrap().state, "running");
+    assert!(s.stop_all().is_empty());
+    assert_eq!(h.state("page-app"), AppState::Stopped);
+    assert!(s.start("bare-app").is_err(), "an app with no page and no process part never runs");
+}

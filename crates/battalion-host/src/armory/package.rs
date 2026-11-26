@@ -11,7 +11,7 @@ use battalion_app_api::manifest::safe_rel_path;
 use battalion_app_api::{CatalogApp, Feed, FeedPlatform, Manifest, ManifestError, CONTRACT};
 use minisign_verify::{PublicKey, Signature};
 use progress::Progress;
-use std::io::Write;
+use std::io::{Read, Write};
 
 impl Armory {
     /// Checks that need no download: the app's and the feed's contract, then the platform entry.
@@ -206,6 +206,9 @@ impl Armory {
             steps("unpack")?;
             self.unpack(&part, &dir)?;
             let m = self.check_manifest(&dir, &app.id, &feed.version)?;
+            if self.settings.pages_only {
+                pages_only_check(&dir, &m)?;
+            }
             Ok(m)
         })();
         let _ = std::fs::remove_file(&part);
@@ -217,4 +220,43 @@ impl Armory {
             }
         }
     }
+}
+
+/// AND-1: what a pages-only OS (Android) refuses in an unpacked package: an `init` program, and any file
+/// whose first bytes say it is native code (judged by content, never by name).
+pub fn pages_only_check(dir: &Path, m: &Manifest) -> Result<()> {
+    if m.init.is_some() {
+        return Err(ArmoryError::PagesOnly("the app runs a program at install (init)".into()));
+    }
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d)?.flatten() {
+            let p = e.path();
+            if e.file_type()?.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let mut head = [0u8; 8];
+            let n = std::fs::File::open(&p)?.read(&mut head)?;
+            if let Some(kind) = native_kind(&head[..n]) {
+                let rel = p.strip_prefix(dir).unwrap_or(&p).display().to_string().replace('\\', "/");
+                return Err(ArmoryError::PagesOnly(format!("the package holds native code ({kind}: {rel})")));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The kind of native content these first bytes start, if any.
+pub fn native_kind(head: &[u8]) -> Option<&'static str> {
+    const KINDS: &[(&[u8], &str)] = &[
+        (b"\x7fELF", "ELF library or program"),
+        (b"dex\n", "Android dex code"),
+        (b"PK\x03\x04", "JAR or APK archive"),
+        (b"MZ", "Windows DLL or EXE"),
+        (b"\xcf\xfa\xed\xfe", "Mach-O program"),
+        (b"\xce\xfa\xed\xfe", "Mach-O program"),
+        (b"\xca\xfe\xba\xbe", "Java class or Mach-O program"),
+    ];
+    KINDS.iter().find(|(m, _)| head.starts_with(m)).map(|(_, k)| *k)
 }

@@ -811,3 +811,24 @@ fn the_os_exit_stops_every_app_cleanly() {
         assert!(!process::pid_running(pid), "{id} ended with the OS");
     }
 }
+
+/// AND-1: an OS that runs pages only (Android) refuses an app with `init` and a package with native content,
+/// leaving nothing installed and staging empty. Native content is judged by magic bytes, not by name.
+#[test]
+fn a_pages_only_os_refuses_init_and_native_content() {
+    use battalion_host::armory::package::native_kind;
+    let w = World::new("pages-only");
+    let st = || Settings { pages_only: true, ..w.settings() };
+    w.publish(&Pkg { init: true, ..Pkg::new("init-one", "1.0.0") });
+    let err = w.armory_with(st(), None).install("init-one", "stable").unwrap_err();
+    assert!(matches!(&err, ArmoryError::PagesOnly(m) if m.contains("init")), "{err:?}");
+    assert!(err.to_string().contains("runs app pages only"));
+    assert!(w.absent("init-one") && w.staging_is_empty());
+    w.publish(&Pkg::new("native-one", "1.0.0")); // carries the demo library (a DLL/ELF)
+    let err = w.armory_with(st(), None).install("native-one", "stable").unwrap_err();
+    assert!(matches!(&err, ArmoryError::PagesOnly(m) if m.contains("native code")), "{err:?}");
+    assert!(w.absent("native-one") && w.staging_is_empty());
+    for (head, native) in [(&b"\x7fELF\x02\x01"[..], true), (b"dex\n035\0", true), (b"PK\x03\x04", true), (b"MZ\x90\0", true), (b"<!doctype html>", false), (b"\0asm\x01\0\0\0", false), (b"", false)] {
+        assert_eq!(native_kind(head).is_some(), native, "{head:?}");
+    }
+}

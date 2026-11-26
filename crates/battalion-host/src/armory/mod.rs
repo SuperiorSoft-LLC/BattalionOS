@@ -69,6 +69,9 @@ pub struct Settings {
     /// Ask a running app whether it is busy before an update; a busy app is not updated.
     pub check_busy: bool,
     pub http_timeout_ms: u64,
+    /// AND-1: this OS runs app pages only (Android): a package with native content (ELF, dex, JAR/APK,
+    /// DLL/EXE, Mach-O by magic bytes) and an app with `init` are refused. Default: on for Android, off elsewhere.
+    pub pages_only: bool,
 }
 
 impl Default for Settings {
@@ -85,6 +88,7 @@ impl Default for Settings {
             init_timeout_ms: 120_000,
             check_busy: true,
             http_timeout_ms: 30_000,
+            pages_only: cfg!(target_os = "android"),
         }
     }
 }
@@ -145,6 +149,8 @@ pub enum ArmoryError {
     SchemaBump { from: u32, to: u32 },
     NoPrevious,
     Init(String),
+    /// AND-1: refused on a platform that runs app pages only; the text says why.
+    PagesOnly(String),
     Io(String),
 }
 
@@ -160,6 +166,7 @@ impl std::fmt::Display for ArmoryError {
             Catalog(m) => write!(f, "catalog: {m}"),
             Feed(m) => write!(f, "feed: {m}"),
             NoPlatform(p) => write!(f, "the feed has no package for {p}"),
+            PagesOnly(m) => write!(f, "not installed: {m}; on this device BattalionOS runs app pages only"),
             ContractNotSupported { id, os, min, max } => write!(f, "app '{id}' needs contract {min}..{max}, this OS speaks {os}"),
             OsTooOld { need, have } => write!(f, "the app needs OS {need} or newer, this is {have}"),
             TooLarge { what, limit } => write!(f, "{what} is larger than the limit of {limit} bytes"),
