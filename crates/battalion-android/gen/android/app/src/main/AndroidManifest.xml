@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- AND-4: an app's notices (os_notify, permission `notifications` in its app.json); asked at the first notice. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- BOS-AND-SELFUPDATE-1: BattalionOS installs its own update (Android asks the person once, OsUpdate.kt). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- AND-4: os_open_external asks Android which app opens a link (package visibility, API 30+). -->
     <queries>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
@@ -73,6 +75,10 @@
             android:theme="@style/Theme.battalion_android"
             android:exported="false" />
         <service android:name=".SlotHubService" android:exported="false" />
+        <!-- BOS-AND-SELFUPDATE-1: once Android replaced BattalionOS, a notice (or, on older Android, the OS itself) opens it again. -->
+        <receiver android:name=".OsUpdatedReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+        </receiver>
 
         <provider
           android:name="androidx.core.content.FileProvider"

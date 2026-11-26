@@ -15,6 +15,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 battalion-desktop = { path = "../battalion-desktop" }
 battalion-host = { path = "../battalion-host" }
 tauri = { version = "2.12.6", features = [] }
+serde_json.workspace = true
+
+[features]
+# BOS-AND-SELFUPDATE-1 proof builds only: read the OS feed named at build time by BOS_ANDROID_TEST_FEED (loopback http).
+test-update = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

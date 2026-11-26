@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-update-later"
+description = "Enables the os_update_later command without any pre-configured scope."
+commands.allow = ["os_update_later"]
+
+[[permission]]
+identifier = "deny-os-update-later"
+description = "Denies the os_update_later command without any pre-configured scope."
+commands.deny = ["os_update_later"]

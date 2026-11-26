@@ -35,6 +35,7 @@ const COMMANDS: &[&str] = &[
     "os_update_state",
     "os_update_check",
     "os_update_install",
+    "os_update_abort",
 ];
 
 fn main() {

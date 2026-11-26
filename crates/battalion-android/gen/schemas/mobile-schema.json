@@ -339,6 +339,12 @@
           "markdownDescription": "Enables the os_take_open_request command without any pre-configured scope."
         },
         {
+          "description": "Enables the os_update_abort command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-os-update-abort",
+          "markdownDescription": "Enables the os_update_abort command without any pre-configured scope."
+        },
+        {
           "description": "Enables the os_update_app command without any pre-configured scope.",
           "type": "string",
           "const": "allow-os-update-app",
@@ -355,6 +361,12 @@
           "type": "string",
           "const": "allow-os-update-install",
           "markdownDescription": "Enables the os_update_install command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the os_update_later command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-os-update-later",
+          "markdownDescription": "Enables the os_update_later command without any pre-configured scope."
         },
         {
           "description": "Enables the os_update_state command without any pre-configured scope.",
@@ -531,6 +543,12 @@
           "markdownDescription": "Denies the os_take_open_request command without any pre-configured scope."
         },
         {
+          "description": "Denies the os_update_abort command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-os-update-abort",
+          "markdownDescription": "Denies the os_update_abort command without any pre-configured scope."
+        },
+        {
           "description": "Denies the os_update_app command without any pre-configured scope.",
           "type": "string",
           "const": "deny-os-update-app",
@@ -547,6 +565,12 @@
           "type": "string",
           "const": "deny-os-update-install",
           "markdownDescription": "Denies the os_update_install command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the os_update_later command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-os-update-later",
+          "markdownDescription": "Denies the os_update_later command without any pre-configured scope."
         },
         {
           "description": "Denies the os_update_state command without any pre-configured scope.",

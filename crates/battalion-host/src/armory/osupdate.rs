@@ -28,6 +28,26 @@ pub struct OsUpdate {
     pub url: String,
     #[serde(skip)]
     pub signature: String,
+    /// BOS-AND-SELFUPDATE-1: the APK's sha256 (hex) from an Android feed; empty for a signed desktop installer.
+    #[serde(skip)]
+    pub sha256: String,
+}
+
+/// BOS-AND-SELFUPDATE-1: where BattalionOS on Android looks for itself: `bos-android.json` (written by
+/// `.github/workflows/android-release.yml`: `{version, versionCode, url, sha256, commit}`). The APK is checked against the
+/// feed's sha256 here; Android itself (and the OS's install step) checks that its signing certificate is the installed one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApkFeed {
+    pub url: String,
+    /// Test builds only (cargo feature `test-update` of battalion-android): read a loopback `http:` feed and APK.
+    pub allow_loopback_http: bool,
+}
+
+#[derive(Deserialize)]
+struct ApkLatest {
+    version: String,
+    url: String,
+    sha256: String,
 }
 
 /// An app that reports work in flight.
@@ -79,7 +99,7 @@ impl Armory {
             return Ok(None);
         }
         let plat = latest.platforms.get(&format!("{}-msi", feed.platform)).or_else(|| latest.platforms.get(&feed.platform)).ok_or_else(|| ArmoryError::NoPlatform(feed.platform.clone()))?;
-        Ok(Some(OsUpdate { version: latest.version, notes: latest.notes, url: plat.url.clone(), signature: plat.signature.clone() }))
+        Ok(Some(OsUpdate { version: latest.version, notes: latest.notes, url: plat.url.clone(), signature: plat.signature.clone(), sha256: String::new() }))
     }
 
     /// Download the installer into `<home>/staging` and check its signature against the pinned key. A bad signature, a short
@@ -96,28 +116,36 @@ impl Armory {
         r.map(|_| dest)
     }
 
-    fn os_download(&self, feed: &OsFeed, upd: &OsUpdate, dest: &Path, on_bytes: &mut dyn FnMut(u64, u64)) -> Result<()> {
-        let mut rd = self.fetcher.open(&upd.url).map_err(|e| ArmoryError::Fetch { url: upd.url.clone(), reason: e.to_string() })?;
+    /// Stream `url` into `dest` (capped at `MAX_OS_PACKAGE`); returns the sha256 (hex) of what was written.
+    fn os_fetch_to(&self, fetcher: &dyn Fetcher, url: &str, dest: &Path, what: &'static str, on_bytes: &mut dyn FnMut(u64, u64)) -> Result<String> {
+        let mut rd = fetcher.open(url).map_err(|e| ArmoryError::Fetch { url: url.to_string(), reason: e.to_string() })?;
         let mut out = std::fs::File::create(dest)?;
         let (mut buf, mut got) = (vec![0u8; 64 * 1024], 0u64);
+        let mut hash = Sha256::new();
         let mut pace = progress::Pace::new();
         loop {
-            let n = rd.read(&mut buf).map_err(|e| ArmoryError::Fetch { url: upd.url.clone(), reason: format!("connection lost after {got} bytes: {e}") })?;
+            let n = rd.read(&mut buf).map_err(|e| ArmoryError::Fetch { url: url.to_string(), reason: format!("connection lost after {got} bytes: {e}") })?;
             if n == 0 {
                 break;
             }
             got += n as u64;
             if got > MAX_OS_PACKAGE {
-                return Err(ArmoryError::TooLarge { what: "installer", limit: MAX_OS_PACKAGE });
+                return Err(ArmoryError::TooLarge { what, limit: MAX_OS_PACKAGE });
             }
             out.write_all(&buf[..n])?;
+            hash.update(&buf[..n]);
             if pace.tick(got, 0).is_some() {
                 on_bytes(got, 0);
             }
         }
         out.sync_all()?;
         on_bytes(got, got);
-        drop(out);
+        Ok(hex(&hash.finalize()))
+    }
+
+    fn os_download(&self, feed: &OsFeed, upd: &OsUpdate, dest: &Path, on_bytes: &mut dyn FnMut(u64, u64)) -> Result<()> {
+        self.os_fetch_to(&*self.fetcher, &upd.url, dest, "installer", on_bytes)?;
+        let mut buf = vec![0u8; 64 * 1024];
         let pk_text = decode_text(&feed.pubkey, "the OS key")?;
         let sig_text = decode_text(&upd.signature, "the installer signature")?;
         let bad = |e: minisign_verify::Error| ArmoryError::BadSignature(e.to_string());
@@ -133,6 +161,66 @@ impl Armory {
             v.update(&buf[..n]);
         }
         v.finalize().map_err(bad)
+    }
+
+    fn apk_fetcher(&self, feed: &ApkFeed) -> Arc<dyn Fetcher> {
+        if feed.allow_loopback_http {
+            Arc::new(DefaultFetcher { timeout_ms: self.settings.http_timeout_ms, allow_loopback_http: true })
+        } else {
+            self.fetcher.clone()
+        }
+    }
+
+    /// BOS-AND-SELFUPDATE-1: is a newer BattalionOS for Android offered? `Ok(None)`: same or older. An error (no feed, 404,
+    /// offline, a broken file) is the caller's to keep quiet about, as with [`Armory::os_check`].
+    pub fn os_check_apk(&self, feed: &ApkFeed, current: &str) -> Result<Option<OsUpdate>> {
+        let rd = self.apk_fetcher(feed).open(&feed.url).map_err(|e| ArmoryError::Fetch { url: feed.url.clone(), reason: e.to_string() })?;
+        let mut bytes = Vec::new();
+        rd.take(MAX_OS_FEED + 1).read_to_end(&mut bytes).map_err(|e| ArmoryError::Fetch { url: feed.url.clone(), reason: e.to_string() })?;
+        if bytes.len() as u64 > MAX_OS_FEED {
+            return Err(ArmoryError::TooLarge { what: "OS feed", limit: MAX_OS_FEED });
+        }
+        let latest: ApkLatest = serde_json::from_slice(&bytes).map_err(|e| ArmoryError::Feed(format!("OS feed: {e}")))?;
+        let newer = match (Version::parse(&latest.version), Version::parse(current)) {
+            (Some(n), Some(o)) => n > o,
+            _ => return Err(ArmoryError::Feed(format!("OS feed version '{}' or own version '{current}' is not major.minor.patch", latest.version))),
+        };
+        if !newer {
+            return Ok(None);
+        }
+        let sha = latest.sha256.trim().to_ascii_lowercase();
+        if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(ArmoryError::Feed("OS feed: sha256 is not 64 hex digits".into()));
+        }
+        Ok(Some(OsUpdate { version: latest.version, notes: String::new(), url: latest.url, signature: String::new(), sha256: sha }))
+    }
+
+    /// Download the APK into `<home>/staging` and check it against the feed's sha256. A wrong hash, a short download or a
+    /// connection that dies leaves no file. Nothing is stopped here: the caller stops the apps once the APK is good.
+    pub fn os_stage_apk(&self, feed: &ApkFeed, upd: &OsUpdate, on_bytes: &mut dyn FnMut(u64, u64)) -> Result<PathBuf> {
+        let dir = self.paths.staging();
+        std::fs::create_dir_all(&dir)?;
+        // One staged APK at a time: an older one left by a cancelled update goes.
+        if let Ok(rd) = std::fs::read_dir(&dir) {
+            for e in rd.flatten() {
+                if e.file_name().to_string_lossy().ends_with(".apk") {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+        }
+        let safe: String = upd.version.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '_' }).collect();
+        let dest = dir.join(format!("BattalionOS-{safe}.apk"));
+        let r = self.os_fetch_to(&*self.apk_fetcher(feed), &upd.url, &dest, "APK", on_bytes).and_then(|got| {
+            if got == upd.sha256 {
+                Ok(())
+            } else {
+                Err(ArmoryError::BadSignature(format!("the downloaded BattalionOS {} does not match the update feed (sha256 {got}, expected {})", upd.version, upd.sha256)))
+            }
+        });
+        if r.is_err() {
+            let _ = std::fs::remove_file(&dest);
+        }
+        r.map(|_| dest)
     }
 
     /// Download + verify, and only then stop the apps. Returns the installer and the apps that were running (to start again).

@@ -3,7 +3,10 @@
 //! machine as the desktop (battalion-desktop's commands). What differs is only what a phone has:
 //! - an app runs as its page (the page runner in battalion-host); the Armory refuses native content and `init`;
 //! - one window (the shell); app pages open in its app area, as on the desktop;
-//! - no tray, no single-instance plugin, no Start menu shortcuts, and no self update (the OS updates by its store).
+//! - no tray, no single-instance plugin, no Start menu shortcuts;
+//! - its own update: the APK feed and Android's installer (BOS-AND-SELFUPDATE-1, `selfupdate.rs`).
+
+pub mod selfupdate;
 
 use battalion_desktop::{commands::*, host::Host};
 use battalion_host::Paths;
@@ -43,9 +46,10 @@ pub fn run() {
             os_frame_login_open,
             os_frame_login_close,
             os_take_open_request,
-            os_update_state,
-            os_update_check,
-            os_update_install
+            selfupdate::os_update_state,
+            selfupdate::os_update_check,
+            selfupdate::os_update_install,
+            selfupdate::os_update_abort
         ])
         .setup(|app| {
             // The OS home is the app's own private storage (`<data>/os`); nothing outside it.
@@ -73,6 +77,20 @@ pub fn run() {
             let h2 = app.handle().clone();
             std::thread::spawn(move || {
                 battalion_desktop::host::run_first_run(&h2, &h2.state::<Host>());
+            });
+            // BOS-AND-SELFUPDATE-1: an OS update stopped the apps and wrote what ran; this start (the new version, or the old one
+            // when Android's install did not happen) starts them again. Then the OS reads its own feed, and every few hours after.
+            let h3 = app.handle().clone();
+            std::thread::spawn(move || {
+                let host = h3.state::<Host>();
+                for (id, e) in host.armory.os_resume_apps() {
+                    eprintln!("start {id} after the update: {e}");
+                }
+                let every = selfupdate::feed().map(|f| f.every_secs).unwrap_or(4 * 60 * 60);
+                loop {
+                    tauri::async_runtime::block_on(selfupdate::check(&h3, &host));
+                    std::thread::sleep(std::time::Duration::from_secs(every));
+                }
             });
             WebviewWindowBuilder::new(app, battalion_desktop::access::MAIN, WebviewUrl::App("index.html".into())).build()?;
             Ok(())

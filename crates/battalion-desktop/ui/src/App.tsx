@@ -13,7 +13,7 @@ import { send, slotChannel } from "./slots";
 import { FirstRun } from "./FirstRun";
 import { errText, hostPlatform, type ArmoryOp, type Os } from "./os";
 import { backStep, layoutFor, useBackGesture, type Layout } from "./phone";
-import { armoryHasUpdate, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
+import { armoryHasUpdate, osReadyText, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
 import { appAt, takeEarlyTap } from "./earlyTaps";
@@ -31,6 +31,8 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const phone = layout === "phone";
   const [notice, setNotice] = useState<string | null>(null);
   const [firstRunIds, setFirstRunIds] = useState<string[]>([]);
+  // BOS-AND-SELFUPDATE-1: the version whose "ready" notice was put off (it comes back for a newer one).
+  const [osPutOff, setOsPutOff] = useState<string | null>(null);
   const [osInfo, setOsInfo] = useState<OsUpdateInfo | null>(null);
   const [osPhase, setOsPhase] = useState<OsPhase>({ kind: "idle" });
 
@@ -219,6 +221,13 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
           <p className="flex-1 text-sm">{firstRunNoticeText(firstRunIds.map(label))}</p>
           <Button size="sm" variant="ghost" onClick={openArmory}>Open Armory</Button>
           <Button size="sm" variant="ghost" aria-label="Dismiss" onClick={() => setFirstRunIds([])}>OK</Button>
+        </div>
+      )}
+      {osReadyText(osInfo, osPutOff) && !armory && (
+        <div role="status" data-os-ready className="mx-3 mt-2 flex items-center gap-2 rounded-lg border bg-card px-3 py-2">
+          <p className="flex-1 text-sm">{osReadyText(osInfo, osPutOff)}</p>
+          <Button size="sm" onClick={openArmory}>Update</Button>
+          <Button size="sm" variant="ghost" aria-label="Later" onClick={() => setOsPutOff(osInfo?.available?.version ?? null)}>Later</Button>
         </div>
       )}
       <div className="px-3 pt-2 empty:hidden">

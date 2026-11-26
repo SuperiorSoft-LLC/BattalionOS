@@ -26,6 +26,18 @@ class MainActivity : TauriActivity() {
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+    statusOf(intent)
+  }
+
+  // BOS-AND-SELFUPDATE-1: Android's installer answers here (OsUpdate.kt): its confirm, a failure, or, after the update, success,
+  // which is also what opens BattalionOS again.
+  override fun onNewIntent(intent: android.content.Intent) {
+    super.onNewIntent(intent)
+    statusOf(intent)
+  }
+
+  private fun statusOf(i: android.content.Intent?) {
+    if (i?.action == OsUpdate.ACTION_STATUS) OsUpdate.status(this, i)
   }
 
   // AND-6 (f4f965ad): taps before the shell has drawn (the native splash, the still blank WebView) are recorded here in CSS px of
@@ -61,6 +73,16 @@ class MainActivity : TauriActivity() {
       shellReady = true
       val taps = synchronized(earlyTaps) { earlyTaps.toString().also { while (earlyTaps.length() > 0) earlyTaps.remove(0) } }
       reply.postMessage("{\"taps\":$taps}")
+    }
+    // BOS-AND-SELFUPDATE-1: the shell's channel to the OS's own update (OsUpdate.kt): op "osInstall" {apk, sha256}.
+    WebViewCompat.addWebMessageListener(webView, "bosUpdate", setOf("http://tauri.localhost", "https://tauri.localhost")) { _, message, _, isMainFrame, reply ->
+      if (!isMainFrame) return@addWebMessageListener
+      OsUpdate.toShell = { o -> runOnUiThread { try { reply.postMessage(o.toString()) } catch (_: Exception) {} } }
+      val m = try { JSONObject(message.data ?: return@addWebMessageListener) } catch (_: Exception) { return@addWebMessageListener }
+      if (m.optString("op") == "osInstall") {
+        val ctx = applicationContext
+        Thread { OsUpdate.install(ctx, m.optString("apk"), m.optString("sha256")) }.start()
+      }
     }
     WebViewCompat.addWebMessageListener(webView, "bosSlots", setOf("http://tauri.localhost", "https://tauri.localhost")) { _, message, _, isMainFrame, reply ->
       if (!isMainFrame) return@addWebMessageListener

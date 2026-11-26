@@ -27,7 +27,7 @@ export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErro
 export interface PageFiles { root: string; pageDir: string; csp: string }
 export interface AppPage { id: string; version: string; origin: string; url: string; files?: PageFiles }
 import type { FirstRunEvent } from "./firstRunNotice";
-import type { OsUpdateInfo } from "./osUpdate";
+import { androidInstall, updateChannel, type OsUpdateInfo } from "./osUpdate";
 export type ArmoryOp= "install" | "update" | "rollback" | "remove";
 /** `os://armory-progress`: bytes, total and percent only while the stage is `download`. */
 export interface ArmoryProgress { id: string; op: ArmoryOp; stage: string; bytes?: number | null; total?: number | null; percent?: number | null; reason?: string | null; etaMs?: number | null }
@@ -200,7 +200,17 @@ export const hostOs: Os = {
   },
   osUpdateState: () => call("os_update_state"),
   osUpdateCheck: () => call("os_update_check"),
-  osUpdateInstall: async () => void (await call("os_update_install")),
+  osUpdateInstall: async () => {
+    // Desktop: the host hands over to the installer and ends. Android (BOS-AND-SELFUPDATE-1): it answers the checked APK, which
+    // goes to Android's installer here; when that does not install it, the apps start again and the reason is the error.
+    const r = await call<{ apk?: string; sha256?: string } | null>("os_update_install");
+    const c = updateChannel();
+    if (!r?.apk || !c) return;
+    const res = await androidInstall(c, r.apk, r.sha256 ?? "");
+    if (res.ok) return;
+    await call("os_update_abort").catch(() => {});
+    throw new Error(res.error ?? "Android did not install the update.");
+  },
   onOsUpdate(cb) {
     const sub = tauri().event.listen("os://os-update", (e) => cb(e.payload as OsUpdateInfo));
     return () => void sub.then((off) => off());

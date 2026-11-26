@@ -206,6 +206,7 @@ the Armory shows it as one row in Installed, with no Open and no Remove, and it 
 | `os_update_state` | | main | `{current, available: {version, notes} \| null, installing, busy: [{id, name, busy}], running: [id]}`; no network |
 | `os_update_check` | | main | the same, after reading the feed. No feed, 404 or offline: `available` stays as it was, no error |
 | `os_update_install` | | main | downloads and verifies the signature first; only then stops every app, starts the installer (per user, no admin) and ends the OS. The installer starts the OS again; the apps that ran start again. A bad signature, a broken download or a failed stop is an error and nothing was stopped |
+| `os_update_abort` | | main | Android only (BOS-AND-SELFUPDATE-1): Android did not install the update (cancelled, wrong signing certificate, no permission to install): the apps the update stopped start again and the downloaded APK is removed. On Android `os_update_install` answers `{apk, sha256, version}` after the sha256 check and the app stop; the shell hands it to Android's PackageInstaller (`bosSlots` op `osInstall`) |
 
 Event `os://os-update` (`{current, available}`): a check finished (when the Armory opens, and once a day). Progress of the install is
 `os://armory-progress` with `id` `battalionos`, `op` `update`. Test builds only (cargo feature `test-update`): `BATTALION_OS_UPDATE_FEED`
