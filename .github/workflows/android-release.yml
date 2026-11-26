@@ -1,0 +1,120 @@
+# BattalionOS Android test build: a signed arm64 APK of crates/battalion-android, published to a GitHub release of
+# THIS repo and to this repo's own update feed. Started by hand only (workflow_dispatch).
+#
+# Rules:
+#   1. The release keystore comes from CI secrets only: BOS_ANDROID_KEYSTORE_B64, BOS_ANDROID_KEYSTORE_PASSWORD,
+#      BOS_ANDROID_KEY_ALIAS (and optional BOS_ANDROID_KEY_PASSWORD, default = the keystore password). Missing -> the run
+#      fails. No throwaway key is ever made: a phone cannot update an install signed with another key.
+#   2. The release bos-android-v<version> is a PRERELEASE and never latest.
+#   3. The feed is bos-android.json on this repo's own prerelease bos-android-stable. It is never infantry-ai's
+#      android-stable / android.json.
+#   4. The app id stays what tauri.conf.json says (the release id is the owner's call).
+name: android-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'versionName, e.g. 0.1.1 (tag bos-android-v<version>)'
+        required: true
+      version_code:
+        description: 'versionCode (integer, higher than the last release)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ inputs.version }}
+      VERSION_CODE: ${{ inputs.version_code }}
+      KS_B64: ${{ secrets.BOS_ANDROID_KEYSTORE_B64 }}
+      KS_PASS: ${{ secrets.BOS_ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.BOS_ANDROID_KEY_ALIAS }}
+      KEY_PASS: ${{ secrets.BOS_ANDROID_KEY_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require the signing secrets and a plain version
+        run: |
+          set -euo pipefail
+          for n in KS_B64 KS_PASS KEY_ALIAS; do
+            if [ -z "${!n}" ]; then
+              echo "::error::Signing secret missing (BOS_ANDROID_KEYSTORE_B64, BOS_ANDROID_KEYSTORE_PASSWORD and BOS_ANDROID_KEY_ALIAS are required). Add them in the repo settings; no APK is built without the release key."
+              exit 1
+            fi
+          done
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::bad version $VERSION"; exit 1; }
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || { echo "::error::bad version_code $VERSION_CODE"; exit 1; }
+          if gh release view "bos-android-v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::release bos-android-v$VERSION already exists; pick a new version"; exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-linux-android }
+      - uses: Swatinem/rust-cache@v2
+      - name: Android SDK (runner's own) and NDK
+        run: |
+          set -euo pipefail
+          : "${ANDROID_HOME:?the ubuntu runner should ship an Android SDK}"
+          sdkm="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkm" || { echo "::error::no sdkmanager at $sdkm"; exit 1; }
+          yes | "$sdkm" --licenses >/dev/null || true
+          "$sdkm" --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Tauri CLI
+        run: cargo install tauri-cli --version '^2' --locked
+      - name: Build the APK (arm64)
+        working-directory: crates/battalion-android
+        env: { CARGO_BUILD_JOBS: '4' }
+        run: |
+          set -euo pipefail
+          cfg="{\"version\":\"$VERSION\",\"bundle\":{\"android\":{\"versionCode\":$VERSION_CODE}}}"
+          cargo tauri android build --apk --target aarch64 --config "$cfg"
+      - name: Sign the APK (release keystore from secrets)
+        run: |
+          set -euo pipefail
+          apk="$(find crates/battalion-android/gen/android -path '*outputs/apk*' -name '*release*.apk' -print -quit)"
+          test -n "$apk" || { echo "::error::no release APK was built"; exit 1; }
+          bt="$ANDROID_HOME/build-tools/36.0.0"
+          printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          mkdir -p dist
+          out="dist/BattalionOS_${VERSION}_arm64.apk"
+          "$bt/zipalign" -f -p 4 "$apk" "$RUNNER_TEMP/aligned.apk"
+          "$bt/apksigner" sign --ks "$RUNNER_TEMP/release.keystore" --ks-pass "pass:$KS_PASS" --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:${KEY_PASS:-$KS_PASS}" --out "$out" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$RUNNER_TEMP/release.keystore" "$out.idsig"
+          "$bt/apksigner" verify --print-certs "$out" | grep -i "SHA-256 digest"
+          "$bt/aapt2" dump badging "$out" | grep -E "^package:|sdkVersion"
+          (cd dist && sha256sum "BattalionOS_${VERSION}_arm64.apk" > "BattalionOS_${VERSION}_arm64.apk.sha256")
+      - name: Release (prerelease, never latest)
+        run: |
+          set -euo pipefail
+          gh release create "bos-android-v$VERSION" "dist/BattalionOS_${VERSION}_arm64.apk" "dist/BattalionOS_${VERSION}_arm64.apk.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "BattalionOS $VERSION for Android (test build)" --notes "BattalionOS Android test build $VERSION (versionCode $VERSION_CODE), built from $GITHUB_SHA."
+      - name: This repo's own feed (bos-android.json on bos-android-stable)
+        run: |
+          set -euo pipefail
+          name="BattalionOS_${VERSION}_arm64.apk"
+          sha="$(cut -d' ' -f1 "dist/$name.sha256")"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/bos-android-v$VERSION/$name"
+          printf '{"version":"%s","versionCode":%s,"url":"%s","sha256":"%s","commit":"%s"}\n' \
+            "$VERSION" "$VERSION_CODE" "$url" "$sha" "$GITHUB_SHA" > dist/bos-android.json
+          cat dist/bos-android.json
+          gh release view bos-android-stable --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create bos-android-stable --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "BattalionOS for Android: update feed" --notes "bos-android.json: the newest BattalionOS Android test build."
+          gh release upload bos-android-stable dist/bos-android.json --repo "$GITHUB_REPOSITORY" --clobber
