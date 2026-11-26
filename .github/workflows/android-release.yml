@@ -100,6 +100,10 @@ jobs:
         env: { CARGO_BUILD_JOBS: '4' }
         run: |
           set -euo pipefail
+          # The generated Gradle task runs "<executable> tauri android android-studio-script"; this crate has no
+          # package.json, so CI runs the Tauri CLI through cargo (cargo-tauri, installed above), not pnpm.
+          sed -i 's/val executable = """pnpm"""/val executable = """cargo"""/' gen/android/buildSrc/src/main/java/org/battalionos/os/kotlin/BuildTask.kt
+          grep -q 'val executable = """cargo"""' gen/android/buildSrc/src/main/java/org/battalionos/os/kotlin/BuildTask.kt
           cfg="{\"version\":\"$VERSION\",\"bundle\":{\"android\":{\"versionCode\":$VERSION_CODE}}}"
           cargo tauri android build --apk --target aarch64 --config "$cfg"
       - name: Sign the APK (release keystore from secrets)
