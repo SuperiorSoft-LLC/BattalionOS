@@ -67,8 +67,14 @@ pub struct Settings {
     /// Versions kept on disk per app (current + previous = 2). Older ones are deleted.
     pub keep_versions: usize,
     pub init_timeout_ms: u64,
-    /// Ask a running app whether it is busy before an update; a busy app is not updated.
+    /// Ask a running app to get ready before an update (its `prepare`, else its health `busy`). Off: the app is stopped at once.
     pub check_busy: bool,
+    /// UPDATE-LIVE-1: how long an update waits for a running app to say it is ready before it offers "Update now" / "Later".
+    pub prepare_wait_ms: u64,
+    /// How often the app is asked again while the update waits.
+    pub prepare_poll_ms: u64,
+    /// How often the desktop looks for an idle app whose update was put off ("Later").
+    pub pending_check_ms: u64,
     pub http_timeout_ms: u64,
     /// AND-1: this OS runs app pages only (Android): a package with native content (ELF, dex, JAR/APK,
     /// DLL/EXE, Mach-O by magic bytes) and an app with `init` are refused. Default: on for Android, off elsewhere.
@@ -91,6 +97,9 @@ impl Default for Settings {
             keep_versions: 2,
             init_timeout_ms: 120_000,
             check_busy: true,
+            prepare_wait_ms: 180_000,
+            prepare_poll_ms: 1_000,
+            pending_check_ms: 60_000,
             http_timeout_ms: 30_000,
             pages_only: cfg!(target_os = "android"),
             dev_allow_loopback_http: false,
@@ -147,6 +156,9 @@ pub enum ArmoryError {
     Busy,
     /// The app reports work in flight; update later or force.
     AppBusy(u32),
+    /// UPDATE-LIVE-1: the app did not get ready within `prepareWaitMs`. The new version stays staged; the app works on.
+    /// `reason` completes "<app> will update when ..."; `eta_ms` is the app's own estimate.
+    NotReady { version: String, reason: String, eta_ms: Option<u64> },
     WrongState(String),
     /// The new version never became ready. `rolled_back`: the old version runs again; otherwise
     /// the app is left failed (the state schema changed, or the old version did not start either).
@@ -191,9 +203,11 @@ impl std::fmt::Display for ArmoryError {
             NotInstalled(i) => write!(f, "app '{i}' is not installed"),
             UpToDate(v) => write!(f, "already at {v}"),
             Busy => write!(f, "the app is busy with another Armory action"),
-            AppBusy(n) => write!(f, "the app reports {n} unit(s) of work in flight"),
+            AppBusy(n) => write!(f, "the app is still working ({n} {} running); update when it is done, or choose Update now", if *n == 1 { "task" } else { "tasks" }),
+            NotReady { version, reason, .. } => write!(f, "version {version} is downloaded and ready; the app will update when {reason}. Choose Update now to update anyway (its work is saved and resumed), or Later"),
             WrongState(m) => write!(f, "{m}"),
-            UpdateFailed { reason, rolled_back } => write!(f, "update failed ({}): {reason}", if *rolled_back { "rolled back" } else { "not rolled back" }),
+            UpdateFailed { reason, rolled_back: true } => write!(f, "the new version did not start ({reason}); the previous version runs again. Try again later, or report it to the app's maker"),
+            UpdateFailed { reason, rolled_back: false } => write!(f, "the new version did not start ({reason}) and the previous version could not be started for you; choose Roll back, or install the app again"),
             SchemaBump { from, to } => write!(f, "state schema changes {from} -> {to}; the automatic rollback is refused"),
             NoPrevious => write!(f, "there is no previous version to go back to"),
             Init(m) => write!(f, "init failed: {m}"),
@@ -342,6 +356,9 @@ pub struct Meta {
     /// The app named its own state folder; the OS never deletes it.
     #[serde(default, rename = "customStateDir")]
     pub custom_state_dir: bool,
+    /// UPDATE-LIVE-1: "Later" was chosen for this version; it is applied at the app's next start or next idle moment.
+    #[serde(default, rename = "pendingUpdate", skip_serializing_if = "Option::is_none")]
+    pub pending_update: Option<String>,
 }
 
 pub(crate) fn meta_path(paths: &Paths, id: &str) -> Result<PathBuf> {

@@ -932,3 +932,89 @@ impl NewForTest for Armory {
         w.armory_with(st, Some(f))
     }
 }
+
+// ---- UPDATE-LIVE-1: prepare for update ----------------------------------------------------
+
+fn running_prepare(w: &World, id: &'static str, mode: &'static str, st: Settings) -> Armory {
+    w.publish(&Pkg { mode, ..Pkg::new(id, "1.0.0") });
+    let a = w.armory_with(st, None);
+    a.install(id, "stable").unwrap();
+    a.sup().start(id).unwrap();
+    a
+}
+
+fn prepare_log(w: &World, id: &str) -> Vec<String> {
+    std::fs::read_to_string(w.paths.data_dir(id).unwrap().join("prepare.log")).unwrap_or_default().lines().map(str::to_string).collect()
+}
+
+#[test]
+fn an_update_waits_until_a_busy_app_is_ready_then_applies_by_itself() {
+    let w = World::new("prep-wait");
+    let st = Settings { prepare_poll_ms: 150, ..w.settings() };
+    let a = running_prepare(&w, "prep-one", "prepare", st);
+    let seen = listen(&a);
+    w.publish(&Pkg::new("prep-one", "2.0.0"));
+    let up = a.update("prep-one", &UpdateOptions::default()).expect("applied once the app said ready (no Retry)");
+    assert_eq!(up.to, "2.0.0");
+    assert_eq!(version_answering(&w, "prep-one"), "2.0.0");
+    let log = prepare_log(&w, "prep-one");
+    assert!(log.iter().any(|l| l == "wait") && log.last().map(String::as_str) == Some("ready"), "{log:?}");
+    assert!(!log.iter().any(|l| l == "refused"), "the OS sent the app's secret: {log:?}");
+    let ev = seen.lock().unwrap().clone();
+    let stages: Vec<&str> = ev.iter().map(|p| p.stage.as_str()).collect();
+    let (place, prep, stop) = (stages.iter().position(|s| *s == "place"), stages.iter().position(|s| *s == "prepare"), stages.iter().position(|s| *s == "stop"));
+    assert!(place.is_some() && place < prep && prep < stop, "staged first, then wait, then stop: {stages:?}");
+    let w1 = ev.iter().find(|p| p.stage == "prepare").unwrap();
+    assert_eq!(w1.reason.as_deref(), Some("its demo work finishes"));
+    assert!(w1.eta_ms.is_some_and(|e| e > 0 && e <= 1500), "{:?}", w1.eta_ms);
+}
+
+#[test]
+fn an_app_that_does_not_get_ready_keeps_working_and_update_now_applies_the_staged_version() {
+    let w = World::new("prep-never");
+    let st = Settings { prepare_poll_ms: 100, prepare_wait_ms: 500, ..w.settings() };
+    let a = running_prepare(&w, "prep-two", "prepare-never", st);
+    let pid = process_pid(&w, "prep-two");
+    w.publish(&Pkg::new("prep-two", "2.0.0"));
+    match a.update("prep-two", &UpdateOptions::default()) {
+        Err(ArmoryError::NotReady { version, reason, eta_ms }) => {
+            assert_eq!((version.as_str(), reason.as_str()), ("2.0.0", "its demo work finishes"));
+            assert!(eta_ms.is_some());
+            let text = ArmoryError::NotReady { version, reason, eta_ms }.to_string();
+            assert!(text.contains("Update now") && text.contains("Later") && !text.contains("unit(s)"), "{text}");
+        }
+        other => panic!("expected NotReady, got {other:?}"),
+    }
+    assert_eq!((process_pid(&w, "prep-two"), version_answering(&w, "prep-two")), (pid, "1.0.0".to_string()), "the app was never stopped");
+    assert_eq!(prepare_log(&w, "prep-two").last().map(String::as_str), Some("cancel"), "told to carry on");
+    assert!(w.paths.version_dir("prep-two", "2.0.0").unwrap().join("app.json").is_file(), "the new version stays staged");
+    // "Update now": the staged version is used (no download), the app checkpoints at once.
+    let z = w.root.join("pkgs").join("prep-two-2.0.0.zip");
+    std::fs::remove_file(&z).unwrap();
+    let up = a.update("prep-two", &UpdateOptions { now: true, ..Default::default() }).expect("update now");
+    assert_eq!(up.to, "2.0.0");
+    assert_eq!(version_answering(&w, "prep-two"), "2.0.0");
+    assert_eq!(prepare_log(&w, "prep-two").last().map(String::as_str), Some("now"));
+}
+
+#[test]
+fn later_applies_at_the_next_idle_moment_or_the_next_start() {
+    let w = World::new("prep-later");
+    let st = Settings { prepare_poll_ms: 100, prepare_wait_ms: 300, ..w.settings() };
+    let a = running_prepare(&w, "prep-three", "prepare-never", st);
+    w.publish(&Pkg::new("prep-three", "2.0.0"));
+    assert!(matches!(a.update("prep-three", &UpdateOptions::default()), Err(ArmoryError::NotReady { .. })));
+    assert_eq!(a.defer_update("prep-three").unwrap(), "2.0.0");
+    assert_eq!(a.pending_update("prep-three").as_deref(), Some("2.0.0"));
+    // Busy: it stays pending and the app keeps running the old version.
+    assert_eq!(a.apply_pending("prep-three").unwrap(), None);
+    assert_eq!(version_answering(&w, "prep-three"), "1.0.0");
+    assert_eq!(prepare_log(&w, "prep-three").last().map(String::as_str), Some("cancel"));
+    // The app is not running (its next start): the pending version is applied, ready for the start.
+    a.sup().stop("prep-three").unwrap();
+    let up = a.apply_pending("prep-three").unwrap().expect("applied");
+    assert_eq!((up.from.as_str(), up.to.as_str()), ("1.0.0", "2.0.0"));
+    assert_eq!(w.current("prep-three").unwrap().version, "2.0.0");
+    assert_eq!(a.pending_update("prep-three"), None, "nothing pending after it is applied");
+    assert_eq!(a.apply_pending("prep-three").unwrap(), None);
+}

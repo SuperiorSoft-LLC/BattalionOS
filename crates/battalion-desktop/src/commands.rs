@@ -4,7 +4,7 @@
 
 use crate::access::{authorize_app, authorize_self, authorize_shell, caller_of, Caller};
 use crate::host::Host;
-use battalion_host::armory::{info::catalog_icon, RemoveOptions, UpdateOptions};
+use battalion_host::armory::{info::catalog_icon, ArmoryError, RemoveOptions, UpdateOptions};
 use battalion_host::supervisor::AppStatus;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -49,7 +49,7 @@ pub async fn os_list_apps(window: WebviewWindow, app: AppHandle, host: State<'_,
     };
     Ok(json!(list
         .iter()
-        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "badge": badge_of(a)}))
+        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "pendingUpdate": a.pending_update, "badge": badge_of(a)}))
         .collect::<Vec<_>>()))
 }
 
@@ -70,8 +70,13 @@ pub async fn os_app_health(window: WebviewWindow, host: State<'_, Host>, id: Str
 }
 
 #[tauri::command]
-pub async fn os_start_app(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
+pub async fn os_start_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<Value> {
     authorize_shell(window.label(), "os_start_app").map_err(|e| e.to_string())?;
+    // UPDATE-LIVE-1: an update "Later" was chosen for is applied before the app starts (the app is not running: nothing waits).
+    let (a, pid) = (host.armory.clone(), id.clone());
+    if let Ok(Ok(Some(u))) = blocking(move || a.apply_pending(&pid)).await {
+        updated(&app, &host, &u).await;
+    }
     let sup = host.sup.clone();
     let s = blocking(move || sup.start(&id)).await?.map_err(|e| e.to_string())?;
     Ok(status_json(&s))
@@ -409,15 +414,73 @@ async fn announce(app: &AppHandle, host: &Host, id: &str) {
 }
 
 /// Update app `id` on its channel. Only that app is stopped and started again; the OS and every other app keep running.
+/// UPDATE-LIVE-1: the new version is staged first, then a running app is asked to get ready and the update applies by itself
+/// once it is. `now` = "Update now" (the app checkpoints at once). An app that does not get ready in time is not an error: the
+/// answer is `{notReady: true, version, reason, etaMs}` and the shell offers "Update now" and "Later".
 #[tauri::command]
-pub async fn os_update_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<Value> {
+pub async fn os_update_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, now: Option<bool>) -> R<Value> {
     authorize_shell(window.label(), "os_update_app").map_err(|e| e.to_string())?;
     let a = host.armory.clone();
     let id2 = id.clone();
-    let r = blocking(move || a.update(&id, &UpdateOptions::default())).await?.map_err(|e| e.to_string());
+    let opts = UpdateOptions { now: now.unwrap_or(false), ..Default::default() };
+    let r = blocking(move || a.update(&id, &opts)).await?;
     announce(&app, &host, &id2).await;
-    let u = r?;
-    Ok(json!({"id": u.id, "from": u.from, "to": u.to}))
+    match r {
+        Ok(u) => {
+            updated(&app, &host, &u).await;
+            Ok(json!({"id": u.id, "from": u.from, "to": u.to}))
+        }
+        Err(ArmoryError::NotReady { version, reason, eta_ms }) => Ok(json!({"id": id2, "notReady": true, "version": version, "reason": reason, "etaMs": eta_ms})),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// UPDATE-LIVE-1 "Later": app `id` updates by itself at its next start or the next moment it is idle. Answers the version.
+#[tauri::command]
+pub async fn os_update_later(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String) -> R<Value> {
+    authorize_shell(window.label(), "os_update_later").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    let id2 = id.clone();
+    let v = blocking(move || a.defer_update(&id)).await?.map_err(|e| e.to_string())?;
+    announce(&app, &host, &id2).await;
+    Ok(json!({"id": id2, "pending": v}))
+}
+
+/// After an update of app `id`: every window hears `os://app-updated` (the shell closes the app's view and opens it again on the
+/// new version), and a window of its own (`app-<id>`) is closed and opened again by the host.
+pub async fn updated(app: &AppHandle, host: &Host, u: &battalion_host::armory::Updated) {
+    let _ = app.emit(crate::events::APP_UPDATED, json!({"id": u.id, "from": u.from, "to": u.to}));
+    let Ok(label) = crate::access::app_label(&u.id) else { return };
+    let Some(w) = app.get_webview_window(&label) else { return };
+    let _ = w.close();
+    for _ in 0..50 {
+        if app.get_webview_window(&label).is_none() {
+            break;
+        }
+        let _ = blocking(|| std::thread::sleep(std::time::Duration::from_millis(100))).await;
+    }
+    if let Err(e) = crate::host::open_app_window(app, host, &u.id) {
+        eprintln!("reopen {} after its update: {e}", u.id);
+    }
+}
+
+/// UPDATE-LIVE-1: every app with a pending update ("Later") that is idle now is updated (a busy one stays pending). Called on the
+/// desktop's timer.
+pub async fn apply_pending_updates(app: &AppHandle, host: &Host) {
+    let a = host.armory.clone();
+    let ids: Vec<String> = blocking(move || a.installed().map(|l| l.into_iter().map(|x| x.id).filter(|id| a.pending_update(id).is_some()).collect()).unwrap_or_default()).await.unwrap_or_default();
+    for id in ids {
+        let a = host.armory.clone();
+        let id2 = id.clone();
+        match blocking(move || a.apply_pending(&id2)).await {
+            Ok(Ok(Some(u))) => {
+                announce(app, host, &id).await;
+                updated(app, host, &u).await;
+            }
+            Ok(Err(e)) => eprintln!("pending update of {id}: {e}"),
+            _ => {}
+        }
+    }
 }
 
 /// Go back to the previous version of app `id` (refused when the state schema changed).

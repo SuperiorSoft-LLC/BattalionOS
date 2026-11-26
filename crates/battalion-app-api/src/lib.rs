@@ -13,7 +13,7 @@ pub mod version;
 
 pub use catalog::{Catalog, CatalogApp, Feed, FeedPlatform};
 pub use manifest::{Manifest, ManifestError};
-pub use runtime::{env, Health, ReadyError, ReadyFile};
+pub use runtime::{env, Health, PrepareAnswer, PrepareRequest, ReadyError, ReadyFile};
 pub use version::Version;
 
 /// The contract version this crate speaks.

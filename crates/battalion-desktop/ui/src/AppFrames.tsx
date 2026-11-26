@@ -67,6 +67,18 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versions, os, tick]);
 
+  // UPDATE-LIVE-1: an update applied (from the Armory, "Update now" or a pending "Later"): the app's view is closed and opened again
+  // on the new version by itself: its page is read again and its frame is made anew.
+  useEffect(
+    () =>
+      os.onAppUpdated((id) => {
+        setPages(({ [id]: _old, ...rest }) => rest);
+        setReloads((r) => ({ ...r, [id]: (r[id] ?? 0) + 1 }));
+        setTick((t) => t + 1);
+      }),
+    [os],
+  );
+
   // A view whose app stopped or crashed loads its page again when the app runs again.
   useEffect(() => {
     for (const id of m.views) {

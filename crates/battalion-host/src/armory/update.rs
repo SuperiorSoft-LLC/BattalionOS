@@ -2,9 +2,15 @@
 //! Update with rollback.
 //!
 //! ```text
-//! (the old version keeps running while the new one downloads and is checked)
-//! steps: download, verify, unpack, place, stop, switch, start, done      then commit
+//! (the old version keeps running while the new one downloads, is checked and is placed: it is staged)
+//! steps: download, verify, unpack, place, [prepare], stop, switch, start, done      then commit
 //! ```
+//! UPDATE-LIVE-1, `prepare`: a running app that names `prepare` in its ready file is asked to get ready (it stops starting
+//! new work and lets work in progress finish) and asked again every `preparePollMs` until it answers ready; then it is
+//! stopped. An app without `prepare` is waited for until its health says `busy` 0. When `prepareWaitMs` passes first, the
+//! app is told to carry on (`cancel`), the staged version stays and the update answers `NotReady`; the caller offers
+//! "Update now" (`now`: the app checkpoints at once) or "Later" ([Armory::defer_update]: applied by [Armory::apply_pending]
+//! at the app's next start or next idle moment). A staged version folder is reused by the next try (it was verified when placed).
 //! `switch` writes `current.json` as `{version: new, previous: old, state: updating}`. The new
 //! version has to become ready (the supervisor's `start`). If it does not:
 //! - same state schema: `current.json` goes back to the old version and it is started again,
@@ -22,8 +28,12 @@ use battalion_app_api::Version;
 pub struct UpdateOptions {
     /// Another channel than the one the app was installed on.
     pub channel: Option<String>,
-    /// Update although the app reports work in flight.
+    /// Update without asking the app (no prepare, no busy check).
     pub force: bool,
+    /// Ask the app to checkpoint now ("Update now"): `prepare` with `now`, so it answers ready at once.
+    pub now: bool,
+    /// How long to wait for the app to get ready; `None` = the setting `prepareWaitMs`. `Some(0)` = ask once.
+    pub wait_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +76,7 @@ impl Armory {
         if !matches!(cur.state, AppState::Stopped | AppState::Running | AppState::Installed) {
             return Err(ArmoryError::WrongState(format!("app '{id}' is {}; it must be stopped or running to update", cur.state.name())));
         }
-        let meta = self.load_meta(id).unwrap_or(Meta { channel: "stable".into(), state_schema: 1, previous_state_schema: None, custom_state_dir: false });
+        let meta = self.load_meta(id).unwrap_or(Meta { channel: "stable".into(), state_schema: 1, previous_state_schema: None, custom_state_dir: false, pending_update: None });
         let channel = opts.channel.clone().unwrap_or_else(|| meta.channel.clone());
         let entry = self.find(id)?;
         let key = entry.app.public_key.trim().to_string();
@@ -81,36 +91,42 @@ impl Armory {
         }
         let plat = self.plan(&entry.app, &feed)?;
         let was_running = cur.state == AppState::Running;
-        if was_running && self.settings.check_busy && !opts.force {
-            if let Ok(h) = self.sup.health(id) {
-                if let Some(n) = h.busy.filter(|n| *n > 0) {
-                    return Err(ArmoryError::AppBusy(n));
-                }
-            }
-        }
 
         let (j, tx) = self.begin_tx(id, "update", &format!("{old}|{new}"))?;
-        // Everything up to `place` leaves the running app alone.
-        let staged = self.fetch_and_check(&entry.app, &feed, &plat, &key, "update", &mut |s| self.step(&j, tx, s));
-        let (dir, manifest) = match staged {
-            Ok(x) => x,
-            Err(e) => {
-                let _ = j.abort(tx, &e.to_string());
-                return Err(e);
+        let vdir = self.paths.version_dir(id, &new)?;
+        // Everything up to `prepare` leaves the running app alone. A version placed by an earlier try is used as it is.
+        let manifest = match self.staged_manifest(id, &new) {
+            Some(m) => m,
+            None => {
+                let staged = self.fetch_and_check(&entry.app, &feed, &plat, &key, "update", &mut |s| self.step(&j, tx, s));
+                let (dir, manifest) = match staged {
+                    Ok(x) => x,
+                    Err(e) => {
+                        let _ = j.abort(tx, &e.to_string());
+                        return Err(e);
+                    }
+                };
+                let placed = (|| -> Result<()> {
+                    self.step(&j, tx, "place")?;
+                    remove_tree(&vdir)?;
+                    std::fs::rename(&dir, &vdir)?;
+                    Ok(())
+                })();
+                if let Err(e) = placed {
+                    let _ = remove_tree(&dir);
+                    let _ = j.abort(tx, &e.to_string());
+                    return Err(e);
+                }
+                manifest
             }
         };
         let new_schema = schema_of(&manifest);
-        let vdir = self.paths.version_dir(id, &new)?;
-        let placed = (|| -> Result<()> {
-            self.step(&j, tx, "place")?;
-            remove_tree(&vdir)?;
-            std::fs::rename(&dir, &vdir)?;
-            Ok(())
-        })();
-        if let Err(e) = placed {
-            let _ = remove_tree(&dir);
-            let _ = j.abort(tx, &e.to_string());
-            return Err(e);
+        if was_running && self.settings.check_busy && !opts.force {
+            if let Err(e) = self.wait_ready(id, &new, opts) {
+                // The staged version is kept for the next try; the journal holds nothing open for it.
+                let _ = j.abort(tx, &e.to_string());
+                return Err(e);
+            }
         }
 
         let r = self.switch_and_start(&j, tx, id, &mut cur, &cur_path, &old, &new, was_running, &meta, new_schema);
@@ -150,7 +166,7 @@ impl Armory {
             cur.previous = orig_previous.clone();
             give_up(e.into())
         })?;
-        let new_meta = Meta { state_schema: new_schema, previous_state_schema: Some(meta.state_schema), ..meta.clone() };
+        let new_meta = Meta { state_schema: new_schema, previous_state_schema: Some(meta.state_schema), pending_update: None, ..meta.clone() };
         store::write_json(&meta_path(&self.paths, id)?, &new_meta)?;
         cur.transition(cur_path, AppState::Stopped)?;
 
@@ -190,6 +206,94 @@ impl Armory {
                 }
                 Err(ArmoryError::UpdateFailed { reason, rolled_back })
             }
+        }
+    }
+
+    /// The manifest of version `version` when it is already placed (staged by an earlier try) and still checks out.
+    fn staged_manifest(&self, id: &str, version: &str) -> Option<battalion_app_api::Manifest> {
+        let vdir = self.paths.version_dir(id, version).ok()?;
+        if !vdir.join("app.json").is_file() {
+            return None;
+        }
+        self.check_manifest(&vdir, id, version).ok()
+    }
+
+    /// Asks the running app to get ready for the update to `to` until it is, or the wait ends (then `NotReady`, and the
+    /// app is told to carry on). Each answer that is not ready is reported as a `prepare` progress.
+    pub(crate) fn wait_ready(&self, id: &str, to: &str, opts: &UpdateOptions) -> Result<()> {
+        use battalion_app_api::PrepareRequest;
+        let wait = std::time::Duration::from_millis(opts.wait_ms.unwrap_or(self.settings.prepare_wait_ms));
+        let poll = std::time::Duration::from_millis(self.settings.prepare_poll_ms.max(50));
+        let started = std::time::Instant::now();
+        let ask = PrepareRequest { to: Some(to.to_string()), now: opts.now, cancel: false };
+        let mut asked = false;
+        loop {
+            self.point("prepare");
+            let (reason, eta_ms) = match self.sup.prepare(id, &ask) {
+                Ok(Some(a)) if a.ready => return Ok(()),
+                Ok(Some(a)) => {
+                    asked = true;
+                    (a.reason.filter(|r| !r.trim().is_empty()).unwrap_or_else(|| "it finishes its current work".into()), a.eta_ms)
+                }
+                // No `prepare`: the app is ready when its health says nothing is busy.
+                Ok(None) => match self.sup.health(id).map(|h| h.busy.unwrap_or(0)) {
+                    Ok(0) | Err(_) => return Ok(()),
+                    Ok(n) => (format!("its {n} running {} finish", if n == 1 { "task" } else { "tasks" }), None),
+                },
+                // It names `prepare` and gives no valid answer: still running, so it is asked again.
+                Err(e) => {
+                    asked = true;
+                    (format!("it answers (it did not: {e})"), None)
+                }
+            };
+            if started.elapsed() >= wait {
+                if asked {
+                    let _ = self.sup.prepare(id, &PrepareRequest { cancel: true, ..Default::default() });
+                }
+                return Err(ArmoryError::NotReady { version: to.to_string(), reason, eta_ms });
+            }
+            self.report(Progress::waiting(id, &reason, eta_ms));
+            std::thread::sleep(poll.min(wait.saturating_sub(started.elapsed())).max(std::time::Duration::from_millis(10)));
+        }
+    }
+
+    /// "Later": the staged (or offered) newer version is applied by [Armory::apply_pending] at the app's next start or next
+    /// idle moment. The app is told to carry on with its work.
+    pub fn defer_update(&self, id: &str) -> Result<String> {
+        let a = self.check_update(id, None)?;
+        if !a.newer {
+            return Err(ArmoryError::UpToDate(a.installed));
+        }
+        let _lock = self.lock_app(id)?;
+        let mut meta = self.load_meta(id).ok_or_else(|| ArmoryError::NotInstalled(id.into()))?;
+        meta.pending_update = Some(a.available.clone());
+        store::write_json(&meta_path(&self.paths, id)?, &meta)?;
+        let _ = self.sup.prepare(id, &battalion_app_api::PrepareRequest { cancel: true, ..Default::default() });
+        Ok(a.available)
+    }
+
+    /// The version "Later" was chosen for, if any.
+    pub fn pending_update(&self, id: &str) -> Option<String> {
+        self.load_meta(id).and_then(|m| m.pending_update)
+    }
+
+    /// Applies a pending update ("Later") when the moment is right: the app is not running (its next start), or it is
+    /// idle now (it answers ready at once). `Ok(None)` = nothing pending, or the app is busy (it stays pending).
+    pub fn apply_pending(&self, id: &str) -> Result<Option<Updated>> {
+        if self.pending_update(id).is_none() {
+            return Ok(None);
+        }
+        match self.update(id, &UpdateOptions { wait_ms: Some(0), ..Default::default() }) {
+            Ok(u) => Ok(Some(u)),
+            Err(ArmoryError::NotReady { .. }) | Err(ArmoryError::Busy) => Ok(None),
+            Err(ArmoryError::UpToDate(_)) => {
+                if let Some(mut m) = self.load_meta(id) {
+                    m.pending_update = None;
+                    let _ = store::write_json(&meta_path(&self.paths, id)?, &m);
+                }
+                Ok(None)
+            }
+            Err(e) => Err(e),
         }
     }
 

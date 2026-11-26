@@ -153,6 +153,9 @@ struct Record {
     url: String,
     health: String,
     stop_timeout_ms: u64,
+    /// UPDATE-LIVE-1: the app's `prepare` path from its ready file; `None` = the app is not asked before an update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prepare: Option<String>,
 }
 
 #[derive(Clone)]
@@ -277,6 +280,20 @@ impl Supervisor {
     pub fn health(&self, id: &str) -> Result<Health, SupError> {
         let live = self.entry(id).live.lock().unwrap().clone().ok_or_else(|| SupError::WrongState(format!("app '{id}' is not running")))?;
         probe(&live.rec, &self.inner.settings).map_err(SupError::NotReady)
+    }
+
+    /// UPDATE-LIVE-1: one `POST <prepare>` with the app's per-start secret as bearer. `Ok(None)` = the running app names no
+    /// `prepare` (it is not asked before an update); `Err` = it names one but gave no valid answer.
+    pub fn prepare(&self, id: &str, req: &battalion_app_api::PrepareRequest) -> Result<Option<battalion_app_api::PrepareAnswer>, SupError> {
+        let live = self.entry(id).live.lock().unwrap().clone().ok_or_else(|| SupError::WrongState(format!("app '{id}' is not running")))?;
+        let Some(path) = live.rec.prepare.clone() else { return Ok(None) };
+        let token = std::fs::read_to_string(self.run_dir(id)?.join("token")).map_err(io_err)?;
+        let body = serde_json::to_string(req).map_err(|e| SupError::NotReady(e.to_string()))?;
+        let (code, text) = process::http_body("POST", &live.rec.url, &path, Some(token.trim()), Some(&body), Settings::ms(self.inner.settings.health_timeout_ms)).map_err(|e| SupError::NotReady(e.to_string()))?;
+        if code != 200 {
+            return Err(SupError::NotReady(format!("prepare answered {code}")));
+        }
+        serde_json::from_str(&text).map(Some).map_err(|e| SupError::NotReady(format!("prepare answer is not valid: {e}")))
     }
 
     /// When the OS starts: settle what an older run left behind. A worker or process recorded in
@@ -500,6 +517,7 @@ impl Supervisor {
             url: ready.url.clone(),
             health: ready.health.clone(),
             stop_timeout_ms: spec.stop_timeout_ms,
+            prepare: ready.prepare.clone().filter(|p| p.starts_with('/')),
         };
         // First health call must pass inside what is left of the ready window.
         loop {

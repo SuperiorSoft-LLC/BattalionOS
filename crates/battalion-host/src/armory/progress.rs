@@ -19,15 +19,25 @@ pub struct Progress {
     pub total: Option<u64>,
     /// 0..=100 while the size is known; `None` for a stage without a measure.
     pub percent: Option<u8>,
+    /// Stage `prepare` (UPDATE-LIVE-1): why the app is not ready yet, a phrase that completes "<app> will update when ...".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Stage `prepare`: how long the app expects to need, in ms.
+    #[serde(rename = "etaMs", skip_serializing_if = "Option::is_none")]
+    pub eta_ms: Option<u64>,
 }
 
 impl Progress {
     pub fn stage(id: &str, op: &str, stage: &str) -> Progress {
-        Progress { id: id.into(), op: op.into(), stage: stage.into(), bytes: None, total: None, percent: None }
+        Progress { id: id.into(), op: op.into(), stage: stage.into(), bytes: None, total: None, percent: None, reason: None, eta_ms: None }
+    }
+    /// The update waits for the app (stage `prepare`).
+    pub fn waiting(id: &str, reason: &str, eta_ms: Option<u64>) -> Progress {
+        Progress { reason: Some(reason.into()), eta_ms, ..Progress::stage(id, "update", "prepare") }
     }
     pub fn bytes(id: &str, op: &str, bytes: u64, total: u64) -> Progress {
         let percent = if total == 0 { 100 } else { (bytes.min(total) * 100 / total) as u8 };
-        Progress { id: id.into(), op: op.into(), stage: "download".into(), bytes: Some(bytes), total: Some(total), percent: Some(percent) }
+        Progress { id: id.into(), op: op.into(), stage: "download".into(), bytes: Some(bytes), total: Some(total), percent: Some(percent), reason: None, eta_ms: None }
     }
 }
 

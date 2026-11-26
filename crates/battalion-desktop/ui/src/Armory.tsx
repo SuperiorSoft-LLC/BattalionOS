@@ -7,11 +7,15 @@ import { Button, Chip, EmptyState, ListRow, ProgressLine, RefusalBanner, Tabs, T
 import { AppIcon } from "./AppIcon";
 import type { ArmoryOp } from "./os";
 import { confirmText, osRowActions, OS_ROW, type OsPhase, type OsUpdateInfo } from "./osUpdate";
-import { appView, availableOf, browseIds, desktopIds, iconOf, labelOf, offline, previousOf, progressOf, type Model } from "./store";
+import { appView, availableOf, browseIds, desktopIds, iconOf, labelOf, offline, pendingOf, previousOf, progressOf, waitText, type Model } from "./store";
 
 export interface ArmoryActions {
   install(id: string): void;
   update(id: string): void;
+  /** UPDATE-LIVE-1 "Update now": the app checkpoints at once and is updated. */
+  updateNow(id: string): void;
+  /** UPDATE-LIVE-1 "Later": the update applies by itself at the app's next start or idle moment. */
+  later(id: string): void;
   rollback(id: string): void;
   remove(id: string): void;
   /** Clears a failed action's error. */
@@ -27,6 +31,7 @@ function StateChip({ m, id }: { m: Model; id: string }) {
   const v = appView(m, id);
   const op = m.ops[id];
   if (op?.kind === "working") return <Chip tone="blue">{progressOf(m, id)?.text ?? `${VERB[op.op]}…`}</Chip>;
+  if (v.kind === "installed" && pendingOf(m, id)) return <Chip tone="amber">Updates to {pendingOf(m, id)} when idle</Chip>;
   if (v.kind === "installed") return <Chip tone={availableOf(m, id) ? "amber" : "green"}>{availableOf(m, id) ? `Update ${availableOf(m, id)}` : v.running && !(m.ended ?? []).includes(id) ? "Running" : "Installed"}</Chip>;
   if (v.kind === "installing") return <Chip tone="blue">{v.stage}…</Chip>;
   if (v.kind === "failed") return <Chip tone="red">Failed</Chip>;
@@ -49,6 +54,22 @@ function Progress({ m, id, fallback }: { m: Model; id: string; fallback: string 
 /** A failed update, rollback or remove: the Armory's text, Retry (same action again) and Dismiss. */
 function OpError({ m, id, a }: { m: Model; id: string; a: ArmoryActions }) {
   const op = m.ops[id];
+  if (op?.kind === "not-ready") {
+    // UPDATE-LIVE-1: not a failure. The new version is downloaded; the app is still working and keeps working.
+    return (
+      <div className="flex flex-col gap-1" role="status">
+        <span className="text-sm">{waitText(labelOf(m, id), op.reason, op.etaMs)} Version {op.version} is downloaded and ready.</span>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => a.updateNow(id)}>
+            Update now
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => a.later(id)}>
+            Later
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (op?.kind !== "failed") return null;
   const retry = { install: a.install, update: a.update, rollback: a.rollback, remove: a.remove }[op.op];
   return (

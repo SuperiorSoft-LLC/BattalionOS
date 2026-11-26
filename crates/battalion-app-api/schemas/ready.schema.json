@@ -8,6 +8,7 @@
     "pid": { "type": "integer", "minimum": 1 },
     "url": { "type": "string", "pattern": "^http://(127\\.0\\.0\\.1|localhost|\\[::1\\])(:[0-9]+)?" },
     "health": { "type": "string", "default": "/health" },
-    "stop": { "type": "string", "default": "/stop" }
+    "stop": { "type": "string", "default": "/stop" },
+    "prepare": { "type": "string", "description": "Optional: the path the OS calls (POST, bearer = the stop secret) to ask the app to get ready for an update" }
   }
 }

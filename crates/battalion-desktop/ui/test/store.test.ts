@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeCatalog, type AppStateName, type Catalog, type InstalledApp } from "../src/os";
 import { place } from "../src/grid";
-import { appLabel, appView, availableOf, browseIds, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems, needsStart } from "../src/store";
+import { appLabel, appView, availableOf, browseIds, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, type Model, offline, previousOf, progressOf, reduce, runInstall, runOp, showFirstRun, taskItems, needsStart, waitText, aboutText, pendingOf } from "../src/store";
 
 const app = (id: string, state: AppStateName): InstalledApp => ({ id, version: "1.0.0", state, channel: "stable" });
 const cat = (over: Partial<Catalog> = {}): Catalog => ({ apps: [{ id: "notes", source: "s", compatible: true }, { id: "old-one", source: "s", compatible: false }], rejected: [], sourceErrors: [], fromCache: false, ...over });
@@ -202,5 +202,30 @@ describe("BOS-29: the Armory icon on the desktop", () => {
     const old = { a: { col: 0, row: 0 }, b: { col: 0, row: 1 } };
     expect(place(iconIds(withInstalled(app("a", "installed"), app("b", "installed"))), old, g)).toEqual({ a: { col: 0, row: 0 }, b: { col: 0, row: 1 }, [ARMORY_ICON]: { col: 0, row: 2 } });
     expect(place([ARMORY_ICON, "a"], {}, g)[ARMORY_ICON]).toEqual({ col: 0, row: 0 });
+  });
+});
+
+describe("an update that waits for the app (UPDATE-LIVE-1)", () => {
+  const named = (): Model => reduce(initial, { type: "installed-loaded", apps: [{ ...app("infantry-ai", "running"), name: "Infantry AI" }] });
+  it("says in plain words what it waits for", () => {
+    expect(waitText("Infantry AI", "its agents finish their current step", 60_000)).toBe("Infantry AI will update when its agents finish their current step (about 1 min).");
+    expect(waitText("Notes", "it saves", 20_000)).toBe("Notes will update when it saves (about 20 s).");
+    expect(waitText("Notes", "it saves", null)).toBe("Notes will update when it saves.");
+    expect(aboutText(0)).toBeNull();
+    let m = reduce(named(), { type: "op-started", id: "infantry-ai", op: "update" });
+    m = reduce(m, { type: "progress", p: { id: "infantry-ai", op: "update", stage: "prepare", reason: "its agents finish their current step", etaMs: 60_000 } });
+    expect(progressOf(m, "infantry-ai")?.text).toBe("Infantry AI will update when its agents finish their current step (about 1 min).");
+    expect(progressOf(m, "infantry-ai")?.text).not.toContain("unit(s)");
+  });
+  it("an app that is not ready in time is not a failure: it offers Update now and Later", async () => {
+    let m = named();
+    const ok = await runOp({ run: async () => ({ notReady: true as const, version: "0.8.7", reason: "its agents finish their current step", etaMs: 30_000 }), listApps: async () => m.installed }, (a) => { m = reduce(m, a); }, "infantry-ai", "update", err);
+    expect(ok).toBe(false);
+    expect(m.ops["infantry-ai"]).toEqual({ kind: "not-ready", op: "update", version: "0.8.7", reason: "its agents finish their current step", etaMs: 30_000 });
+  });
+  it("a pending update is shown on the installed app", () => {
+    const m = reduce(initial, { type: "installed-loaded", apps: [{ ...app("notes", "running"), pendingUpdate: "2.0.0" }] });
+    expect(pendingOf(m, "notes")).toBe("2.0.0");
+    expect(pendingOf(withInstalled(app("notes", "running")), "notes")).toBeNull();
   });
 });

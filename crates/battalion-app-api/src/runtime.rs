@@ -17,8 +17,9 @@ pub mod env {
     pub const HOME: &str = "BATTALION_HOME";
 }
 
-/// `{contract, pid, url, health, stop}` written by the process when it is ready.
-/// `health` and `stop` are paths relative to `url`.
+/// `{contract, pid, url, health, stop, prepare?}` written by the process when it is ready.
+/// `health`, `stop` and `prepare` are paths relative to `url`. `prepare` is optional: an app that names it is asked to get
+/// ready before an update (see [PrepareRequest]); an app without it is only checked for `busy`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReadyFile {
     pub contract: u32,
@@ -28,6 +29,8 @@ pub struct ReadyFile {
     pub health: String,
     #[serde(default = "default_stop")]
     pub stop: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepare: Option<String>,
 }
 fn default_health() -> String {
     "/health".into()
@@ -85,4 +88,30 @@ pub struct Health {
     pub busy: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+}
+
+/// Body of `POST <prepare>` (bearer = the stop secret). Asked again until the answer is ready; every call is idempotent.
+/// - `{to, now: false}`: get ready for the update to `to` (stop starting new work, let work in progress finish).
+/// - `{to, now: true}`: checkpoint now and answer ready (work that is cut must be resumable after the restart).
+/// - `{cancel: true}`: the update is not happening now; go back to normal work.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PrepareRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub now: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancel: bool,
+}
+
+/// Answer of `POST <prepare>`. `ready: false` carries how long the app expects to need (`etaMs`) and why, as a phrase that
+/// completes "<App> will update when ...", e.g. "its agents finish their current step".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareAnswer {
+    pub ready: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eta_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }

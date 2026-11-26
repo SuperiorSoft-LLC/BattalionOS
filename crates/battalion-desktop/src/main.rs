@@ -69,6 +69,7 @@ fn main() {
             os_open_login,
             os_login_done,
             os_update_app,
+            os_update_later,
             os_rollback_app,
             os_remove_app,
             os_exit,
@@ -115,6 +116,16 @@ fn main() {
                 loop {
                     tauri::async_runtime::block_on(battalion_desktop::commands::check_os_update(&h3, &host));
                     std::thread::sleep(std::time::Duration::from_secs(battalion_desktop::osupdate::CHECK_EVERY_SECS));
+                }
+            });
+            // UPDATE-LIVE-1: an update "Later" was chosen for applies by itself the next moment its app is idle.
+            let h4 = app.handle().clone();
+            std::thread::spawn(move || {
+                let host = h4.state::<Host>();
+                let every = std::time::Duration::from_millis(host.armory.settings().pending_check_ms.max(1000));
+                loop {
+                    std::thread::sleep(every);
+                    tauri::async_runtime::block_on(battalion_desktop::commands::apply_pending_updates(&h4, &host));
                 }
             });
             // First open: install what the installer asked for (its checkbox), in the background, with progress events.

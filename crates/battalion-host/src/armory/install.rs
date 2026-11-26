@@ -38,6 +38,8 @@ pub struct InstalledApp {
     pub available: Option<String>,
     /// The version a rollback would go back to, when one is kept.
     pub previous: Option<String>,
+    /// UPDATE-LIVE-1: the version "Later" was chosen for (applied at the next start or idle moment).
+    pub pending_update: Option<String>,
 }
 
 impl Armory {
@@ -68,11 +70,13 @@ impl Armory {
         for e in rd.flatten() {
             let id = e.file_name().to_string_lossy().to_string();
             if let Ok(Some(cur)) = self.load_current(&id) {
-                let channel = self.load_meta(&id).map(|m| m.channel);
+                let meta = self.load_meta(&id);
+                let pending_update = meta.as_ref().and_then(|m| m.pending_update.clone());
+                let channel = meta.map(|m| m.channel);
                 let (name, icon) = self.card_of(&id, &cur.version);
                 let previous = cur.previous.clone().filter(|v| self.paths.version_dir(&id, v).is_ok_and(|d| d.join("app.json").is_file()));
                 let available = self.cached_newer(&id, &cur.version, channel.as_deref());
-                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous });
+                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous, pending_update });
             }
         }
         out.sort_by(|a, b| a.id.cmp(&b.id));
@@ -137,7 +141,7 @@ impl Armory {
         remove_tree(&vdir)?;
         std::fs::rename(&dir, &vdir)?;
         let custom = manifest.state.as_ref().and_then(|s| s.dir.get(std::env::consts::OS)).is_some_and(|d| !d.is_empty());
-        let meta = Meta { channel: channel.into(), state_schema: schema_of(&manifest), previous_state_schema: None, custom_state_dir: custom };
+        let meta = Meta { channel: channel.into(), state_schema: schema_of(&manifest), previous_state_schema: None, custom_state_dir: custom, pending_update: None };
         store::write_json(&meta_path(&self.paths, id)?, &meta)?;
         cur.transition(&cur_path, AppState::Installed)?;
 

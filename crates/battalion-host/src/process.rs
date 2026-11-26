@@ -225,6 +225,11 @@ pub fn wait_gone(id: &ProcId, timeout: Duration) -> bool {
 /// One loopback HTTP/1.1 call. Returns (status, body). `base` is the ready file's `url`.
 /// Anything slower than `timeout` in total is an error: a hung app must not hang the OS.
 pub fn http(method: &str, base: &str, path: &str, bearer: Option<&str>, timeout: Duration) -> io::Result<(u16, String)> {
+    http_body(method, base, path, bearer, None, timeout)
+}
+
+/// [http] with a JSON body (`Content-Type: application/json`).
+pub fn http_body(method: &str, base: &str, path: &str, bearer: Option<&str>, body: Option<&str>, timeout: Duration) -> io::Result<(u16, String)> {
     let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidInput, m.to_string());
     let rest = base.strip_prefix("http://").ok_or_else(|| bad("only http on loopback"))?;
     let hostport = rest.split('/').next().unwrap_or(rest);
@@ -235,11 +240,16 @@ pub fn http(method: &str, base: &str, path: &str, bearer: Option<&str>, timeout:
     let deadline = Instant::now() + timeout;
     let mut s = TcpStream::connect_timeout(&addr, timeout)?;
     s.set_write_timeout(Some(timeout))?;
-    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {hostport}\r\nConnection: close\r\nContent-Length: 0\r\n");
+    let payload = body.unwrap_or("");
+    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {hostport}\r\nConnection: close\r\nContent-Length: {}\r\n", payload.len());
+    if body.is_some() {
+        req.push_str("Content-Type: application/json\r\n");
+    }
     if let Some(t) = bearer {
         req.push_str(&format!("Authorization: Bearer {t}\r\n"));
     }
     req.push_str("\r\n");
+    req.push_str(payload);
     s.write_all(req.as_bytes())?;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 2048];

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 // The shell's state, pure so every app state, offline and failed install are tested without a window. One owner: the model; the views
 // only read it through the selectors below. Nothing here names an app.
-import type { AppStateName, ArmoryOp, ArmoryProgress, Catalog, InstalledApp } from "./os";
+import type { AppStateName, ArmoryOp, ArmoryProgress, Catalog, InstalledApp, NotReady } from "./os";
 
 export type InstallPhase = { kind: "installing" } | { kind: "failed"; error: string };
 /** An update, rollback or remove of this session: running, or failed with the text the Armory gave (Retry runs it again). */
-export type OpPhase = { kind: "working"; op: ArmoryOp } | { kind: "failed"; op: ArmoryOp; error: string };
+export type OpPhase = { kind: "working"; op: ArmoryOp } | { kind: "failed"; op: ArmoryOp; error: string } | { kind: "not-ready"; op: ArmoryOp; version: string; reason: string; etaMs: number | null };
 
 export interface Model {
   /** False until the first installed list arrives (the desktop shows a loading state, not the first-run card). */
@@ -44,6 +44,7 @@ export type Action =
   | { type: "op-done"; id: string }
   | { type: "op-failed"; id: string; op: ArmoryOp; error: string }
   | { type: "op-dismissed"; id: string }
+  | { type: "op-not-ready"; id: string; version: string; reason: string; etaMs: number | null }
   | { type: "progress"; p: ArmoryProgress }
   | { type: "dismiss-first-run" }
   | { type: "view-open"; id: string }
@@ -85,6 +86,8 @@ export function reduce(m: Model, a: Action): Model {
       return { ...m, ops: without(m.ops, a.id), progress: without(m.progress, a.id) };
     case "op-failed":
       return { ...m, ops: { ...m.ops, [a.id]: { kind: "failed", op: a.op, error: a.error } }, progress: without(m.progress, a.id) };
+    case "op-not-ready":
+      return { ...m, ops: { ...m.ops, [a.id]: { kind: "not-ready", op: "update", version: a.version, reason: a.reason, etaMs: a.etaMs } }, progress: without(m.progress, a.id) };
     case "progress":
       return { ...m, progress: { ...m.progress, [a.p.id]: a.p } };
     case "dismiss-first-run":
@@ -111,13 +114,26 @@ export type AppView =
 
 const STAGE: Partial<Record<AppStateName, string>> = { downloading: "Downloading", verifying: "Verifying", initialising: "Setting up", updating: "Updating", removing: "Removing" };
 /** The journal's step names, as the Armory reports them, in words. */
-const STEP: Record<string, string> = { download: "Downloading", verify: "Verifying", unpack: "Unpacking", place: "Placing files", init: "Setting up", stop: "Stopping", switch: "Switching version", start: "Starting", done: "Done", mark: "Removing", delete: "Removing files", forget: "Finishing" };
+const STEP: Record<string, string> = { download: "Downloading", verify: "Verifying", unpack: "Unpacking", place: "Placing files", prepare: "Waiting for the app", init: "Setting up", stop: "Stopping", switch: "Switching version", start: "Starting", done: "Done", mark: "Removing", delete: "Removing files", forget: "Finishing" };
 const mb = (n: number) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0);
 
 /** What the progress bar and its caption show: the stage in words and the percent (null = no measure, a moving bar). */
+/** UPDATE-LIVE-1: "about 1 min", "about 20 s"; null when the app gave no estimate. */
+export function aboutText(ms: number | null | undefined): string | null {
+  if (ms == null || !(ms > 0)) return null;
+  const s = Math.ceil(ms / 1000);
+  return s < 60 ? `about ${s} s` : `about ${Math.round(s / 60)} min`;
+}
+/** "Infantry AI will update when its agents finish their current step (about 1 min)." */
+export const waitText = (label: string, reason: string, etaMs?: number | null): string => {
+  const about = aboutText(etaMs);
+  return `${label} will update when ${reason}${about ? ` (${about})` : ""}.`;
+};
+
 export function progressOf(m: Model, id: string): { text: string; percent: number | null } | null {
   const p = m.progress[id];
   if (!p) return null;
+  if (p.stage === "prepare" && p.reason) return { text: waitText(labelOf(m, id), p.reason, p.etaMs), percent: null };
   const text = STEP[p.stage] ?? p.stage;
   const known = p.percent != null;
   return { text: known && p.total ? `${text}: ${mb(p.bytes ?? 0)} of ${mb(p.total)} MB (${p.percent}%)` : text, percent: known ? p.percent! : null };
@@ -223,6 +239,8 @@ export const iconOf = (m: Model, id: string): string | null => m.installed.find(
 export const availableOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.available ?? null;
 /** The version a rollback goes back to, or null. */
 export const previousOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.previous ?? null;
+/** UPDATE-LIVE-1: the version "Later" was chosen for. */
+export const pendingOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.pendingUpdate ?? null;
 
 /** The install flow ("it auto installs then should appear on the desktop"): install, then reload the installed list so the icon appears. */
 export interface Flow { install(id: string): Promise<void>; listApps(): Promise<InstalledApp[]> }
@@ -244,12 +262,16 @@ export async function runInstall(f: Flow, dispatch: (a: Action) => void, id: str
 }
 
 /** Update, rollback or remove: run it, reload the installed list, and keep the error for Retry when it fails. Only this app's phase changes. */
-export interface OpFlow { run(id: string, op: ArmoryOp): Promise<void>; listApps(): Promise<InstalledApp[]> }
+export interface OpFlow { run(id: string, op: ArmoryOp): Promise<NotReady | void>; listApps(): Promise<InstalledApp[]> }
 export async function runOp(f: OpFlow, dispatch: (a: Action) => void, id: string, op: ArmoryOp, errText: (e: unknown) => string): Promise<boolean> {
   dispatch({ type: "op-started", id, op });
   let ok = true;
   try {
-    await f.run(id, op);
+    const r = await f.run(id, op);
+    if (r && r.notReady) {
+      ok = false;
+      dispatch({ type: "op-not-ready", id, version: r.version, reason: r.reason, etaMs: r.etaMs ?? null });
+    }
   } catch (e) {
     ok = false;
     dispatch({ type: "op-failed", id, op, error: errText(e) });

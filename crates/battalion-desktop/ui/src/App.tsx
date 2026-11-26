@@ -147,10 +147,26 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const install = useCallback((id: string) => void runInstall(os, dispatch, id, errText), [os]);
   const op = useCallback(
     (id: string, kind: ArmoryOp) => {
-      const run = { update: os.update, rollback: os.rollback, remove: os.remove, install: os.install }[kind];
+      const run = { update: (i: string) => os.update(i), rollback: os.rollback, remove: os.remove, install: (i: string) => os.install(i) }[kind];
       void runOp({ run: (i) => run(i), listApps: () => os.listApps() }, dispatch, id, kind, errText).then((ok) => ok && void loadCatalog());
     },
     [os, loadCatalog],
+  );
+  // UPDATE-LIVE-1: "Update now" (the app checkpoints at once) and "Later" (applies at its next start or idle moment).
+  const updateNow = useCallback(
+    (id: string) => void runOp({ run: (i) => os.update(i, true), listApps: () => os.listApps() }, dispatch, id, "update", errText).then((ok) => ok && void loadCatalog()),
+    [os, loadCatalog],
+  );
+  const later = useCallback(
+    (id: string) =>
+      void os.updateLater(id).then(
+        async () => {
+          dispatch({ type: "op-dismissed", id });
+          dispatch({ type: "installed-loaded", apps: await os.listApps() });
+        },
+        (e) => dispatch({ type: "op-failed", id, op: "update", error: errText(e) }),
+      ),
+    [os],
   );
   const exit = useCallback(() => void os.exit().catch((e) => setNotice(`Could not exit: ${errText(e)}`)), [os]);
 
@@ -212,7 +228,7 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
         <AppFrames m={m} os={os} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
         {!ready && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
-        {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
+        {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), updateNow, later, rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
       <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone && slotChannel() ? () => setSettings(true) : undefined} />
       {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} />}

@@ -47,7 +47,8 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 | `os_open_login` | | main | nothing |
 | `os_login_done` | | login | nothing; closes the login window, emits `os://login-changed` |
 
-| `os_update_app` | `id` | main | `{id, from, to}`; refused: up to date, busy app, bad signature, other key. Stops and starts only this app |
+| `os_update_app` | `id`, `now?` | main | `{id, from, to}`, or `{id, notReady: true, version, reason, etaMs}` when the running app did not get ready within `armory.prepareWaitMs` (UPDATE-LIVE-1: the new version is staged first, the app is asked to get ready and the update applies by itself once it is; `now: true` = "Update now", the app checkpoints at once). Refused: up to date, bad signature, other key. Stops and starts only this app; emits `os://app-updated` when it is done |
+| `os_update_later` | `id` | main | `{id, pending}`: "Later". The app is told to carry on; the version applies by itself at the app's next `os_start_app` or the next moment it is idle (checked every `armory.pendingCheckMs`) |
 | `os_rollback_app` | `id` | main | `{id, from, to}`; refused when there is no previous version or the state schema changed |
 | `os_remove_app` | `id` | main | `{ok}`; closes the app's window, stops it, deletes its versions; its state folder stays |
 | `os_exit` | | main | nothing; ends the OS process only (see Lifetime) |
@@ -154,7 +155,8 @@ own slot, which runs it with Android and answers through the hub:
 | Event | Payload |
 |---|---|
 | `os://app-state` | `{id, state}` after `os_install_app`, `os_update_app`, `os_rollback_app` and `os_remove_app` end (`state` is null for a removed app) |
-| `os://armory-progress` | `{id, op, stage, bytes, total, percent}`: `op` is `install`, `update`, `rollback` or `remove`; `stage` is the step (`download`, `verify`, `unpack`, `place`, `init`, `stop`, `switch`, `start`, `done`, `mark`, `delete`, `forget`); `bytes`, `total` and `percent` (0-100) only while `stage` is `download`, else null |
+| `os://armory-progress` | `{id, op, stage, bytes, total, percent, reason?, etaMs?}`: `op` is `install`, `update`, `rollback` or `remove`; `stage` is the step (`download`, `verify`, `unpack`, `place`, `prepare`, `init`, `stop`, `switch`, `start`, `done`, `mark`, `delete`, `forget`); `bytes`, `total` and `percent` (0-100) only while `stage` is `download`, else null; `reason` and `etaMs` only while `stage` is `prepare` (the update waits for the app: "<app> will update when <reason>") |
+| `os://app-updated` | `{id, from, to}` after an update applied (by `os_update_app`, or a pending one): the shell closes the app's view and opens it again on the new version |
 | `os://app-open` | the app id; the shell opens the view of that app inside its window |
 | `os://app-window-closed` | the app id |
 | `os://login-changed` | `true` |

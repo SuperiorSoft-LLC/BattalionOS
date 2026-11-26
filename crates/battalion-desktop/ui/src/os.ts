@@ -16,7 +16,11 @@ export interface InstalledApp {
   previous?: string | null;
   /** The badge the running app put on itself (`os_badge`), or null. */
   badge?: string | null;
+  /** UPDATE-LIVE-1: "Later" was chosen for this version; it applies by itself at the next start or idle moment. */
+  pendingUpdate?: string | null;
 }
+/** UPDATE-LIVE-1: what `os_update_app` answers when the running app did not get ready in time (the new version stays staged). */
+export interface NotReady { notReady: true; version: string; reason: string; etaMs?: number | null }
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null; unavailable?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
 /** AND-3b: where the page's files are, when the host serves them itself by request interception (Android; absent on the desktop). */
@@ -26,7 +30,7 @@ import type { FirstRunEvent } from "./firstRunNotice";
 import type { OsUpdateInfo } from "./osUpdate";
 export type ArmoryOp= "install" | "update" | "rollback" | "remove";
 /** `os://armory-progress`: bytes, total and percent only while the stage is `download`. */
-export interface ArmoryProgress { id: string; op: ArmoryOp; stage: string; bytes?: number | null; total?: number | null; percent?: number | null }
+export interface ArmoryProgress { id: string; op: ArmoryOp; stage: string; bytes?: number | null; total?: number | null; percent?: number | null; reason?: string | null; etaMs?: number | null }
 
 /** BOS-27: the OS window (no Windows title bar; the shell draws it). Close hides the window; the OS and apps go on. */
 export type ResizeEdge = "North" | "South" | "East" | "West" | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest";
@@ -45,7 +49,12 @@ export interface Os {
   listApps(): Promise<InstalledApp[]>;
   catalog(): Promise<Catalog>;
   install(id: string, channel?: string): Promise<void>;
-  update(id: string): Promise<void>;
+  /** Resolves with [NotReady] when the app did not get ready in time; `now` = "Update now". */
+  update(id: string, now?: boolean): Promise<NotReady | void>;
+  /** "Later": the update applies by itself at the app's next start or idle moment. */
+  updateLater(id: string): Promise<void>;
+  /** An app was updated (`os://app-updated`); returns the unsubscribe. */
+  onAppUpdated(cb: (id: string) => void): () => void;
   remove(id: string): Promise<void>;
   rollback(id: string): Promise<void>;
   startApp(id: string): Promise<void>;
@@ -142,7 +151,15 @@ export const hostOs: Os = {
   listApps: () => call("os_list_apps"),
   catalog: async () => normalizeCatalog(await call<Catalog>("os_catalog")),
   install: async (id, channel) => void (await call("os_install_app", { id, channel })),
-  update: async (id) => void (await call("os_update_app", { id })),
+  update: async (id, now) => {
+    const r = await call<Record<string, unknown>>("os_update_app", { id, now: now ?? false });
+    return r && r.notReady ? (r as unknown as NotReady) : undefined;
+  },
+  updateLater: async (id) => void (await call("os_update_later", { id })),
+  onAppUpdated(cb) {
+    const sub = tauri().event.listen("os://app-updated", (e) => cb((e.payload as { id: string }).id));
+    return () => void sub.then((off) => off());
+  },
   remove: async (id) => void (await call("os_remove_app", { id })),
   rollback: async (id) => void (await call("os_rollback_app", { id })),
   startApp: async (id) => void (await call("os_start_app", { id })),

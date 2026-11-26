@@ -28,6 +28,7 @@ pub fn run() {
             os_open_login,
             os_login_done,
             os_update_app,
+            os_update_later,
             os_rollback_app,
             os_remove_app,
             os_exit,

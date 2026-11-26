@@ -76,6 +76,22 @@ always `android-aarch64` ([android.md](android.md)).
 | `readyTimeoutMs` | `60000` | How long the app has to write its ready file. |
 | `stopTimeoutMs` | `10000` | How long after a stop request before the OS ends the worker's job. |
 
+### Prepare for an update
+
+Optional (UPDATE-LIVE-1). An app that would lose work when it is stopped names a path in its ready file:
+`"prepare": "/prepare-update"`. Before an update, the OS calls `POST <url><prepare>` with the per-start secret
+(`tokenFile`) as `Authorization: Bearer`, and a JSON body:
+
+| Body | The app does |
+|---|---|
+| `{"to": "<version>"}` | Gets ready: stops starting new work, lets work in progress finish. Answers `{"ready": true}` when it can be stopped without losing anything, else `{"ready": false, "etaMs": <ms>, "reason": "<phrase>"}`. The OS asks again until it is ready, so every call is idempotent. |
+| `{"to": "<version>", "now": true}` | "Update now": saves what it needs to resume the work it cuts, then answers `{"ready": true}`. |
+| `{"cancel": true}` | The update is not happening now: back to normal work. |
+
+`reason` completes the sentence "<App name> will update when ...", e.g. `"its agents finish their current step"`. After
+`ready`, the OS stops the app the normal way, switches the version and starts it. An app without `prepare` is waited for
+until its health answer says `busy` 0.
+
 ### ui
 
 | Field | Meaning |

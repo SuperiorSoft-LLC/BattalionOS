@@ -87,9 +87,19 @@ One Armory action runs per app at a time (`apps/<id>/armory.lock`).
 downloads and is checked; then the app is stopped, `current.json` switches to the new version (keeping the old one as
 `previous`), and the new version is started.
 
-- **Refused** when the app is up to date, the signature is bad, the package is signed with another key than the
-  pinned one, or the running app reports work in flight (its health answer has `busy` > 0; setting
-  `armory.checkBusy`).
+- **Staged, then the app gets ready** (UPDATE-LIVE-1): the new version is downloaded, verified and placed while the
+  old one runs. Then a running app that names `prepare` in its ready file is asked to get ready
+  ([create.md](create.md#prepare-for-an-update)) and asked again every `armory.preparePollMs` (1000) until it answers
+  ready; an app without `prepare` is waited for until its health says `busy` 0. The update then applies by itself: no
+  Retry. While it waits, the Armory shows the app's own words: "Infantry AI will update when its agents finish their
+  current step (about 1 min)."
+- **Not ready in time** (`armory.prepareWaitMs`, default 180000): the app is told to carry on and the staged version
+  stays. The Armory offers **Update now** (the app checkpoints at once and is updated; the staged files are used) and
+  **Later** (`os_update_later`: the version applies by itself at the app's next start, or the next moment it is idle,
+  checked every `armory.pendingCheckMs`, default 60000). `armory.checkBusy: false` skips the wait (the app is stopped at once).
+- **Refused** when the app is up to date, the signature is bad, or the package is signed with another key than the
+  pinned one.
+- **The app's view** closes and opens again on the new version by itself (`os://app-updated`).
 - **Rolled back** when the new version never gets ready: with the same state schema, the old version is started
   again and the update reports it was rolled back.
 - **Left failed** when the new version raised `state.schema` and did not start: it may already have changed the data,
