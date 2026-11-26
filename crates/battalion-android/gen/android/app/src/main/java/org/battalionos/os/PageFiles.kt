@@ -1,4 +1,4 @@
-package org.battalionos.os.devtest
+package org.battalionos.os
 
 // AND-3b: an app's page is served by its slot through request interception at `http://<id>.bos.localhost/`, with no port: any other
 // Android app can reach a loopback port, so the OS starts no page server on a phone. The rules are the desktop page server's

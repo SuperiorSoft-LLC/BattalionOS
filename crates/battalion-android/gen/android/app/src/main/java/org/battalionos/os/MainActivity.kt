@@ -1,4 +1,4 @@
-package org.battalionos.os.devtest
+package org.battalionos.os
 
 import android.graphics.Color
 import android.os.Bundle

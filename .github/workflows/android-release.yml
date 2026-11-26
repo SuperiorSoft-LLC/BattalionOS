@@ -8,7 +8,7 @@
 #   2. The release bos-android-v<version> is a PRERELEASE and never latest.
 #   3. The feed is bos-android.json on this repo's own prerelease bos-android-stable. It is never infantry-ai's
 #      android-stable / android.json.
-#   4. The app id stays what tauri.conf.json says (the release id is the owner's call).
+#   4. The app id is what tauri.conf.json says (org.battalionos.os).
 name: android-release
 
 on:

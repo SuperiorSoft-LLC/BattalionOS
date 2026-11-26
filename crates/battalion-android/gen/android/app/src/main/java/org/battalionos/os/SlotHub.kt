@@ -1,4 +1,4 @@
-package org.battalionos.os.devtest
+package org.battalionos.os
 
 // AND-3: each BattalionOS app's page runs in its own Android process slot (design note bos-android-design-2026-11-25, section 5,
 // option C). The manifest declares a fixed pool of slot activities, each with its own `android:process` (:app0..:app3). The hub

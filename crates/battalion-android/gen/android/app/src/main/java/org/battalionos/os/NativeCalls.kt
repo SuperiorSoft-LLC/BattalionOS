@@ -1,4 +1,4 @@
-package org.battalionos.os.devtest
+package org.battalionos.os
 
 // AND-4: the native calls of an app's page on a phone, run in the app's own slot (its activity is on screen when the page asks).
 // The host already checked each call against the app's installed app.json (`os_frame_phone_call`) and cleaned its arguments; this

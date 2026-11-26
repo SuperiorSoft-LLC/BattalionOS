@@ -1,4 +1,4 @@
-package org.battalionos.os.devtest
+package org.battalionos.os
 
 // AND-3: one app slot. It runs in its own process (android:process in the manifest), so the app's page has its own renderer and
 // its own web storage (WebView data directory suffix = the app id). No Tauri here: the slot shows an OS-owned host page that holds
