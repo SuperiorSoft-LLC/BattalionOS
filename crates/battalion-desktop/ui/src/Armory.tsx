@@ -165,7 +165,8 @@ export interface OsRowProps {
 }
 
 /** BOS-30: BattalionOS itself in Installed. Not an app: its version, "Update to X" (confirmed in words), progress, a plain error with
- *  Retry. No Open, no Remove. */
+ *  Dismiss while the one button reads "Try again". No Open, no Remove. ARMORY-OSROW-1: the button alone says an update is there (no
+ *  second "Update X" chip). */
 function OsRow({ m, os }: { m: Model; os: OsRowProps }) {
   const [confirm, setConfirm] = useState(false);
   if (!os.info) return null;
@@ -179,7 +180,6 @@ function OsRow({ m, os }: { m: Model; os: OsRowProps }) {
         icon={<Boxes className="size-5" />}
         trailing={
           <span className="flex items-center gap-1">
-            {info.available && !working && <Chip tone="amber">Update {info.available.version}</Chip>}
             {working && <Chip tone="blue">{progressOf(m, OS_ROW)?.text ?? "Updating…"}</Chip>}
             {!info.available && !working && <Chip tone="green">Up to date</Chip>}
             {actions.map((label) => (
@@ -211,12 +211,7 @@ function OsRow({ m, os }: { m: Model; os: OsRowProps }) {
       )}
       {working && <Progress m={m} id={OS_ROW} fallback="Updating" />}
       {os.phase.kind === "failed" && (
-        <div className="flex flex-col gap-1">
-          <RefusalBanner text={`Update failed: ${os.phase.error}`} onDismiss={os.dismiss} />
-          <Button size="sm" variant="outline" className="self-start" onClick={() => os.install()}>
-            Retry
-          </Button>
-        </div>
+        <RefusalBanner text={`Update failed: ${os.phase.error}`} onDismiss={os.dismiss} />
       )}
     </div>
   );
@@ -227,6 +222,8 @@ export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: Os
   const off = offline(m);
   const browse = browseIds(m);
   const installed = desktopIds(m);
+  // ARMORY-OSROW-1: the count is the rows the tab shows, so the BattalionOS row counts when it is there.
+  const installedCount = installed.length + (osRow?.info ? 1 : 0);
   const subtitle = (id: string) => {
     const inst = m.installed.find((x) => x.id === id);
     return inst ? `${id} · ${inst.version}` : id;
@@ -299,7 +296,7 @@ export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: Os
           <Tabs defaultValue="browse" className="p-4">
             <TabsList>
               <TabsTrigger value="browse">Browse</TabsTrigger>
-              <TabsTrigger value="installed">Installed ({installed.length})</TabsTrigger>
+              <TabsTrigger value="installed">Installed ({installedCount})</TabsTrigger>
             </TabsList>
             <TabsContent value="browse" className="mt-3 flex flex-col gap-2">
               {m.catalogLoading && !m.catalog && <ProgressLine value={null} />}
@@ -311,7 +308,7 @@ export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: Os
             </TabsContent>
             <TabsContent value="installed" className="mt-3 flex flex-col gap-2">
               {osRow && <OsRow m={m} os={osRow} />}
-              {installed.length === 0 && <EmptyState icon={<Boxes />} title="Nothing installed yet" hint="Install an app from Browse and it appears on the desktop." />}
+              {installedCount === 0 && <EmptyState icon={<Boxes />} title="Nothing installed yet" hint="Install an app from Browse and it appears on the desktop." />}
               {installed.map(installedRow)}
             </TabsContent>
           </Tabs>

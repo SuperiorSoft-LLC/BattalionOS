@@ -11,7 +11,7 @@ export interface FirstRunEvent {
 /** The ids to announce: only a run that finished and installed something. */
 export const firstRunInstalled = (e: FirstRunEvent): string[] => (e.status === "done" && Array.isArray(e.ids) ? e.ids : []);
 
-/** "Infantry AI is installed with BattalionOS. You can remove it in the Armory." (names come from the catalog, never from code). */
+/** "Agent Hub is installed with BattalionOS. You can remove it in the Armory." (names come from the catalog, never from code). */
 export function firstRunNoticeText(names: string[]): string | null {
   if (names.length === 0) return null;
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;

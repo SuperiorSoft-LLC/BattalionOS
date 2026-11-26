@@ -17,6 +17,9 @@ describe("the BattalionOS row", () => {
     expect(osRowActions(info(), { kind: "working" })).toEqual([]);
     expect(osRowActions(info({ installing: true }), { kind: "idle" })).toEqual([]);
   });
+  it("after a failure the one button reads Try again, never Update and Retry side by side (ARMORY-OSROW-1)", () => {
+    expect(osRowActions(info(), { kind: "failed", error: "x" })).toEqual(["Try again"]);
+  });
   it("marks the Armory icon for an OS update or an app update, and for nothing else", () => {
     expect(armoryHasUpdate([app("a")], null)).toBe(false);
     expect(armoryHasUpdate([app("a")], info({ available: null }))).toBe(false);

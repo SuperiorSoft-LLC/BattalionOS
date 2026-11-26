@@ -18,9 +18,11 @@ export interface OsUpdateInfo {
 
 export type OsPhase = { kind: "idle" } | { kind: "working" } | { kind: "failed"; error: string };
 
-/** The row's buttons. Never Open, never Remove: the OS is not an app. */
+/** The row's one button. Never Open, never Remove: the OS is not an app. After a failure the same button reads "Try again"
+ *  (ARMORY-OSROW-1: one action, never Update and Retry side by side). */
 export function osRowActions(info: OsUpdateInfo | null, phase: OsPhase): string[] {
   if (phase.kind === "working" || info?.installing) return [];
+  if (phase.kind === "failed") return ["Try again"];
   return info?.available ? [`Update to ${info.available.version}`] : [];
 }
 
@@ -77,7 +79,7 @@ export interface OsUpdateApi {
   osUpdateInstall(): Promise<void>;
 }
 
-/** Run the update. The host ends this process when it works, so a return means it did not: the text, with Retry. */
+/** Run the update. The host ends this process when it works, so a return means it did not: the text, with Try again. */
 export async function runOsUpdate(api: OsUpdateApi, set: (p: OsPhase) => void, errText: (e: unknown) => string): Promise<void> {
   set({ kind: "working" });
   try {

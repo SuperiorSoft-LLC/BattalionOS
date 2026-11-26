@@ -124,7 +124,7 @@ export function aboutText(ms: number | null | undefined): string | null {
   const s = Math.ceil(ms / 1000);
   return s < 60 ? `about ${s} s` : `about ${Math.round(s / 60)} min`;
 }
-/** "Infantry AI will update when its agents finish their current step (about 1 min)." */
+/** "Agent Hub will update when its agents finish their current step (about 1 min)." */
 export const waitText = (label: string, reason: string, etaMs?: number | null): string => {
   const about = aboutText(etaMs);
   return `${label} will update when ${reason}${about ? ` (${about})` : ""}.`;

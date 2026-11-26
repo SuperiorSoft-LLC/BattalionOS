@@ -206,22 +206,22 @@ describe("BOS-29: the Armory icon on the desktop", () => {
 });
 
 describe("an update that waits for the app (UPDATE-LIVE-1)", () => {
-  const named = (): Model => reduce(initial, { type: "installed-loaded", apps: [{ ...app("infantry-ai", "running"), name: "Infantry AI" }] });
+  const named = (): Model => reduce(initial, { type: "installed-loaded", apps: [{ ...app("agent-hub", "running"), name: "Agent Hub" }] });
   it("says in plain words what it waits for", () => {
-    expect(waitText("Infantry AI", "its agents finish their current step", 60_000)).toBe("Infantry AI will update when its agents finish their current step (about 1 min).");
+    expect(waitText("Agent Hub", "its agents finish their current step", 60_000)).toBe("Agent Hub will update when its agents finish their current step (about 1 min).");
     expect(waitText("Notes", "it saves", 20_000)).toBe("Notes will update when it saves (about 20 s).");
     expect(waitText("Notes", "it saves", null)).toBe("Notes will update when it saves.");
     expect(aboutText(0)).toBeNull();
-    let m = reduce(named(), { type: "op-started", id: "infantry-ai", op: "update" });
-    m = reduce(m, { type: "progress", p: { id: "infantry-ai", op: "update", stage: "prepare", reason: "its agents finish their current step", etaMs: 60_000 } });
-    expect(progressOf(m, "infantry-ai")?.text).toBe("Infantry AI will update when its agents finish their current step (about 1 min).");
-    expect(progressOf(m, "infantry-ai")?.text).not.toContain("unit(s)");
+    let m = reduce(named(), { type: "op-started", id: "agent-hub", op: "update" });
+    m = reduce(m, { type: "progress", p: { id: "agent-hub", op: "update", stage: "prepare", reason: "its agents finish their current step", etaMs: 60_000 } });
+    expect(progressOf(m, "agent-hub")?.text).toBe("Agent Hub will update when its agents finish their current step (about 1 min).");
+    expect(progressOf(m, "agent-hub")?.text).not.toContain("unit(s)");
   });
   it("an app that is not ready in time is not a failure: it offers Update now and Later", async () => {
     let m = named();
-    const ok = await runOp({ run: async () => ({ notReady: true as const, version: "0.8.7", reason: "its agents finish their current step", etaMs: 30_000 }), listApps: async () => m.installed }, (a) => { m = reduce(m, a); }, "infantry-ai", "update", err);
+    const ok = await runOp({ run: async () => ({ notReady: true as const, version: "0.8.7", reason: "its agents finish their current step", etaMs: 30_000 }), listApps: async () => m.installed }, (a) => { m = reduce(m, a); }, "agent-hub", "update", err);
     expect(ok).toBe(false);
-    expect(m.ops["infantry-ai"]).toEqual({ kind: "not-ready", op: "update", version: "0.8.7", reason: "its agents finish their current step", etaMs: 30_000 });
+    expect(m.ops["agent-hub"]).toEqual({ kind: "not-ready", op: "update", version: "0.8.7", reason: "its agents finish their current step", etaMs: 30_000 });
   });
   it("a pending update is shown on the installed app", () => {
     const m = reduce(initial, { type: "installed-loaded", apps: [{ ...app("notes", "running"), pendingUpdate: "2.0.0" }] });
