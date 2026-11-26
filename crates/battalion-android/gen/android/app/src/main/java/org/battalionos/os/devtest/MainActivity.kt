@@ -28,11 +28,38 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  // AND-6 (f4f965ad): taps before the shell has drawn (the native splash, the still blank WebView) are recorded here in CSS px of
+  // the WebView, and handed to the shell once over `bosBoot` (op "taps"), which replays the newest on the desktop.
+  private val earlyTaps = org.json.JSONArray()
+  @Volatile private var shellReady = false
+  private var shellView: WebView? = null
+
+  override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+    if (!shellReady && ev.actionMasked == android.view.MotionEvent.ACTION_UP) {
+      val at = IntArray(2)
+      shellView?.getLocationOnScreen(at) ?: findViewById<View>(android.R.id.content).let { c ->
+        c.getLocationOnScreen(at); at[0] += c.paddingLeft; at[1] += c.paddingTop
+      }
+      val d = resources.displayMetrics.density
+      synchronized(earlyTaps) {
+        earlyTaps.put(JSONObject().put("x", (ev.rawX - at[0]) / d).put("y", (ev.rawY - at[1]) / d).put("t", System.currentTimeMillis()))
+      }
+    }
+    return super.dispatchTouchEvent(ev)
+  }
+
   // AND-3: the shell's channel to the app slots. Only the shell page (its own origin, the main frame) gets `bosSlots`; app pages
   // never load in this WebView on a phone (each runs in its own slot process).
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    shellView = webView
     if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
+    WebViewCompat.addWebMessageListener(webView, "bosBoot", setOf("http://tauri.localhost", "https://tauri.localhost")) { _, message, _, isMainFrame, reply ->
+      if (!isMainFrame || message.data?.contains("\"taps\"") != true) return@addWebMessageListener
+      shellReady = true
+      val taps = synchronized(earlyTaps) { earlyTaps.toString().also { while (earlyTaps.length() > 0) earlyTaps.remove(0) } }
+      reply.postMessage("{\"taps\":$taps}")
+    }
     WebViewCompat.addWebMessageListener(webView, "bosSlots", setOf("http://tauri.localhost", "https://tauri.localhost")) { _, message, _, isMainFrame, reply ->
       if (!isMainFrame) return@addWebMessageListener
       SlotHub.toShell = { o -> runOnUiThread { try { reply.postMessage(o.toString()) } catch (_: Exception) {} } }

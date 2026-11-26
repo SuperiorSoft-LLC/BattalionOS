@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // The shell: reads the installed list from the host, owns the model, wires the views. An app opens inside this window (os_open_app_window
 // -> os://app-open): its page fills the app area above the taskbar, in a frame that is hidden, never reloaded, on minimize.
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Button, RefusalBanner } from "../kit";
 import { closeAsks, closeNoticeSeen, CLOSE_NOTICE_TEXT } from "./closeNotice";
 import { Armory } from "./Armory";
@@ -15,6 +15,7 @@ import { backStep, layoutFor, useBackGesture, type Layout } from "./phone";
 import { armoryHasUpdate, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
+import { appAt, takeEarlyTap } from "./earlyTaps";
 import { ResizeEdges, TitleBar } from "./TitleBar";
 
 export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => Promise<string | null> }) {
@@ -161,6 +162,17 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const ids = useMemo(() => desktopIds(m), [m]);
   const icons = useMemo(() => iconIds(m), [m]);
   const openArmory = useCallback(() => { setArmory(true); void loadCatalog(); void os.osUpdateCheck().then(setOsInfo, () => {}); }, [loadCatalog, os]);
+  // AND-6 (f4f965ad): once the desktop is drawn, a tap made earlier (splash, blank page, loading state) opens the icon under it.
+  const ready = m.loaded && platformKnown;
+  const openRef = useRef<(id: string) => void>(() => {});
+  openRef.current = (id) => (id === ARMORY_ICON ? openArmory() : void open(id));
+  useEffect(() => {
+    if (!ready) return;
+    void takeEarlyTap().then((t) => {
+      if (!t || !phone) return;
+      requestAnimationFrame(() => { const id = appAt(t.x, t.y); if (id) openRef.current(id); });
+    });
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const view = useCallback((id: string) => appView(m, id), [m]);
   const label = useCallback((id: string) => (id === ARMORY_ICON ? "Armory" : labelOf(m, id)), [m]);
   const icon = useCallback((id: string) => iconOf(m, id), [m]);
@@ -183,7 +195,7 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
       </div>
       <Desktop ids={icons} view={view} label={label} icon={icon} tapOpens={phone} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
         <AppFrames m={m} os={os} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
-        {(!m.loaded || !platformKnown) && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
+        {!ready && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>

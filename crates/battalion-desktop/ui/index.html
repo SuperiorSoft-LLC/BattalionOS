@@ -1,6 +1,11 @@
 <!-- SPDX-License-Identifier: MPL-2.0 -->
 <!doctype html>
 <html lang="en" class="dark">
-  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" /><title>BattalionOS</title></head>
-  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" /><title>BattalionOS</title>
+    <style>html,body{margin:0;background:#0e0f12}#bos-boot{position:fixed;inset:0;display:grid;place-items:center;color:#9ca3af;font:14px system-ui,sans-serif}</style>
+    <!-- AND-6: taps before the shell draws are recorded (src/earlyTaps.ts replays the last one on the desktop). -->
+    <script>window.__bosEarlyTaps=[];document.addEventListener("pointerup",function(e){if(!window.__bosReady)window.__bosEarlyTaps.push({x:e.clientX,y:e.clientY,t:Date.now()})},true);</script>
+  </head>
+  <!-- AND-6: the loading state paints with the HTML, before the bundle runs; React replaces it. -->
+  <body><div id="root"><div id="bos-boot" role="status" aria-busy="true">Loading…</div></div><script type="module" src="/src/main.tsx"></script></body>
 </html>

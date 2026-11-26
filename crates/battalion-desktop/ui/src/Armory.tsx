@@ -27,7 +27,7 @@ function StateChip({ m, id }: { m: Model; id: string }) {
   const v = appView(m, id);
   const op = m.ops[id];
   if (op?.kind === "working") return <Chip tone="blue">{progressOf(m, id)?.text ?? `${VERB[op.op]}…`}</Chip>;
-  if (v.kind === "installed") return <Chip tone={availableOf(m, id) ? "amber" : "green"}>{availableOf(m, id) ? `Update ${availableOf(m, id)}` : v.running ? "Running" : "Installed"}</Chip>;
+  if (v.kind === "installed") return <Chip tone={availableOf(m, id) ? "amber" : "green"}>{availableOf(m, id) ? `Update ${availableOf(m, id)}` : v.running && !(m.ended ?? []).includes(id) ? "Running" : "Installed"}</Chip>;
   if (v.kind === "installing") return <Chip tone="blue">{v.stage}…</Chip>;
   if (v.kind === "failed") return <Chip tone="red">Failed</Chip>;
   if (v.kind === "incompatible") return <Chip tone="neutral">Not compatible</Chip>;

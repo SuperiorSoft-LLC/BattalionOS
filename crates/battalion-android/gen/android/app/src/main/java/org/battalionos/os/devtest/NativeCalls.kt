@@ -137,7 +137,15 @@ class NativeCalls(private val act: ComponentActivity, private val answer: (JSONO
       GmsBarcodeScanning.getClient(ctx, opts).startScan()
         .addOnSuccessListener { b -> done(true, b.rawValue) }
         .addOnCanceledListener { done(true, null) }
-        .addOnFailureListener { e -> done(false, "The code scanner is not available on this phone (${e.message ?: "Google Play services"}).") }
+        // QA-NIGHT-4 (af8518bd): Back on the open scanner can end as a failure; that is a cancel (OK null, as os_pick_file's).
+        // Only a scanner that could not start (module unavailable) says "not available".
+        .addOnFailureListener { e ->
+          val code = (e as? com.google.mlkit.common.MlKitException)?.errorCode
+          when (code) {
+            com.google.mlkit.common.MlKitException.UNAVAILABLE -> done(false, "The code scanner is not available on this phone (${e.message ?: "Google Play services"}).")
+            else -> done(true, null)
+          }
+        }
     }
   }
 

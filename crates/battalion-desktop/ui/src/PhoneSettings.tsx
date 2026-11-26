@@ -10,7 +10,7 @@ export function PhoneSettings({ open, onOpenChange, limit, setInUse }: { open: b
         <Field id="apps-open" label="Apps open at once" hint="When more apps are opened, the one used longest ago is closed. Fewer saves memory.">
           <ToggleGroup id="apps-open" type="single" variant="outline" value={String(limit.inUse)} onValueChange={(v) => v && setInUse(Number(v))} aria-label="Apps open at once">
             {Array.from({ length: limit.max }, (_, i) => String(i + 1)).map((n) => (
-              <ToggleGroupItem key={n} value={n} className="min-w-11" aria-label={`${n} at once`}>{n}</ToggleGroupItem>
+              <ToggleGroupItem key={n} value={n} className="min-w-11 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground" aria-label={`${n} at once`}>{n}</ToggleGroupItem>
             ))}
           </ToggleGroup>
         </Field>
