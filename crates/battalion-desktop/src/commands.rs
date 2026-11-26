@@ -26,8 +26,9 @@ pub async fn os_window_info(window: WebviewWindow) -> R<Value> {
         Caller::App(id) => Value::String(id),
         _ => Value::Null,
     };
-    // `dev` is true only in a developer build (BOS-31): the shell shows a "dev" mark.
-    Ok(json!({"label": label, "app": app, "dev": battalion_host::dev::ENABLED}))
+    // `dev` is true only in a developer build (BOS-31): the shell shows a "dev" mark. `platform` (AND-UI-1) picks the shell's layout:
+    // a phone (android, ios) has no window buttons and opens with one tap.
+    Ok(json!({"label": label, "app": app, "dev": battalion_host::dev::ENABLED, "platform": std::env::consts::OS}))
 }
 
 #[tauri::command]

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 // The desktop: one icon per installed app, on the owner's grid (grid.ts). Drag to move (snap, swap), arrows to move the focus,
-// Enter or double click to open. Positions are kept in localStorage of the shell window.
+// Enter or double click to open; on a phone (AND-UI-1, `tapOpens`) one tap opens. Positions are kept in localStorage of the shell window.
 import { Boxes, TriangleAlert } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cellAt, CELL_H, CELL_W, drop, DRAG_THRESHOLD, GRID_PAD, gridSize, neighbor, parsePositions, place, POSITIONS_KEY, serializePositions, type Cell, type Direction, type GridSize } from "./grid";
@@ -10,7 +10,7 @@ import { ARMORY_ICON, type AppView } from "./store";
 
 const KEYS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 
-export function Desktop({ ids, view, label, icon, badge, onOpen, children }: { ids: string[]; view: (id: string) => AppView; label: (id: string) => string; icon: (id: string) => string | null; badge: (id: string) => string | null; onOpen: (id: string) => void; children?: ReactNode }) {
+export function Desktop({ ids, view, label, icon, badge, onOpen, tapOpens = false, children }: { ids: string[]; view: (id: string) => AppView; label: (id: string) => string; icon: (id: string) => string | null; badge: (id: string) => string | null; onOpen: (id: string) => void; tapOpens?: boolean; children?: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<GridSize>({ cols: 8, rows: 6 });
   const [saved, setSaved] = useState(() => parsePositions(localStorage.getItem(POSITIONS_KEY) ?? ""));
@@ -30,6 +30,7 @@ export function Desktop({ ids, view, label, icon, badge, onOpen, children }: { i
     const p = press.current;
     press.current = null;
     setDragging(null);
+    if (p && !p.moved && e && tapOpens) return onOpen(p.id);
     if (!p || !p.moved || !e || !root.current) return;
     const r = root.current.getBoundingClientRect();
     const cell = cellAt(e.clientX - r.left, e.clientY - r.top, size);
@@ -52,7 +53,7 @@ export function Desktop({ ids, view, label, icon, badge, onOpen, children }: { i
             style={{ ...pos, width: CELL_W - 8, height: CELL_H - 8 }}
             className="absolute flex touch-none flex-col items-center gap-1 rounded-lg p-2 text-xs text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={`${label(id)}${v.kind === "failed" ? " (failed)" : ""}${badge(id) ? ` (${badge(id)})` : ""}`}
-            onDoubleClick={() => onOpen(id)}
+            onDoubleClick={() => !tapOpens && onOpen(id)}
             onKeyDown={(e) => {
               const dir = KEYS[e.key];
               if (e.key === "Enter") return onOpen(id);

@@ -8,15 +8,20 @@ import { Armory } from "./Armory";
 import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
 import { FirstRun } from "./FirstRun";
-import { errText, type ArmoryOp, type Os } from "./os";
+import { errText, hostPlatform, type ArmoryOp, type Os } from "./os";
+import { backStep, layoutFor, useBackGesture, type Layout } from "./phone";
 import { armoryHasUpdate, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
 import { Taskbar } from "./Taskbar";
 import { ResizeEdges, TitleBar } from "./TitleBar";
 
-export function App({ os }: { os: Os }) {
+export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => Promise<string | null> }) {
   const [m, dispatch] = useReducer(reduce, initial);
   const [armory, setArmory] = useState(false);
+  // AND-UI-1: the layout follows the host's platform. Until it answers the shell is the desktop one (Windows is unchanged).
+  const [layout, setLayout] = useState<Layout>("desktop");
+  useEffect(() => void platform().then((p) => setLayout(layoutFor(p, navigator.userAgent))), [platform]);
+  const phone = layout === "phone";
   const [notice, setNotice] = useState<string | null>(null);
   const [osInfo, setOsInfo] = useState<OsUpdateInfo | null>(null);
   const [osPhase, setOsPhase] = useState<OsPhase>({ kind: "idle" });
@@ -135,6 +140,13 @@ export function App({ os }: { os: Os }) {
   const hideWindow = useCallback(() => { closeNoticeSeen(localStorage); setCloseNotice(false); void os.window.close(); }, [os]);
   const closeWindow = useCallback(() => (closeAsks(localStorage) ? setCloseNotice(true) : void os.window.close()), [os]);
 
+  // The back gesture on a phone: the Armory closes first, then an open app goes back to the desktop (it keeps its state).
+  useBackGesture(phone, backStep(armory, m.active) !== null, () => {
+    const step = backStep(armory, m.active);
+    if (step === "close-armory") setArmory(false);
+    else if (step === "to-desktop" && m.active) minimize(m.active);
+  });
+
   const ids = useMemo(() => desktopIds(m), [m]);
   const icons = useMemo(() => iconIds(m), [m]);
   const openArmory = useCallback(() => { setArmory(true); void loadCatalog(); void os.osUpdateCheck().then(setOsInfo, () => {}); }, [loadCatalog, os]);
@@ -143,9 +155,9 @@ export function App({ os }: { os: Os }) {
   const icon = useCallback((id: string) => iconOf(m, id), [m]);
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      <ResizeEdges win={os.window} />
-      <TitleBar win={os.window} appName={m.active ? labelOf(m, m.active) : null} onClose={closeWindow} />
+    <div className="flex h-screen flex-col bg-background text-foreground" data-layout={layout} style={phone ? PHONE_INSETS : undefined}>
+      {!phone && <ResizeEdges win={os.window} />}
+      <TitleBar win={os.window} appName={m.active ? labelOf(m, m.active) : null} onClose={closeWindow} phone={phone} />
       {closeNotice && (
         <div role="alertdialog" aria-label="BattalionOS keeps running" className="mx-3 mt-2 flex flex-col gap-2 rounded-lg border bg-card p-3">
           <p className="text-sm">{CLOSE_NOTICE_TEXT}</p>
@@ -158,13 +170,23 @@ export function App({ os }: { os: Os }) {
       <div className="px-3 pt-2 empty:hidden">
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
-      <Desktop ids={icons} view={view} label={label} icon={icon} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
+      <Desktop ids={icons} view={view} label={label} icon={icon} tapOpens={phone} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
         <AppFrames m={m} os={os} close={closeView} minimize={minimize} retry={(id) => void retry(id)} />
         {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} />
+      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} phone={phone} />
     </div>
   );
 }
+
+/** A phone's system bars: the Android host pads its view by them already (MainActivity); where a WebView reports them as safe-area
+ *  insets instead, the shell keeps clear of them itself. */
+const PHONE_INSETS: React.CSSProperties = {
+  paddingTop: "env(safe-area-inset-top)",
+  paddingBottom: "env(safe-area-inset-bottom)",
+  paddingLeft: "env(safe-area-inset-left)",
+  paddingRight: "env(safe-area-inset-right)",
+  boxSizing: "border-box",
+};

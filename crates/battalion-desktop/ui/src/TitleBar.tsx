@@ -41,10 +41,11 @@ function DevMark() {
   );
 }
 
-/** The bar: the BattalionOS mark, the name of the app on screen (if any), and minimize / maximize / close. */
-export function TitleBar({ win, appName, onClose }: { win: OsWindow; appName: string | null; onClose?: () => void }) {
+/** The bar: the BattalionOS mark, the name of the app on screen (if any), and minimize / maximize / close. On a phone (AND-UI-1) the
+ *  bar is the mark and the app name only: no window buttons, nothing to drag. */
+export function TitleBar({ win, appName, onClose, phone = false }: { win: OsWindow; appName: string | null; onClose?: () => void; phone?: boolean }) {
   return (
-    <header data-tauri-drag-region data-testid="os-title-bar" className="flex h-10 shrink-0 select-none items-center gap-2 border-b bg-background pl-3">
+    <header data-tauri-drag-region={phone ? undefined : true} data-testid="os-title-bar" data-layout={phone ? "phone" : "desktop"} className={`flex shrink-0 select-none items-center gap-2 border-b bg-background pl-3 ${phone ? "h-11 pr-3" : "h-10"}`}>
       <Boxes className="pointer-events-none size-4 text-danger" aria-hidden />
       <span data-tauri-drag-region className="pointer-events-none text-sm font-semibold">BattalionOS</span>
       <DevMark />
@@ -54,7 +55,7 @@ export function TitleBar({ win, appName, onClose }: { win: OsWindow; appName: st
         </span>
       )}
       <div data-tauri-drag-region className="h-full min-w-4 flex-1" />
-      <div className="flex h-full items-stretch">
+      {!phone && <div className="flex h-full items-stretch">
         <button type="button" aria-label="Minimize" title="Minimize" className={btn} onClick={() => void win.minimize()}>
           <Minus />
         </button>
@@ -64,7 +65,7 @@ export function TitleBar({ win, appName, onClose }: { win: OsWindow; appName: st
         <button type="button" aria-label="Close" title="Close" className={`${btn} hover:bg-danger hover:text-white`} onClick={() => (onClose ? onClose() : void win.close())}>
           <X />
         </button>
-      </div>
+      </div>}
     </header>
   );
 }

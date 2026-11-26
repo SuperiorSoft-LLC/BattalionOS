@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 // The taskbar: Start on the left, one button per live app (running dot, badge when it failed). The Start menu lists the installed
-// apps, opens the Armory and exits BattalionOS.
+// apps, opens the Armory and exits BattalionOS. On a phone (AND-UI-1) the bar is the app switcher: it scrolls sideways, the buttons are
+// finger sized, and Start spans the screen's width.
 import { Boxes, LayoutGrid, Power } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Separator } from "../kit";
 import { AppIcon } from "./AppIcon";
 import type { BarItem } from "./store";
 
-export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onArmory, onExit }: { items: BarItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onTask: (id: string) => void; onArmory: () => void; onExit: () => void }) {
+export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onArmory, onExit, phone = false }: { items: BarItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onTask: (id: string) => void; onArmory: () => void; onExit: () => void; phone?: boolean }) {
   const [start, setStart] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -27,9 +28,9 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onAr
   };
 
   return (
-    <div ref={menu} className="relative flex h-12 shrink-0 items-center gap-1 border-t bg-panel px-2">
+    <div ref={menu} data-layout={phone ? "phone" : "desktop"} className={`relative flex shrink-0 items-center gap-1 border-t bg-panel px-2 ${phone ? "h-14" : "h-12"}`}>
       {start && (
-        <div role="menu" aria-label="Start" className="absolute bottom-12 left-2 z-20 flex w-64 flex-col gap-1 rounded-lg border bg-popover p-2 shadow-lg">
+        <div role="menu" aria-label="Start" className={`absolute z-20 flex flex-col gap-1 rounded-lg border bg-popover p-2 shadow-lg ${phone ? "inset-x-2 bottom-16 max-h-[70vh] overflow-y-auto" : "bottom-12 left-2 w-64"}`}>
           <Button variant="ghost" className="justify-start" role="menuitem" onClick={pick(onArmory)}>
             <Boxes /> Armory
           </Button>
@@ -47,12 +48,13 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onAr
           </Button>
         </div>
       )}
-      <Button variant={start ? "secondary" : "ghost"} size="sm" aria-haspopup="menu" aria-expanded={start} onClick={() => setStart(!start)}>
+      <Button variant={start ? "secondary" : "ghost"} size={phone ? "lg" : "sm"} className="shrink-0" aria-haspopup="menu" aria-expanded={start} onClick={() => setStart(!start)}>
         <LayoutGrid /> Start
       </Button>
       <Separator orientation="vertical" className="mx-1 h-6" />
+      <div className={phone ? "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" : "contents"}>
       {items.map((t) => (
-        <Button key={t.id} variant={t.active ? "secondary" : "ghost"} size="sm" className="relative flex-col gap-0 pb-1" data-active={t.active} onClick={() => onTask(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}${t.mark ? ` (${t.mark})` : ""}`}>
+        <Button key={t.id} variant={t.active ? "secondary" : "ghost"} size={phone ? "lg" : "sm"} className={`relative flex-col gap-0 pb-1 ${phone ? "max-w-40 shrink-0" : ""}`} data-active={t.active} onClick={() => onTask(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}${t.mark ? ` (${t.mark})` : ""}`}>
           <span className="flex items-center gap-1.5">
             <AppIcon icon={icon(t.id)} className="size-4" /> {label(t.id)}
             {t.badge && <Badge variant="destructive">!</Badge>}
@@ -61,6 +63,7 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onAr
           {t.running && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ok" data-running="true" aria-hidden />}
         </Button>
       ))}
+      </div>
     </div>
   );
 }

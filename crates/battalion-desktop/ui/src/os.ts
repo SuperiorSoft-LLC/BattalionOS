@@ -102,6 +102,14 @@ const win = () => (tauri() as unknown as { window: { getCurrentWindow(): TauriWi
 /** BOS-31: a developer build says so (the window mark), and reports its dev apps' reloads and load failures. Absent in a release build. */
 export interface DevAppEvent { id: string; status: "started" | "restarted" | "failed"; ms?: number; error?: string }
 export const devMark = (): Promise<boolean> => (call<{ dev?: boolean }>("os_window_info").then((r) => r.dev === true, () => false));
+/** AND-UI-1: the platform the host runs on (`android`, `windows`, ...), or null when the host does not say (or is absent). */
+export const hostPlatform = (): Promise<string | null> => {
+  try {
+    return call<{ platform?: string }>("os_window_info").then((r) => r.platform ?? null, () => null);
+  } catch {
+    return Promise.resolve(null);
+  }
+};
 export const onDevApp = (cb: (e: DevAppEvent) => void): (() => void) => {
   const sub = tauri().event.listen("os://dev-app", (e) => cb(e.payload as DevAppEvent));
   return () => void sub.then((off) => off());
