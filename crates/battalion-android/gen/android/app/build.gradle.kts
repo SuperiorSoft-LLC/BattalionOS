@@ -18,7 +18,7 @@ android {
     compileSdk = 37
     namespace = "org.battalionos.os"
     defaultConfig {
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
+        manifestPlaceholders["usesCleartextTraffic"] = "true"   // BOS-CLEARTEXT-1: release too (ws:// to the PC)
         applicationId = "org.battalionos.os"
         minSdk = 28
         targetSdk = 37

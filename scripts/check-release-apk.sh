@@ -7,6 +7,11 @@ apk="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"   # absolute: the unzip be
 bt="${2:-${ANDROID_HOME:?set ANDROID_HOME or pass the build-tools dir}/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)}"
 ext=""; [ -x "$bt/aapt2.exe" ] && ext=".exe"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+# BOS-CLEARTEXT-1 guard: apps reach the PC over ws://<LAN or Tailscale ip>; a release APK must permit cleartext.
+man="$("$bt/aapt2$ext" dump xmltree --file AndroidManifest.xml "$(cygpath -w "$apk" 2>/dev/null || echo "$apk")")"
+grep -q 'usesCleartextTraffic.*=true' <<<"$man" || { echo "check-release-apk: usesCleartextTraffic is not true in $apk (BOS-CLEARTEXT-1)"; exit 1; }
+grep -q 'networkSecurityConfig' <<<"$man" || { echo "check-release-apk: no networkSecurityConfig in $apk (BOS-CLEARTEXT-1)"; exit 1; }
+echo "ok       cleartext permitted (usesCleartextTraffic=true, networkSecurityConfig set)"
 regs="$("$bt/aapt2$ext" dump xmltree --file AndroidManifest.xml "$(cygpath -w "$apk" 2>/dev/null || echo "$apk")" | grep -o '"com.google.firebase.components:[^"]*"' | sed 's/"com.google.firebase.components://; s/"$//' | sort -u)"
 [ -n "$regs" ] || { echo "check-release-apk: no component registrars in the manifest of $apk (is ML Kit still linked?)"; exit 1; }
 (cd "$tmp" && unzip -q -o "$apk" 'classes*.dex')

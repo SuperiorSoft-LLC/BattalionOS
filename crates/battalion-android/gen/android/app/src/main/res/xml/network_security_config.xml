@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BOS-CLEARTEXT-1: apps reach a PC on the LAN or Tailscale over ws://<ip>:<port>/ws (e.g. Infantry AI's daemon).
+     Android cannot scope cleartext to IP ranges (domain-config takes host names, not CIDRs), so cleartext is allowed
+     app-wide in every build type. Follow-up: wss with a pairing certificate. Guarded by scripts/check-release-apk.sh. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors><certificates src="system" /></trust-anchors>
+    </base-config>
+</network-security-config>
