@@ -17,6 +17,11 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
+import android.net.Uri
+import android.webkit.MimeTypeMap
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import androidx.activity.result.contract.ActivityResultContracts
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -42,6 +47,14 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
   private var hub: Messenger? = null
   private var proxy: JavaScriptReplyProxy? = null
   private val queue = ArrayList<String>()
+
+  // ATTACH-AND-1: <input type=file> in the app's page. Without a WebChromeClient a WebView drops the request and the page's
+  // button does nothing. The slot answers it with Android's document picker (files only: a slot grants no camera). Exactly one
+  // answer per request, null on cancel, so the page's input is free again.
+  private var pending: ValueCallback<Array<Uri>>? = null
+  private fun answer(uris: Array<Uri>?) { pending?.onReceiveValue(uris); pending = null }
+  private val pickOne = registerForActivityResult(ActivityResultContracts.OpenDocument()) { u -> answer(u?.let { arrayOf(it) }) }
+  private val pickMany = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l -> answer(l.takeIf { it.isNotEmpty() }?.toTypedArray()) }
 
   private fun endSelf() {
     finishAndRemoveTask()
@@ -216,6 +229,17 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
         // The top of the slot never leaves the host page; the app's frame stays in its frame.
         override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean = req.isForMainFrame && req.url.toString() != "$HOST/"
       }
+      wv.webChromeClient = object : WebChromeClient() {
+        override fun onShowFileChooser(view: WebView, cb: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+          answer(null) // a request still open (should not happen) is cancelled, never left stuck
+          pending = cb
+          val types = chooserMimeTypes(params.acceptTypes)
+          return try {
+            if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) pickMany.launch(types) else pickOne.launch(types)
+            true
+          } catch (_: Exception) { pending = null; false } // no picker on this device: WebView cancels the request itself
+        }
+      }
       wv.loadUrl("$HOST/")
     }
     bindService(Intent(this, SlotHubService::class.java), conn, Context.BIND_AUTO_CREATE)
@@ -238,6 +262,14 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
   companion object {
     private var suffixSet = false
     private const val HELLO = "{\"hello\":1}"
+
+    /** An input's accept list as picker MIME types: ".png" via its extension, a MIME type (image/png, image/any) as is; nothing known means any file. */
+    fun chooserMimeTypes(accept: Array<String>?): Array<String> {
+      val out = (accept ?: emptyArray()).flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.mapNotNull { a ->
+        if (a.startsWith('.')) MimeTypeMap.getSingleton().getMimeTypeFromExtension(a.substring(1)) else a.takeIf { it.contains('/') }
+      }.distinct()
+      return if (out.isEmpty()) arrayOf("*/*") else out.toTypedArray()
+    }
 
     /** The host page: the app's page in one frame; messages from that frame (its window, its origin) go to the hub, answers back. */
     fun hostPage(url: String, origin: String): String {
