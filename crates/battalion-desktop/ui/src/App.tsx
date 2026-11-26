@@ -7,6 +7,8 @@ import { closeAsks, closeNoticeSeen, CLOSE_NOTICE_TEXT } from "./closeNotice";
 import { Armory } from "./Armory";
 import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
+import { PhoneSettings } from "./PhoneSettings";
+import { send, slotChannel } from "./slots";
 import { FirstRun } from "./FirstRun";
 import { errText, hostPlatform, type ArmoryOp, type Os } from "./os";
 import { backStep, layoutFor, useBackGesture, type Layout } from "./phone";
@@ -19,9 +21,11 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const [m, dispatch] = useReducer(reduce, initial);
   const [armory, setArmory] = useState(false);
   const [start, setStart] = useState(false);
-  // AND-UI-1: the layout follows the host's platform. Until it answers the shell is the desktop one (Windows is unchanged).
-  const [layout, setLayout] = useState<Layout>("desktop");
-  useEffect(() => void platform().then((p) => setLayout(layoutFor(p, navigator.userAgent))), [platform]);
+  // AND-UI-1: the layout follows the host's platform. AND-6: until it answers, the user agent decides (a phone opens with one tap
+  // from the first moment) and the desktop shows a loading state that holds taps, so no early tap is lost.
+  const [layout, setLayout] = useState<Layout>(() => layoutFor(null, navigator.userAgent));
+  const [platformKnown, setPlatformKnown] = useState(false);
+  useEffect(() => void platform().then((p) => { setLayout(layoutFor(p, navigator.userAgent)); setPlatformKnown(true); }), [platform]);
   const phone = layout === "phone";
   const [notice, setNotice] = useState<string | null>(null);
   const [osInfo, setOsInfo] = useState<OsUpdateInfo | null>(null);
@@ -113,6 +117,11 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   }, [os]);
   const minimize = useCallback((id: string) => dispatch({ type: "view-minimize", id }), []);
   const closeView = useCallback((id: string) => dispatch({ type: "view-close", id }), []);
+  const endedView = useCallback((id: string) => dispatch({ type: "view-ended", id }), []);
+  // AND-6: phone Settings ("Apps open at once"); the host owns the value and reports it with the slots.
+  const [settings, setSettings] = useState(false);
+  const [slotLimit, setSlotLimit] = useState<{ inUse: number; max: number } | null>(null);
+  const setInUse = useCallback((n: number) => { const c = slotChannel(); if (c) send(c, { op: "config", inUse: n }); }, []);
   const retry = useCallback(
     async (id: string) => {
       try {
@@ -173,12 +182,13 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
       <Desktop ids={icons} view={view} label={label} icon={icon} tapOpens={phone} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
-        <AppFrames m={m} os={os} close={closeView} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
-        {!m.loaded && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">Loading…</div>}
+        <AppFrames m={m} os={os} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
+        {(!m.loaded || !platformKnown) && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} />
+      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone && slotChannel() ? () => setSettings(true) : undefined} />
+      {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} />}
     </div>
   );
 }

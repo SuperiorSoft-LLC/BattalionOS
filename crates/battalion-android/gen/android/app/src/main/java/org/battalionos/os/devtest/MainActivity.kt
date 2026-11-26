@@ -39,7 +39,12 @@ class MainActivity : TauriActivity() {
       val m = try { JSONObject(message.data ?: return@addWebMessageListener) } catch (_: Exception) { return@addWebMessageListener }
       val id = m.optString("id")
       when (m.optString("op")) {
-        "hello" -> reply.postMessage(SlotHub.state().toString())
+        "hello" -> reply.postMessage(SlotHub.state(this).toString())
+        // AND-6: Settings, "Apps open at once".
+        "config" -> {
+          SlotHub.setSlotsInUse(this, m.optInt("inUse", SlotHub.SLOT_CLASSES.size))
+          reply.postMessage(SlotHub.state(this).toString())
+        }
         "open" -> SlotHub.open(this, id, m.optString("url"), m.optString("origin"), m.optString("name", id), m.optJSONObject("files"))
         "close" -> SlotHub.close(id)
         "reply" -> SlotHub.reply(id, m.optJSONObject("message")?.toString() ?: return@addWebMessageListener)

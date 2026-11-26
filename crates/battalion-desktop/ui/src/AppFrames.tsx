@@ -8,7 +8,7 @@ import { answer, eventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
-import { NativeCalls, openOp, parseSlotEvent, send, slotChannel, SlotWindows, type SlotChannel } from "./slots";
+import { NativeCalls, openOp, parseSlotEvent, send, slotChannel, slotLimit, SlotWindows, type SlotChannel } from "./slots";
 
 /** The query the shell adds to a page's url so the page knows it is shown inside the OS window (the frame is what the OS trusts, not this). */
 export const FRAME_FLAG = "bos-app";
@@ -34,7 +34,7 @@ function Frame({ id, page, reload, active, onWindow }: { id: string; page: AppPa
   );
 }
 
-export function AppFrames({ m, os, close, minimize, retry, notify, slots: given }: { m: Model; os: Os; close: (id: string) => void; minimize: (id: string) => void; retry: (id: string) => void; notify?: (text: string) => void; slots?: SlotChannel | null }) {
+export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, notify, slots: given }: { m: Model; os: Os; close: (id: string) => void; ended?: (id: string) => void; onSlotLimit?: (l: { inUse: number; max: number }) => void; minimize: (id: string) => void; retry: (id: string) => void; notify?: (text: string) => void; slots?: SlotChannel | null }) {
   // AND-3: on Android every app's page runs in its own process slot (the host's channel); everywhere else in a frame here.
   const slots = useMemo(() => (given === undefined ? slotChannel() : given), [given]);
   const slotWin = useRef(new SlotWindows());
@@ -123,8 +123,9 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
     pickFolder: (id, title) => (phone ? (phone(id, "os_pick_folder", { title }) as Promise<string | null>) : os.framePickFolder(id, title)),
     pickFile: (id, title) => (phone ? (phone(id, "os_pick_file", { title }) as Promise<string | null>) : os.framePickFile(id, title)),
     openExternal: (id, url) => (phone ? phone(id, "os_open_external", { url }).then(() => undefined) : os.frameOpenExternal(id, url)),
-    loginOpen: (id, url) => os.frameLoginOpen(id, url),
-    loginClose: (id) => os.frameLoginClose(id),
+    // AND-6: on a phone the sign-in window is a sign-in view over the app's own slot (same permission, same events).
+    loginOpen: (id, url) => (phone ? phone(id, "os_login_window_open", { url }).then(() => undefined) : os.frameLoginOpen(id, url)),
+    loginClose: (id) => (phone ? phone(id, "os_login_window_close", {}).then(() => undefined) : os.frameLoginClose(id)),
     notify: (id, title, text) => (phone ? phone(id, "os_notify", { title, text }).then(() => undefined) : notOnDesktop()),
     scanCode: (id) => (phone ? (phone(id, "os_scan_code", {}) as Promise<string | null>) : notOnDesktop()),
     // On a phone the host words the refusal of a call a page may not make (process.spawn: never on a phone).
@@ -137,6 +138,8 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
   const mRef = useRef(m);
   mRef.current = m;
   const notifyRef = useRef(notify);
+  const onSlotLimitRef = useRef(onSlotLimit);
+  onSlotLimitRef.current = onSlotLimit;
   notifyRef.current = notify;
 
   // AND-3: the active view is shown in its slot (opened there the first time); a closed view ends its slot's process.
@@ -181,12 +184,24 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
         case "native":
           native.current.settle(ev);
           break;
+        case "login": {
+          // AND-6: the app's sign-in view reached an address or ended; told to THAT app's slot only, as on the desktop.
+          const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: slotWin.current.token(id) }));
+          const r = ev.closed ? eventFor(frames, ev.id, "os_login_closed") : ev.url ? eventFor(frames, ev.id, "os_login_url", { url: ev.url }) : null;
+          if (r) send(slots, { op: "reply", id: ev.id, message: r.message });
+          break;
+        }
+        case "slots": {
+          const l = slotLimit(ev);
+          if (l) onSlotLimitRef.current?.(l);
+          break;
+        }
         case "ended":
           native.current.drop(ev.id);
           slotWin.current.drop(ev.id);
           if (shownSlot.current === ev.id) shownSlot.current = null;
           slotViews.current = slotViews.current.filter((v) => v !== ev.id);
-          close(ev.id);
+          (ended ?? close)(ev.id);
           notifyRef.current?.(ev.text);
           break;
         case "error":
@@ -197,7 +212,7 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
     };
     send(slots, { op: "hello" });
     return () => void (slots.onmessage = null);
-  }, [slots, close, minimize]);
+  }, [slots, close, minimize, ended]);
 
   useEffect(() => {
     if (slots) return;

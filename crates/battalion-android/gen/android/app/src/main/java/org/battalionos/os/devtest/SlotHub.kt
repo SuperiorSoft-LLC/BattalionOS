@@ -27,6 +27,7 @@ object SlotHub {
   const val REQUEST = 2 // slot -> hub: arg1 = slot, data "json" = {origin, data} from the app's frame
   const val LEFT = 3 // slot -> hub: arg1 = slot; the person went back to the desktop (the app keeps running)
   const val NATIVE_DONE = 4 // slot -> hub: arg1 = slot, data "json" = {req, ok, result?, error?} (AND-4)
+  const val LOGIN = 5 // slot -> hub: arg1 = slot, data "json" = {url} or {closed: true}, the app's sign-in view (AND-6)
   const val REPLY = 10 // hub -> slot: data "json" = the answer for the app's frame
   const val FINISH = 11 // hub -> slot: end the slot (its task and its process)
   const val NATIVE = 12 // hub -> slot: data "json" = {req, call, args}, a call the host checked (AND-4)
@@ -38,6 +39,11 @@ object SlotHub {
    *  absent = the whole pool. */
   fun slotsInUse(ctx: Context): Int =
     ctx.getSharedPreferences("bos_slots", Context.MODE_PRIVATE).getInt("inUse", SLOT_CLASSES.size).coerceIn(1, SLOT_CLASSES.size)
+
+  /** AND-6: the shell's Settings set `inUse` (1..pool size). Apps already open keep their slots; the limit applies to the next open. */
+  fun setSlotsInUse(ctx: Context, n: Int) {
+    ctx.getSharedPreferences("bos_slots", Context.MODE_PRIVATE).edit().putInt("inUse", n.coerceIn(1, SLOT_CLASSES.size)).apply()
+  }
 
   private class Slot {
     var app: String? = null
@@ -100,6 +106,13 @@ object SlotHub {
           val id = s.app ?: return
           val j = try { JSONObject(msg.data.getString("json") ?: return) } catch (_: Exception) { return }
           emit("request", id) { put("origin", j.optString("origin")); put("data", j.opt("data")) }
+        }
+        LOGIN -> {
+          if (s.messenger == null || msg.replyTo?.binder != s.messenger?.binder) return
+          val id = s.app ?: return
+          val j = try { JSONObject(msg.data.getString("json") ?: return) } catch (_: Exception) { return }
+          if (j.optBoolean("closed")) emit("login", id) { put("closed", true) }
+          else j.optString("url").takeIf { it.startsWith("http://") || it.startsWith("https://") }?.let { u -> emit("login", id) { put("url", u) } }
         }
         LEFT -> if (msg.replyTo?.binder == s.messenger?.binder) s.app?.let { emit("left", it) }
         NATIVE_DONE -> {
@@ -251,11 +264,13 @@ object SlotHub {
     next?.invoke()
   }
 
-  /** The slots now (the shell's "slots" event). */
-  fun state(): JSONObject {
+  /** The slots now (the shell's "slots" event), with the `inUse` setting and the pool size (AND-6, Settings). */
+  fun state(ctx: Context? = null): JSONObject {
     val a = JSONArray()
     slots.forEachIndexed { i, s -> a.put(JSONObject().put("slot", i).put("app", s.app ?: JSONObject.NULL).put("pid", s.pid)) }
-    return JSONObject().put("ev", "slots").put("id", "").put("slots", a)
+    val o = JSONObject().put("ev", "slots").put("id", "").put("slots", a).put("max", SLOT_CLASSES.size)
+    if (ctx != null) o.put("inUse", slotsInUse(ctx))
+    return o
   }
 }
 

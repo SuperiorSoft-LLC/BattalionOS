@@ -53,7 +53,14 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
       when (msg.what) {
         SlotHub.REPLY -> msg.data.getString("json")?.let { j -> proxy?.postMessage(j) }
         SlotHub.FINISH -> endSelf()
-        SlotHub.NATIVE -> msg.data.getString("json")?.let { j -> native.run(JSONObject(j)) }
+        SlotHub.NATIVE -> msg.data.getString("json")?.let { j ->
+          val o = JSONObject(j)
+          when (o.optString("call")) {
+            "login_open" -> loginOpen(o)
+            "login_close" -> loginClose(o)
+            else -> native.run(o)
+          }
+        }
       }
     }
   })
@@ -73,6 +80,63 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
   /** AND-4: the native calls of this slot's app, run in this activity (it is on screen when its page asks). */
   private val native = NativeCalls(this) { result ->
     send(Message.obtain(null, SlotHub.NATIVE_DONE).apply { data = Bundle().apply { putString("json", result.toString()) } })
+  }
+
+  // AND-6: the app's sign-in window (os_login_window_open) on a phone: a sign-in view over the app's page in this slot, as the
+  // desktop's sign-in window is over the app. Every web address it reaches goes to the shell (to this app's frame only), and its
+  // end. One per app: a second open replaces the first. Back (or os_login_window_close) ends it.
+  private var frame: android.widget.FrameLayout? = null
+  private var login: WebView? = null
+
+  private fun nativeDone(req: String, ok: Boolean, error: String? = null) {
+    val r = JSONObject().put("req", req).put("ok", ok)
+    if (ok) r.put("result", JSONObject.NULL) else r.put("error", error ?: "the call failed")
+    send(Message.obtain(null, SlotHub.NATIVE_DONE).apply { data = Bundle().apply { putString("json", r.toString()) } })
+  }
+
+  private fun loginReport(o: JSONObject) =
+    send(Message.obtain(null, SlotHub.LOGIN).apply { data = Bundle().apply { putString("json", o.toString()) } })
+
+  @SuppressLint("SetJavaScriptEnabled")
+  private fun loginOpen(o: JSONObject) {
+    val req = o.optString("req")
+    val url = o.optJSONObject("args")?.optString("url").orEmpty()
+    val host = frame
+    if (host == null || !(url.startsWith("https://") || url.startsWith("http://"))) return nativeDone(req, false, "the sign-in window could not be opened")
+    login?.let { old -> host.removeView(old); old.destroy() }
+    val w = WebView(this)
+    w.setBackgroundColor(Color.WHITE)
+    w.settings.javaScriptEnabled = true
+    w.settings.domStorageEnabled = true
+    w.settings.allowFileAccess = false
+    w.settings.allowContentAccess = false
+    w.webViewClient = object : WebViewClient() {
+      override fun shouldOverrideUrlLoading(view: WebView, r: WebResourceRequest): Boolean {
+        val s = r.url.scheme
+        // Only web addresses load here; anything else (an app link, a file) is refused, as on the desktop.
+        return s != "http" && s != "https"
+      }
+      override fun onPageStarted(view: WebView, u: String?, favicon: android.graphics.Bitmap?) {
+        if (u != null && (u.startsWith("http://") || u.startsWith("https://"))) loginReport(JSONObject().put("url", u))
+      }
+    }
+    host.addView(w, android.widget.FrameLayout.LayoutParams(-1, -1))
+    login = w
+    w.loadUrl(url)
+    nativeDone(req, true)
+  }
+
+  private fun loginEnd(report: Boolean) {
+    val w = login ?: return
+    login = null
+    frame?.removeView(w)
+    w.destroy()
+    if (report) loginReport(JSONObject().put("closed", true))
+  }
+
+  private fun loginClose(o: JSONObject) {
+    loginEnd(true)
+    nativeDone(o.optString("req"), true)
   }
 
   private fun send(m: Message) {
@@ -114,7 +178,11 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
     wv.settings.allowContentAccess = false
     // AND-UI-2: a WebView ignores its own padding (the page still draws under the bars), so the slot pads its content frame instead,
     // with the same insets as MainActivity: status, gesture/navigation bar, cutout and the keyboard.
-    setContentView(wv)
+    // AND-6: the page sits in a frame so the app's sign-in view can cover it.
+    val box = android.widget.FrameLayout(this)
+    box.addView(wv, android.widget.FrameLayout.LayoutParams(-1, -1))
+    frame = box
+    setContentView(box)
     val root = findViewById<android.view.View>(android.R.id.content)
     root.setBackgroundColor(Color.parseColor("#0e0f12"))
     ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
@@ -154,6 +222,8 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
     // Back: the app keeps running in its slot; the shell comes to the front and shows the desktop (as AND-UI-1's back does).
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
+        // AND-6: back closes the app's sign-in view first (the page is told, as when the desktop's sign-in window closes).
+        if (login != null) { loginEnd(true); return }
         send(Message.obtain(null, SlotHub.LEFT))
         startActivity(Intent(this@AppSlot, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
       }

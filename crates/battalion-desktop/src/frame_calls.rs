@@ -103,6 +103,9 @@ pub fn phone_call_name(cmd: &str) -> Option<&'static str> {
         OPEN_EXTERNAL => Some("open_external"),
         NOTIFY => Some("notify"),
         SCAN_CODE => Some("scan_code"),
+        // AND-6: the sign-in window of an app is a sign-in view over the app's own slot.
+        LOGIN_WINDOW_OPEN => Some("login_open"),
+        LOGIN_WINDOW_CLOSE => Some("login_close"),
         _ => None,
     }
 }
@@ -124,6 +127,7 @@ pub fn phone_call(id: &str, permissions: &[String], cmd: &str, args: &serde_json
     let args = match cmd {
         PICK_FOLDER => json!({"title": dialog_title(args.get("title").and_then(|t| t.as_str()), "Choose a folder")}),
         PICK_FILE => json!({"title": dialog_title(args.get("title").and_then(|t| t.as_str()), "Choose a file")}),
+        LOGIN_WINDOW_OPEN => json!({"url": login_url(args.get("url").and_then(|u| u.as_str()).ok_or("os_login_window_open needs a url")?)?}),
         OPEN_EXTERNAL => json!({"url": external_link(args.get("url").and_then(|u| u.as_str()).ok_or("os_open_external needs a url")?)?}),
         NOTIFY => {
             let title = short(args.get("title"), 80);
@@ -227,6 +231,13 @@ mod tests {
             assert!(e.contains("never allowed on a phone"), "{e}");
         }
         assert!(phone_call("aa", &all, LOGIN_WINDOW_OPEN, &json!({})).is_err());
+        // AND-6: the sign-in window is served on a phone, under login.window, for a web address only.
+        let ok = phone_call("aa", &perms(&["login.window"]), LOGIN_WINDOW_OPEN, &json!({"url": "https://example.com/login"})).unwrap();
+        assert_eq!(ok["call"], "login_open");
+        assert!(ok["args"]["url"].as_str().unwrap().starts_with("https://example.com/login"));
+        assert!(phone_call("aa", &perms(&["login.window"]), LOGIN_WINDOW_OPEN, &json!({"url": "file:///etc/passwd"})).is_err());
+        assert!(phone_call("aa", &[], LOGIN_WINDOW_OPEN, &json!({"url": "https://example.com"})).unwrap_err().contains("login.window"));
+        assert_eq!(phone_call("aa", &perms(&["login.window"]), LOGIN_WINDOW_CLOSE, &json!({})).unwrap()["call"], "login_close");
         assert!(phone_call("aa", &all, "os_exit", &json!({})).is_err());
     }
 }

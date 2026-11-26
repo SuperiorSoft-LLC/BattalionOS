@@ -23,10 +23,11 @@ export type SlotEvent =
   | { ev: "opened"; id: string; slot: number; pid: number }
   | { ev: "ended"; id: string; reason: "reused" | "ended"; text: string }
   | { ev: "error"; id: string; text: string }
-  | { ev: "slots"; id: ""; slots: { slot: number; app: string | null; pid: number }[] }
+  | { ev: "slots"; id: ""; slots: { slot: number; app: string | null; pid: number }[]; inUse?: number; max?: number }
+  | { ev: "login"; id: string; url?: string; closed?: boolean }
   | { ev: "native"; id: string; req: string; ok: boolean; result?: unknown; error?: string };
 
-const EVENTS = ["request", "left", "opened", "ended", "error", "slots", "native"];
+const EVENTS = ["request", "left", "opened", "ended", "error", "slots", "native", "login"];
 
 export function parseSlotEvent(text: string): SlotEvent | null {
   try {
@@ -44,7 +45,15 @@ export type SlotOp =
   | { op: "open"; id: string; url: string; origin: string; name: string; files?: PageFiles }
   | { op: "close"; id: string }
   | { op: "reply"; id: string; message: unknown }
-  | { op: "native"; id: string; req: string; call: string; args: unknown };
+  | { op: "native"; id: string; req: string; call: string; args: unknown }
+  | { op: "config"; inUse: number };
+
+/** AND-6: the "Apps open at once" setting the host reports (`inUse` of `max` slots), or null when it says nothing usable. */
+export function slotLimit(ev: { inUse?: unknown; max?: unknown }): { inUse: number; max: number } | null {
+  const max = typeof ev.max === "number" && Number.isInteger(ev.max) && ev.max >= 1 ? ev.max : null;
+  if (max === null || typeof ev.inUse !== "number" || !Number.isInteger(ev.inUse)) return null;
+  return { inUse: Math.min(max, Math.max(1, ev.inUse)), max };
+}
 
 /** The open op of app `id`: its page url marked as a frame of `id` (`flag`), its origin, and (AND-3b) the files the slot serves. */
 export function openOp(id: string, page: AppPage, name: string, flag: string): SlotOp {

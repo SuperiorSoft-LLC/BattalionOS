@@ -2,13 +2,13 @@
 // The taskbar: Start on the left, one button per live app (running dot, badge when it failed). The Start menu lists the installed
 // apps, opens the Armory and exits BattalionOS. On a phone (AND-UI-1) the bar is the app switcher: it scrolls sideways, the buttons are
 // finger sized, and Start spans the screen's width.
-import { Boxes, LayoutGrid, Power } from "lucide-react";
+import { Boxes, LayoutGrid, Power, Settings } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Badge, Button, Separator } from "../kit";
 import { AppIcon } from "./AppIcon";
 import type { BarItem } from "./store";
 
-export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onArmory, onExit, start, onStart: setStart, phone = false }: { items: BarItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onTask: (id: string) => void; onArmory: () => void; onExit: () => void; start: boolean; onStart: (open: boolean) => void; phone?: boolean }) {
+export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onArmory, onExit, start, onStart: setStart, phone = false, onSettings }: { items: BarItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onTask: (id: string) => void; onArmory: () => void; onExit: () => void; start: boolean; onStart: (open: boolean) => void; phone?: boolean; onSettings?: () => void }) {
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!start) return;
@@ -42,6 +42,11 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onAr
             </Button>
           ))}
           <Separator />
+          {onSettings && (
+            <Button variant="ghost" className="justify-start" role="menuitem" onClick={pick(onSettings)}>
+              <Settings /> Settings
+            </Button>
+          )}
           <Button variant="ghost" className="justify-start" role="menuitem" onClick={pick(onExit)}>
             <Power /> Exit BattalionOS
           </Button>
@@ -53,9 +58,10 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onAr
       <Separator orientation="vertical" className="mx-1 h-6" />
       <div className={phone ? "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" : "contents"}>
       {items.map((t) => (
-        <Button key={t.id} variant={t.active ? "secondary" : "ghost"} size={phone ? "lg" : "sm"} className={`relative flex-col gap-0 pb-1 ${phone ? "max-w-40 shrink-0" : ""}`} data-active={t.active} onClick={() => onTask(t.id)} aria-label={`${label(t.id)}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}${t.mark ? ` (${t.mark})` : ""}`}>
+        <Button key={t.id} variant={t.active ? "secondary" : "ghost"} size={phone ? "lg" : "sm"} className={`relative flex-col gap-0 pb-1 ${phone ? "max-w-40 shrink-0" : ""}`} data-active={t.active} onClick={() => onTask(t.id)} data-ended={t.ended || undefined} aria-label={`${label(t.id)}${t.ended ? " (ended, tap to open again)" : ""}${t.running ? " (running)" : ""}${t.badge ? " (needs attention)" : ""}${t.mark ? ` (${t.mark})` : ""}`}>
           <span className="flex items-center gap-1.5">
-            <AppIcon icon={icon(t.id)} className="size-4" /> {label(t.id)}
+            <AppIcon icon={icon(t.id)} className={`size-4 ${t.ended ? "opacity-50" : ""}`} /> <span className={t.ended ? "text-muted-foreground" : ""}>{label(t.id)}</span>
+            {t.ended && <span className="text-[10px] text-muted-foreground">ended</span>}
             {t.badge && <Badge variant="destructive">!</Badge>}
             {!t.badge && t.mark && <Badge variant="destructive" data-badge={t.mark}>{t.mark}</Badge>}
           </span>

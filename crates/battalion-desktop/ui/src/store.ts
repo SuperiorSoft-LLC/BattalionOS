@@ -25,9 +25,11 @@ export interface Model {
   views: string[];
   /** The view that fills the app area, or null (the desktop). A minimized view is in `views` but not active. */
   active: string | null;
+  /** AND-6: apps whose phone slot ended by itself (crash, memory, reuse). Their taskbar button stays, marked ended; a tap opens them fresh. */
+  ended: string[];
 }
 
-export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, ops: {}, progress: {}, firstRunDismissed: false, views: [], active: null };
+export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, ops: {}, progress: {}, firstRunDismissed: false, views: [], active: null, ended: [] };
 
 export type Action =
   | { type: "installed-loaded"; apps: InstalledApp[] }
@@ -46,7 +48,8 @@ export type Action =
   | { type: "dismiss-first-run" }
   | { type: "view-open"; id: string }
   | { type: "view-minimize"; id: string }
-  | { type: "view-close"; id: string };
+  | { type: "view-close"; id: string }
+  | { type: "view-ended"; id: string };
 
 const without = <T,>(r: Record<string, T>, id: string): Record<string, T> => {
   const { [id]: _gone, ...rest } = r;
@@ -87,11 +90,13 @@ export function reduce(m: Model, a: Action): Model {
     case "dismiss-first-run":
       return { ...m, firstRunDismissed: true };
     case "view-open":
-      return { ...m, views: m.views.includes(a.id) ? m.views : [...m.views, a.id], active: a.id };
+      return { ...m, views: m.views.includes(a.id) ? m.views : [...m.views, a.id], active: a.id, ended: m.ended.filter((id) => id !== a.id) };
     case "view-minimize":
       return { ...m, active: m.active === a.id ? null : m.active };
     case "view-close":
-      return { ...m, views: m.views.filter((id) => id !== a.id), active: m.active === a.id ? null : m.active };
+      return { ...m, views: m.views.filter((id) => id !== a.id), active: m.active === a.id ? null : m.active, ended: m.ended.filter((id) => id !== a.id) };
+    case "view-ended":
+      return { ...m, views: m.views.filter((id) => id !== a.id), active: m.active === a.id ? null : m.active, ended: m.ended.includes(a.id) ? m.ended : [...m.ended, a.id] };
   }
 }
 
@@ -150,11 +155,15 @@ export const taskItems = (m: Model): TaskItem[] =>
     .map((a) => ({ id: a.id, running: a.state === "running", badge: a.state === "failed", mark: a.badge ?? null }));
 
 /** A taskbar button: a live or failed app (`taskItems`), and any app with a view, even one that stopped. `active` = it fills the app area. */
-export interface BarItem extends TaskItem { open: boolean; active: boolean }
+/** `ended` (AND-6): the app's phone slot ended; the button stays, not running, and a tap opens the app fresh (as Windows shows a closed app). */
+export interface BarItem extends TaskItem { open: boolean; active: boolean; ended: boolean }
 export const barItems = (m: Model): BarItem[] => {
   const live = taskItems(m);
-  const extra = m.views.filter((id) => !live.some((t) => t.id === id)).map((id) => ({ id, running: false, badge: false, mark: m.installed.find((a) => a.id === id)?.badge ?? null }));
-  return [...live, ...extra].map((t) => ({ ...t, open: m.views.includes(t.id), active: m.active === t.id }));
+  const extra = [...m.views, ...(m.ended ?? [])].filter((id, i, all) => all.indexOf(id) === i && !live.some((t) => t.id === id)).map((id) => ({ id, running: false, badge: false, mark: m.installed.find((a) => a.id === id)?.badge ?? null }));
+  return [...live, ...extra].map((t) => {
+    const ended = (m.ended ?? []).includes(t.id) && !m.views.includes(t.id);
+    return { ...t, running: ended ? false : t.running, open: m.views.includes(t.id), active: m.active === t.id, ended };
+  });
 };
 
 /** What the app area shows for a view: the page, or the app's state (with Retry where starting it again helps). */

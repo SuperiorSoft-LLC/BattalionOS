@@ -69,7 +69,12 @@ Truth: `crates/battalion-android/gen/android/app/src/main/java/org/battalionos/o
   could not reach a daemon at a plain `ws://` address (mixed content). The desktop keeps its loopback page server.
 - Back in an app returns to the shell's desktop; the app keeps running in its slot. A taskbar tap shows it again (same
   process, same state). Each slot is also its own entry in Android's Recents.
-- How many slots may be in use at once is the setting `inUse` (shared preferences `bos_slots`), 1 to 4; default 4.
+- How many slots may be in use at once is the setting `inUse` (shared preferences `bos_slots`), 1 to 4; default 4. The person sets
+  it in Start > Settings, "Apps open at once" (AND-6); apps already open keep their slots.
+- A slot that Android ends (crash, memory) or that is reused stays on the taskbar, marked "ended"; a tap opens the app fresh (AND-6).
+- The sign-in window (`os_login_window_open`, permission `login.window`) is a sign-in view over the app's own slot: every web
+  address it reaches is sent to the app's page (`os_login_url`), and back or `os_login_window_close` ends it (`os_login_closed`).
+  It runs in the app's slot process, so it shares that app's web storage (the desktop gives it a separate data folder).
   When all are busy, the slot used longest ago is closed and the shell says so plainly ("All 2 app slots were in use,
   so Slot A (the one used longest ago) was closed to open Slot C."). A slot that Android ends (crash, low memory)
   is reported the same way ("... was ended by Android").
