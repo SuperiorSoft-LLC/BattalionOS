@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Button, RefusalBanner } from "../kit";
 import { closeAsks, closeNoticeSeen, CLOSE_NOTICE_TEXT } from "./closeNotice";
+import { firstRunInstalled, firstRunNoticeText } from "./firstRunNotice";
 import { Armory } from "./Armory";
 import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
@@ -29,6 +30,7 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   useEffect(() => void platform().then((p) => { setLayout(layoutFor(p, navigator.userAgent)); setPlatformKnown(true); }), [platform]);
   const phone = layout === "phone";
   const [notice, setNotice] = useState<string | null>(null);
+  const [firstRunIds, setFirstRunIds] = useState<string[]>([]);
   const [osInfo, setOsInfo] = useState<OsUpdateInfo | null>(null);
   const [osPhase, setOsPhase] = useState<OsPhase>({ kind: "idle" });
 
@@ -57,7 +59,13 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
     // BOS-30: the OS's own update. A host without it (or a feed that is down) leaves the row hidden; nothing is shown as an error.
     void os.osUpdateState().then(setOsInfo, () => {});
     const offOs = os.onOsUpdate(setOsInfo);
+    // BOS-DEFAULT-INF: the default apps the first open installed are named once (the host sends `done` on that run only).
+    // The run may finish before this listens, so the host holds the ids until taken: ask now, and again on `done`.
+    const takeNotice = () => void os.takeFirstRunNotice().then((ids) => { if (ids.length) { setFirstRunIds(ids); void loadInstalled(); } }, () => {});
+    takeNotice();
+    const offFirstRun = os.onFirstRun((e) => { if (firstRunInstalled(e).length) takeNotice(); });
     return () => {
+      offFirstRun();
       offOs();
       offChange();
       offProgress();
@@ -188,6 +196,13 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
             <Button size="sm" onClick={hideWindow}>Hide the window</Button>
             <Button size="sm" variant="ghost" onClick={() => { setCloseNotice(false); exit(); }}>Exit BattalionOS</Button>
           </div>
+        </div>
+      )}
+      {firstRunIds.length > 0 && (
+        <div role="status" className="mx-3 mt-2 flex items-center gap-2 rounded-lg border bg-card px-3 py-2">
+          <p className="flex-1 text-sm">{firstRunNoticeText(firstRunIds.map(label))}</p>
+          <Button size="sm" variant="ghost" onClick={openArmory}>Open Armory</Button>
+          <Button size="sm" variant="ghost" aria-label="Dismiss" onClick={() => setFirstRunIds([])}>OK</Button>
         </div>
       )}
       <div className="px-3 pt-2 empty:hidden">

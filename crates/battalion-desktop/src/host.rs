@@ -25,13 +25,25 @@ pub struct Host {
     pub open_request: Mutex<Option<String>>,
     /// BOS-30: the newer BattalionOS the last check found, and whether an install runs.
     pub os_update: Mutex<crate::osupdate::OsUpdateState>,
+    /// The first-run plan carried in the build, for a host with no `first-run.json` beside its executable (Android).
+    /// `None` = read the file beside the executable (the Windows installer lays it down when its checkbox is checked).
+    pub first_run_plan: Option<&'static str>,
+    /// BOS-DEFAULT-INF: the apps the first run just installed, until the shell takes them (`os_take_first_run_notice`) to
+    /// name them once. Held here because the run may finish before the shell listens to `os://first-run`.
+    pub first_run_notice: Mutex<Vec<String>>,
 }
 
 impl Host {
     pub fn new(paths: Paths) -> Host {
         let sup = Supervisor::new(paths.clone());
         let armory = std::sync::Arc::new(Armory::new(paths.clone(), sup.clone(), env!("CARGO_PKG_VERSION")));
-        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default(), open_request: Mutex::new(None), os_update: Default::default() }
+        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default(), open_request: Mutex::new(None), os_update: Default::default(), first_run_plan: None, first_run_notice: Mutex::new(Vec::new()) }
+    }
+
+    /// A host whose first run installs the apps of this plan text (`first-run.json`, compiled in).
+    pub fn with_first_run_plan(mut self, plan: &'static str) -> Host {
+        self.first_run_plan = Some(plan);
+        self
     }
 }
 
@@ -214,11 +226,10 @@ pub fn app_id_of_label(label: &str) -> Option<&str> {
 /// Blocking; call it from a thread. Emits `os://first-run` and, per app, `os://app-state`.
 pub fn run_first_run(app: &AppHandle, host: &Host) -> battalion_host::firstrun::Outcome {
     use battalion_host::firstrun::{self as fr, Event, Outcome};
-    let Some(plan) = fr::plan_path_beside_exe() else { return Outcome::NothingToDo };
     let emit = |p: serde_json::Value| {
         let _ = app.emit(events::FIRST_RUN, p);
     };
-    fr::run(&host.armory, &plan, &mut |ev| match ev {
+    let mut on_event = |ev| match ev {
         Event::Start(ids) => emit(serde_json::json!({"status": "start", "ids": ids})),
         Event::AppInstalled(id) => {
             emit(serde_json::json!({"status": "installed", "id": id}));
@@ -227,11 +238,21 @@ pub fn run_first_run(app: &AppHandle, host: &Host) -> battalion_host::firstrun::
         Event::Finished(o) => emit(match o {
             Outcome::NothingToDo => serde_json::json!({"status": "nothing"}),
             Outcome::AlreadyDone => serde_json::json!({"status": "already-done"}),
-            Outcome::Done(ids) => serde_json::json!({"status": "done", "ids": ids}),
+            Outcome::Done(ids) => {
+                *host.first_run_notice.lock().unwrap_or_else(|p| p.into_inner()) = ids.clone();
+                serde_json::json!({"status": "done", "ids": ids})
+            }
             Outcome::Offline { id, reason } => serde_json::json!({"status": "offline", "id": id, "error": reason}),
             Outcome::Failed { id, reason } => serde_json::json!({"status": "failed", "id": id, "error": reason}),
         }),
-    })
+    };
+    match host.first_run_plan {
+        Some(text) => fr::run_text(&host.armory, text, &mut on_event),
+        None => match fr::plan_path_beside_exe() {
+            Some(plan) => fr::run(&host.armory, &plan, &mut on_event),
+            None => Outcome::NothingToDo,
+        },
+    }
 }
 
 #[cfg(test)]

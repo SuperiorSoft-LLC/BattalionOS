@@ -178,6 +178,7 @@ installs them in the background on open and writes `first-run.state.json` (the d
 | Command | Args | Who | Returns |
 |---|---|---|---|
 | `os_first_run_retry` | | main | `{outcome}` (text); runs the first-run install again (Retry). Does nothing once the marker says done |
+| `os_take_first_run_notice` | | main | the ids the first run just installed, once, else `[]`; the shell names them in one line ("Infantry AI is installed with BattalionOS. You can remove it in the Armory.") |
 
 Event `os://first-run` `{status, ids?, id?, error?}`: `start` (ids), `installed` (id), `done` (ids), `offline` or `failed` (id, error), `already-done`, `nothing`.
 

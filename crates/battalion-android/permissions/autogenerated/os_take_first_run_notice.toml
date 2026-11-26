@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-take-first-run-notice"
+description = "Enables the os_take_first_run_notice command without any pre-configured scope."
+commands.allow = ["os_take_first_run_notice"]
+
+[[permission]]
+identifier = "deny-os-take-first-run-notice"
+description = "Denies the os_take_first_run_notice command without any pre-configured scope."
+commands.deny = ["os_take_first_run_notice"]

@@ -32,6 +32,7 @@ pub fn run() {
             os_remove_app,
             os_exit,
             os_first_run_retry,
+            os_take_first_run_notice,
             os_app_page,
             os_frame_badge,
             os_frame_pick_folder,
@@ -51,11 +52,13 @@ pub fn run() {
             paths.ensure()?;
             // AND-2: the same public catalog as the Windows installer's first-run.json (data, carried in the build; a
             // phone has no folder beside an exe). Seeded only while os.json names no source; a source set by hand stays.
-            let sources = battalion_host::firstrun::plan_sources(include_str!("../../../packaging/first-run.json"));
+            const PLAN: &str = include_str!("../../../packaging/first-run.json");
+            let sources = battalion_host::firstrun::plan_sources(PLAN);
             if let Err(e) = battalion_host::firstrun::seed_source_list(&paths, &sources) {
                 eprintln!("catalog sources: {e}");
             }
-            app.manage(Host::new(paths));
+            // BOS-DEFAULT-INF: the plan's apps are installed on the first open, as on the desktop (once; a removed app stays removed).
+            app.manage(Host::new(paths).with_first_run_plan(PLAN));
             for (id, r) in app.state::<Host>().sup.recover_all() {
                 if let Err(e) = r {
                     eprintln!("recover {id}: {e:?}");
@@ -66,6 +69,10 @@ pub fn run() {
                 let _ = tauri::Emitter::emit(&handle, battalion_desktop::events::ARMORY_PROGRESS, p);
             });
             app.state::<Host>().armory.set_progress_sink(Some(sink));
+            let h2 = app.handle().clone();
+            std::thread::spawn(move || {
+                battalion_desktop::host::run_first_run(&h2, &h2.state::<Host>());
+            });
             WebviewWindowBuilder::new(app, battalion_desktop::access::MAIN, WebviewUrl::App("index.html".into())).build()?;
             Ok(())
         })

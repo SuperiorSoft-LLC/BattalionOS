@@ -493,6 +493,13 @@ pub async fn os_first_run_retry(window: WebviewWindow, app: AppHandle, host: Sta
     Ok(json!({"outcome": format!("{out:?}")}))
 }
 
+/// BOS-DEFAULT-INF: the apps the first run installed, once (then empty), for the shell's one-line notice.
+#[tauri::command]
+pub async fn os_take_first_run_notice(window: WebviewWindow, host: State<'_, Host>) -> R<Vec<String>> {
+    authorize_shell(window.label(), "os_take_first_run_notice").map_err(|e| e.to_string())?;
+    Ok(std::mem::take(&mut *host.first_run_notice.lock().unwrap_or_else(|p| p.into_inner())))
+}
+
 // ---- BOS-30: BattalionOS updates itself ------------------------------------------------------------------------------------
 
 fn os_version(app: &AppHandle) -> String {

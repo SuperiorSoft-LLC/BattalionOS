@@ -96,13 +96,17 @@ fn read_plan(path: &Path) -> Result<Option<Plan>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
-    let plan: Plan = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    parse_plan(&text, &path.display().to_string()).map(Some)
+}
+
+fn parse_plan(text: &str, origin: &str) -> Result<Plan, String> {
+    let plan: Plan = serde_json::from_str(text).map_err(|e| format!("{origin}: {e}"))?;
     for a in &plan.apps {
         if !battalion_app_api::manifest::valid_id(&a.id) {
-            return Err(format!("{}: app id '{}' is not allowed", path.display(), a.id));
+            return Err(format!("{origin}: app id '{}' is not allowed", a.id));
         }
     }
-    Ok(Some(plan))
+    Ok(plan)
 }
 
 fn is_network(e: &ArmoryError) -> bool {
@@ -111,14 +115,23 @@ fn is_network(e: &ArmoryError) -> bool {
 
 /// Run the first-run install once. Safe to call on every start and from a Retry button.
 pub fn run(armory: &Armory, plan_path: &Path, on_event: &mut dyn FnMut(Event)) -> Outcome {
-    let out = run_inner(armory, plan_path, on_event);
+    finish(run_inner(armory, read_plan(plan_path), on_event), on_event)
+}
+
+/// [`run`] for a plan carried in the build (BOS-DEFAULT-INF: the Android app has no folder beside an exe, so
+/// its default apps come from the same `first-run.json`, compiled in). Same marker: once done, never again.
+pub fn run_text(armory: &Armory, plan_text: &str, on_event: &mut dyn FnMut(Event)) -> Outcome {
+    finish(run_inner(armory, parse_plan(plan_text, PLAN_FILE).map(Some), on_event), on_event)
+}
+
+fn finish(out: Outcome, on_event: &mut dyn FnMut(Event)) -> Outcome {
     on_event(Event::Finished(out.clone()));
     out
 }
 
-fn run_inner(armory: &Armory, plan_path: &Path, on_event: &mut dyn FnMut(Event)) -> Outcome {
+fn run_inner(armory: &Armory, plan: Result<Option<Plan>, String>, on_event: &mut dyn FnMut(Event)) -> Outcome {
     let paths = armory.paths();
-    let plan = match read_plan(plan_path) {
+    let plan = match plan {
         Ok(None) => return Outcome::NothingToDo,
         Ok(Some(p)) if p.apps.is_empty() => return Outcome::NothingToDo,
         Ok(Some(p)) => p,

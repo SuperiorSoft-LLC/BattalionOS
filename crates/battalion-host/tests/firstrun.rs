@@ -331,6 +331,23 @@ fn already_done_never_runs_again_even_after_the_app_is_removed() {
     assert!(w.absent("first-app"), "a removed app is not put back");
 }
 
+/// BOS-DEFAULT-INF: a plan carried in the build (Android) installs its apps once, like the file; a removed app stays removed.
+#[test]
+fn a_built_in_plan_installs_once_and_a_removed_app_stays_removed() {
+    let w = World::new("fr-text");
+    w.publish(&Pkg::new("first-app", "1.0.0"));
+    let a = w.armory();
+    let text = serde_json::json!({ "apps": [{ "id": "first-app" }] }).to_string();
+    let mut ev = Vec::new();
+    assert_eq!(firstrun::run_text(&a, &text, &mut |e| ev.push(e)), Outcome::Done(vec!["first-app".into()]));
+    assert_eq!(w.state("first-app"), Some(AppState::Stopped));
+    a.remove("first-app", &Default::default()).unwrap();
+    assert_eq!(firstrun::run_text(&a, &text, &mut |_| {}), Outcome::AlreadyDone);
+    assert!(w.absent("first-app"), "a removed app is not put back");
+    // A bad built-in plan fails loudly, installs nothing.
+    assert!(matches!(firstrun::run_text(&w.armory(), "{", &mut |_| {}), Outcome::Failed { .. }));
+}
+
 #[test]
 fn the_app_already_there_counts_as_installed() {
     let w = World::new("fr-present");

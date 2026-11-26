@@ -22,6 +22,7 @@ export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErro
 /** AND-3b: where the page's files are, when the host serves them itself by request interception (Android; absent on the desktop). */
 export interface PageFiles { root: string; pageDir: string; csp: string }
 export interface AppPage { id: string; version: string; origin: string; url: string; files?: PageFiles }
+import type { FirstRunEvent } from "./firstRunNotice";
 import type { OsUpdateInfo } from "./osUpdate";
 export type ArmoryOp= "install" | "update" | "rollback" | "remove";
 /** `os://armory-progress`: bytes, total and percent only while the stage is `download`. */
@@ -87,6 +88,10 @@ export interface Os {
   osUpdateInstall(): Promise<void>;
   /** A check of the OS feed finished (`os://os-update`); returns the unsubscribe. */
   onOsUpdate(cb: (i: OsUpdateInfo) => void): () => void;
+  /** The apps the first run just installed, once (`os_take_first_run_notice`). */
+  takeFirstRunNotice(): Promise<string[]>;
+  /** The first-run install of the default apps progressed (`os://first-run`); returns the unsubscribe. */
+  onFirstRun(cb: (e: FirstRunEvent) => void): () => void;
 }
 
 interface Tauri {
@@ -181,6 +186,11 @@ export const hostOs: Os = {
   osUpdateInstall: async () => void (await call("os_update_install")),
   onOsUpdate(cb) {
     const sub = tauri().event.listen("os://os-update", (e) => cb(e.payload as OsUpdateInfo));
+    return () => void sub.then((off) => off());
+  },
+  takeFirstRunNotice: () => call("os_take_first_run_notice"),
+  onFirstRun(cb) {
+    const sub = tauri().event.listen("os://first-run", (e) => cb(e.payload as FirstRunEvent));
     return () => void sub.then((off) => off());
   },
 };
