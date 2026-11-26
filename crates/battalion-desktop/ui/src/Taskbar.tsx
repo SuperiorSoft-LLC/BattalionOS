@@ -3,13 +3,12 @@
 // apps, opens the Armory and exits BattalionOS. On a phone (AND-UI-1) the bar is the app switcher: it scrolls sideways, the buttons are
 // finger sized, and Start spans the screen's width.
 import { Boxes, LayoutGrid, Power } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Badge, Button, Separator } from "../kit";
 import { AppIcon } from "./AppIcon";
 import type { BarItem } from "./store";
 
-export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onArmory, onExit, phone = false }: { items: BarItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onTask: (id: string) => void; onArmory: () => void; onExit: () => void; phone?: boolean }) {
-  const [start, setStart] = useState(false);
+export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onArmory, onExit, start, onStart: setStart, phone = false }: { items: BarItem[]; installedIds: string[]; label: (id: string) => string; icon: (id: string) => string | null; onOpen: (id: string) => void; onTask: (id: string) => void; onArmory: () => void; onExit: () => void; start: boolean; onStart: (open: boolean) => void; phone?: boolean }) {
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!start) return;
@@ -21,7 +20,7 @@ export function Taskbar({ items, installedIds, label, icon, onOpen, onTask, onAr
       document.removeEventListener("pointerdown", away);
       document.removeEventListener("keydown", esc);
     };
-  }, [start]);
+  }, [start, setStart]);
   const pick = (f: () => void) => () => {
     setStart(false);
     f();

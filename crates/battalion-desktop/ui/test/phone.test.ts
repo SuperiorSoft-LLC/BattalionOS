@@ -24,6 +24,9 @@ describe("back", () => {
     expect(backStep(true, "a")).toBe("close-armory");
     expect(backStep(false, "a")).toBe("to-desktop");
     expect(backStep(false, null)).toBeNull();
+    // Back with the Start menu open closes the menu and stays in the OS (it does not fall through to Android's back).
+    expect(backStep(false, null, true)).toBe("close-start");
+    expect(backStep(true, "a", true)).toBe("close-start");
   });
   it("holds one history entry while something is over the desktop", () => {
     const log: string[] = [];

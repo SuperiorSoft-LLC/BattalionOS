@@ -14,9 +14,10 @@ export function layoutFor(platform: string | null | undefined, userAgent = ""): 
   return /Android|iPhone/i.test(userAgent) ? "phone" : "desktop";
 }
 
-/** What the back gesture does now: close the Armory first, else leave the app for the desktop, else nothing (Android's own back). */
-export type BackStep = "close-armory" | "to-desktop" | null;
-export function backStep(armory: boolean, active: string | null): BackStep {
+/** What the back gesture does now: close the Start menu first, then the Armory, else leave the app for the desktop, else nothing (Android's own back). */
+export type BackStep = "close-start" | "close-armory" | "to-desktop" | null;
+export function backStep(armory: boolean, active: string | null, start = false): BackStep {
+  if (start) return "close-start";
   if (armory) return "close-armory";
   if (active) return "to-desktop";
   return null;
@@ -35,7 +36,7 @@ interface HistoryLike {
 export class BackGuard {
   private pushed = false;
   constructor(private readonly h: HistoryLike) {}
-  /** Called whenever the shell's state changes; `over` is true while an app or the Armory is over the desktop. */
+  /** Called whenever the shell's state changes; `over` is true while an app, the Armory or the Start menu is over the desktop. */
   sync(over: boolean) {
     if (over && !this.pushed) {
       this.h.pushState({ bos: "back" }, "");
