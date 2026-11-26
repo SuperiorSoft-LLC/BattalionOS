@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-catalog"
+description = "Enables the os_catalog command without any pre-configured scope."
+commands.allow = ["os_catalog"]
+
+[[permission]]
+identifier = "deny-os-catalog"
+description = "Denies the os_catalog command without any pre-configured scope."
+commands.deny = ["os_catalog"]

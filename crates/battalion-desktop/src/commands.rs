@@ -99,6 +99,7 @@ pub async fn os_open_app_window(window: WebviewWindow, app: AppHandle, host: Sta
     let id2 = id.clone();
     blocking(move || crate::host::page_exists(&paths, &id2)).await??;
     if let Some(main) = app.get_webview_window(crate::access::MAIN) {
+        #[cfg(desktop)]
         let _ = main.unminimize();
         let _ = main.show();
         let _ = main.set_focus();
@@ -148,8 +149,17 @@ pub async fn os_frame_pick_folder(window: WebviewWindow, host: State<'_, Host>, 
     allowed(&host, &id, crate::frame_calls::PICK_FOLDER).await?;
     let title = crate::frame_calls::dialog_title(title.as_deref(), "Choose a folder");
     let w = window.clone();
-    let picked = blocking(move || rfd::FileDialog::new().set_title(title).set_parent(&w).pick_folder()).await?;
-    Ok(picked.map(|p| p.to_string_lossy().into_owned()))
+    // AND-1: no native file dialog on Android yet (a later step uses the system picker).
+    #[cfg(target_os = "android")]
+    {
+        let _ = (title, w);
+        Err("choosing a file is not available on this device yet".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let picked = blocking(move || rfd::FileDialog::new().set_title(title).set_parent(&w).pick_folder()).await?;
+        Ok(picked.map(|p| p.to_string_lossy().into_owned()))
+    }
 }
 
 /// Choose one file for the app of the frame (`os_pick_file`): the path, or null when cancelled. Needs `files.user`.
@@ -159,8 +169,17 @@ pub async fn os_frame_pick_file(window: WebviewWindow, host: State<'_, Host>, id
     allowed(&host, &id, crate::frame_calls::PICK_FILE).await?;
     let title = crate::frame_calls::dialog_title(title.as_deref(), "Choose a file");
     let w = window.clone();
-    let picked = blocking(move || rfd::FileDialog::new().set_title(title).set_parent(&w).pick_file()).await?;
-    Ok(picked.map(|p| p.to_string_lossy().into_owned()))
+    // AND-1: no native file dialog on Android yet (a later step uses the system picker).
+    #[cfg(target_os = "android")]
+    {
+        let _ = (title, w);
+        Err("choosing a file is not available on this device yet".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let picked = blocking(move || rfd::FileDialog::new().set_title(title).set_parent(&w).pick_file()).await?;
+        Ok(picked.map(|p| p.to_string_lossy().into_owned()))
+    }
 }
 
 /// Open a link in the system browser for the app of the frame (`os_open_external`). http, https and mailto only. Needs `network`.
@@ -202,10 +221,11 @@ pub async fn os_frame_login_open(window: WebviewWindow, app: AppHandle, host: St
     let data = data.with_file_name(format!("{}-login", data.file_name().and_then(|n| n.to_str()).unwrap_or("app")));
     std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;
     let (seen, app_id) = (app.clone(), id.clone());
-    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(target))
-        .title("Sign in")
-        .inner_size(520.0, 760.0)
-        .center()
+    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(target));
+    // AND-1: title, size and placement are desktop calls; on a phone the window fills the screen.
+    #[cfg(desktop)]
+    let win = win.title("Sign in").inner_size(520.0, 760.0).center();
+    let win = win
         .data_directory(data)
         .on_navigation(move |u| {
             if matches!(u.scheme(), "http" | "https") {
@@ -263,7 +283,7 @@ fn paint_badge(app: &AppHandle, id: &str, badge: Option<&str>) {
         });
         let _ = w.set_overlay_icon(dot);
     }
-    #[cfg(not(windows))]
+    #[cfg(all(desktop, not(windows)))]
     {
         let _ = w.set_badge_label(badge.map(str::to_string));
     }
@@ -286,11 +306,15 @@ pub async fn os_badge(window: WebviewWindow, app: AppHandle, host: State<'_, Hos
 pub async fn os_show_desktop(window: WebviewWindow, app: AppHandle) -> R<()> {
     authorize_self(window.label(), "os_show_desktop").map_err(|e| e.to_string())?;
     let main = app.get_webview_window(crate::access::MAIN).ok_or("the desktop window is not open")?;
+    #[cfg(desktop)]
     main.unminimize().map_err(|e| e.to_string())?;
     main.show().map_err(|e| e.to_string())?;
     main.set_focus().map_err(|e| e.to_string())?;
     // Minimize is the one hide every window manager does the same way (the window stays open, one click on the taskbar returns it).
-    window.minimize().map_err(|e| e.to_string())
+    #[cfg(desktop)]
+    return window.minimize().map_err(|e| e.to_string());
+    #[cfg(mobile)]
+    Ok(())
 }
 
 /// Close the window of app `id`. An app may close its own window; main may close any. The process keeps running.

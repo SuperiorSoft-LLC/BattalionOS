@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-login-done"
+description = "Enables the os_login_done command without any pre-configured scope."
+commands.allow = ["os_login_done"]
+
+[[permission]]
+identifier = "deny-os-login-done"
+description = "Denies the os_login_done command without any pre-configured scope."
+commands.deny = ["os_login_done"]

@@ -20,9 +20,12 @@ battalion-host = { path = "../battalion-host" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12.6", optional = true, features = ["tray-icon"] }
+open = { version = "5", optional = true }
+
+# AND-1: desktop only (no native file dialog or single-instance plugin on Android; the system owns both there).
+[target.'cfg(not(target_os = "android"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", optional = true }
 rfd = { version = "0.17", optional = true }
-open = { version = "5", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }

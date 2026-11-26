@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-update-check"
+description = "Enables the os_update_check command without any pre-configured scope."
+commands.allow = ["os_update_check"]
+
+[[permission]]
+identifier = "deny-os-update-check"
+description = "Denies the os_update_check command without any pre-configured scope."
+commands.deny = ["os_update_check"]

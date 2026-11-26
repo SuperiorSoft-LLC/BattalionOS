@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-badge"
+description = "Enables the os_badge command without any pre-configured scope."
+commands.allow = ["os_badge"]
+
+[[permission]]
+identifier = "deny-os-badge"
+description = "Denies the os_badge command without any pre-configured scope."
+commands.deny = ["os_badge"]

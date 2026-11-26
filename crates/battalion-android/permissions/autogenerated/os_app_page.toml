@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-app-page"
+description = "Enables the os_app_page command without any pre-configured scope."
+commands.allow = ["os_app_page"]
+
+[[permission]]
+identifier = "deny-os-app-page"
+description = "Denies the os_app_page command without any pre-configured scope."
+commands.deny = ["os_app_page"]

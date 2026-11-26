@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-install-app"
+description = "Enables the os_install_app command without any pre-configured scope."
+commands.allow = ["os_install_app"]
+
+[[permission]]
+identifier = "deny-os-install-app"
+description = "Denies the os_install_app command without any pre-configured scope."
+commands.deny = ["os_install_app"]

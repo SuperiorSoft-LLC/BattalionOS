@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BattalionOS",
+  "version": "0.1.0",
+  "identifier": "org.battalionos.os.devtest",
+  "build": {
+    "beforeBuildCommand": "pnpm --dir battalion-desktop/ui install --frozen-lockfile && pnpm --dir battalion-desktop/ui build",
+    "frontendDist": "../battalion-desktop/ui/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true
+  }
+}

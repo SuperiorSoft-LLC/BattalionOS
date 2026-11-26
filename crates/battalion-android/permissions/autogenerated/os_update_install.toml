@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-update-install"
+description = "Enables the os_update_install command without any pre-configured scope."
+commands.allow = ["os_update_install"]
+
+[[permission]]
+identifier = "deny-os-update-install"
+description = "Denies the os_update_install command without any pre-configured scope."
+commands.deny = ["os_update_install"]

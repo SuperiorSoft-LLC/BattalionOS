@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-frame-open-external"
+description = "Enables the os_frame_open_external command without any pre-configured scope."
+commands.allow = ["os_frame_open_external"]
+
+[[permission]]
+identifier = "deny-os-frame-open-external"
+description = "Denies the os_frame_open_external command without any pre-configured scope."
+commands.deny = ["os_frame_open_external"]

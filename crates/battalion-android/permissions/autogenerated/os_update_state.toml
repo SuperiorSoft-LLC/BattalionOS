@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-update-state"
+description = "Enables the os_update_state command without any pre-configured scope."
+commands.allow = ["os_update_state"]
+
+[[permission]]
+identifier = "deny-os-update-state"
+description = "Denies the os_update_state command without any pre-configured scope."
+commands.deny = ["os_update_state"]

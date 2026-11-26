@@ -17,7 +17,7 @@ pub mod webview2;
 pub mod commands;
 #[cfg(feature = "dev")]
 pub mod devmode;
-#[cfg(feature = "gui")]
+#[cfg(all(feature = "gui", not(target_os = "android")))]
 pub mod front;
 #[cfg(feature = "gui")]
 pub mod host;

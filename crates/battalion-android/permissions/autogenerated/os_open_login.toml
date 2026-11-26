@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-open-login"
+description = "Enables the os_open_login command without any pre-configured scope."
+commands.allow = ["os_open_login"]
+
+[[permission]]
+identifier = "deny-os-open-login"
+description = "Denies the os_open_login command without any pre-configured scope."
+commands.deny = ["os_open_login"]

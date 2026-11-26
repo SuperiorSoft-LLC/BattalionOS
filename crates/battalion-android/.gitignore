@@ -1,0 +1,6 @@
+/target
+/gen/android/app/src/main/jniLibs/
+/gen/android/app/build/
+/gen/android/.gradle/
+/gen/android/build/
+/gen/android/local.properties

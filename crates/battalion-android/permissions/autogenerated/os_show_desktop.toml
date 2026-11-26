@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-show-desktop"
+description = "Enables the os_show_desktop command without any pre-configured scope."
+commands.allow = ["os_show_desktop"]
+
+[[permission]]
+identifier = "deny-os-show-desktop"
+description = "Denies the os_show_desktop command without any pre-configured scope."
+commands.deny = ["os_show_desktop"]

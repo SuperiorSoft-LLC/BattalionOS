@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-exit"
+description = "Enables the os_exit command without any pre-configured scope."
+commands.allow = ["os_exit"]
+
+[[permission]]
+identifier = "deny-os-exit"
+description = "Denies the os_exit command without any pre-configured scope."
+commands.deny = ["os_exit"]
