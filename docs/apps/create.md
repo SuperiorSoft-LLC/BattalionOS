@@ -57,7 +57,7 @@ else is refused ("<field> path '...' leaves the package").
 | `init` | object | no | A program in the package run once at install, to its end, in the app's state folder (see below). Refused on Android. |
 | `state` | object | no | Where the app's data lives (see below). |
 | `cli` | list | no | Command-line programs the app ships: `[{ "name", "exec" }]`. `name` follows the `id` rule; `exec` is a path in the package. The OS never starts them. |
-| `permissions` | list | no | What the app's page may ask the OS for. Known values: `process.spawn`, `network`, `files.user`, `window`, `login.window`. An unknown value is refused, so a typo never grants nothing silently. The page's native calls are gated by this list ([commands.md](../commands.md#native-calls-of-a-page-in-a-frame-bos-25)). |
+| `permissions` | list | no | What the app's page may ask the OS for. Known values: `process.spawn` (never granted on a phone), `network`, `files.user`, `window`, `login.window`, `notifications`, `scan.code`. An unknown value is refused, so a typo never grants nothing silently. The page's native calls are gated by this list ([commands.md](../commands.md#native-calls-of-a-page-in-a-frame-bos-25)). |
 
 At least one of a process part for the running platform or a `ui` is required.
 

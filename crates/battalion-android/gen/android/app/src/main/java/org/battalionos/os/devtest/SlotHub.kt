@@ -26,8 +26,10 @@ object SlotHub {
   const val REGISTER = 1 // slot -> hub: arg1 = slot, arg2 = pid, replyTo = the slot's messenger
   const val REQUEST = 2 // slot -> hub: arg1 = slot, data "json" = {origin, data} from the app's frame
   const val LEFT = 3 // slot -> hub: arg1 = slot; the person went back to the desktop (the app keeps running)
+  const val NATIVE_DONE = 4 // slot -> hub: arg1 = slot, data "json" = {req, ok, result?, error?} (AND-4)
   const val REPLY = 10 // hub -> slot: data "json" = the answer for the app's frame
   const val FINISH = 11 // hub -> slot: end the slot (its task and its process)
+  const val NATIVE = 12 // hub -> slot: data "json" = {req, call, args}, a call the host checked (AND-4)
 
   /** The pool declared in AndroidManifest.xml (the build maximum). */
   val SLOT_CLASSES: List<Class<*>> = listOf(AppSlot0::class.java, AppSlot1::class.java, AppSlot2::class.java, AppSlot3::class.java)
@@ -100,6 +102,16 @@ object SlotHub {
           emit("request", id) { put("origin", j.optString("origin")); put("data", j.opt("data")) }
         }
         LEFT -> if (msg.replyTo?.binder == s.messenger?.binder) s.app?.let { emit("left", it) }
+        NATIVE_DONE -> {
+          if (s.messenger == null || msg.replyTo?.binder != s.messenger?.binder) return
+          val id = s.app ?: return
+          val j = try { JSONObject(msg.data.getString("json") ?: return) } catch (_: Exception) { return }
+          emit("native", id) {
+            put("req", j.optString("req")); put("ok", j.optBoolean("ok"))
+            if (j.has("result")) put("result", j.opt("result"))
+            if (j.has("error")) put("error", j.optString("error"))
+          }
+        }
       }
     }
   })
@@ -181,6 +193,19 @@ object SlotHub {
     val m = Message.obtain(null, REPLY)
     m.data = Bundle().apply { putString("json", json) }
     try { s.messenger?.send(m) } catch (_: RemoteException) {}
+  }
+
+  /** AND-4: the shell hands app `id`'s slot a native call (already checked by the host). No slot = a plain refusal. */
+  fun native(id: String, req: String, call: String, args: JSONObject) {
+    val s = slots.firstOrNull { it.app == id && it.ending == null }
+    val m = s?.messenger
+    if (m == null) {
+      emit("native", id) { put("req", req); put("ok", false); put("error", "the app is not open") }
+      return
+    }
+    val msg = Message.obtain(null, NATIVE)
+    msg.data = Bundle().apply { putString("json", JSONObject().put("req", req).put("call", call).put("args", args).toString()) }
+    try { m.send(msg) } catch (_: RemoteException) { emit("native", id) { put("req", req); put("ok", false); put("error", "the app is not open") } }
   }
 
   private fun end(i: Int, why: String, then: (() -> Unit)?) {

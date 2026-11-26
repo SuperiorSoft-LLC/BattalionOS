@@ -26,6 +26,8 @@ function backend() {
     },
     loginOpen: async (id, url) => void calls.push(`loginOpen ${id} ${url}`),
     loginClose: async (id) => void calls.push(`loginClose ${id}`),
+    notify: async (id, title, text) => void calls.push(`notify ${id} ${title} ${text ?? "-"}`),
+    scanCode: async (id) => (calls.push(`scan ${id}`), "bos-pair:abc"),
   };
   return { be, calls };
 }
@@ -74,7 +76,7 @@ describe("identity: the app is the frame that sent the message", () => {
 
 describe("only today's app commands", () => {
   it("lists exactly the six app commands", () => {
-    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_login_window_close", "os_login_window_open", "os_open_external", "os_pick_file", "os_pick_folder", "os_show_desktop", "os_window_info"]);
+    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_login_window_close", "os_login_window_open", "os_notify", "os_open_external", "os_pick_file", "os_pick_folder", "os_scan_code", "os_show_desktop", "os_window_info"]);
   });
   for (const cmd of ["os_list_apps", "os_start_app", "os_stop_app", "os_install_app", "os_remove_app", "os_update_app", "os_rollback_app", "os_open_app_window", "os_exit", "os_catalog", "os_open_login", "os_app_page", "os_frame_badge", "core:window:close", "__proto__", ""]) {
     it(`refuses ${JSON.stringify(cmd)}`, async () => {
@@ -163,5 +165,32 @@ describe("BOS-25: the native calls of a page", () => {
     expect(eventFor(frames, "app-b", "os_login_url", { url: "http://127.0.0.1:9/done?code=1" })).toEqual({ to: winB, origin: "http://127.0.0.1:5002", message: { bos: 1, event: "os_login_url", url: "http://127.0.0.1:9/done?code=1" } });
     expect(eventFor(frames, "app-a", "os_login_closed")?.message).toEqual({ bos: 1, event: "os_login_closed" });
     expect(eventFor(frames, "app-c", "os_login_closed")).toBeNull();
+  });
+});
+
+describe("AND-4: notices and code scans go through the same answer()", () => {
+  it("serves os_notify and os_scan_code for the frame's own app", async () => {
+    const { be, calls } = backend();
+    const n = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_notify", { title: "Hi", text: "there", id: "app-a" })), be);
+    expect(n?.message).toEqual({ bos: 1, id: "r1", ok: true, result: null });
+    const s = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_scan_code")), be);
+    expect(s?.message).toEqual({ bos: 1, id: "r1", ok: true, result: "bos-pair:abc" });
+    expect(calls).toEqual(["notify app-a Hi there", "scan app-a"]);
+  });
+  it("a device's own refusal wording is used for a command outside the list", async () => {
+    const { be } = backend();
+    be.refusal = async (_id, cmd) => (cmd.includes("spawn") ? "starting a program is never allowed on a phone" : undefined);
+    const s = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_process_spawn")), be);
+    expect(s?.message).toMatchObject({ ok: false, error: "starting a program is never allowed on a phone" });
+    const o = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_exit")), be);
+    expect(o?.message).toMatchObject({ ok: false, error: "'os_exit' is not available to an app's page" });
+  });
+  it("refuses a notice without a title and a call for another app", async () => {
+    const { be, calls } = backend();
+    const n = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_notify", {})), be);
+    expect(n?.message).toMatchObject({ ok: false, error: "os_notify needs a title" });
+    const o = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_scan_code", { id: "app-b" })), be);
+    expect(o?.message).toMatchObject({ ok: false });
+    expect(calls).toEqual([]);
   });
 });

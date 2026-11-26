@@ -196,6 +196,18 @@ pub async fn os_frame_open_external(window: WebviewWindow, host: State<'_, Host>
     blocking(move || open::that_detached(url).map_err(|e| e.to_string())).await?
 }
 
+/// AND-4: a native call of an app's page on a phone (`os_pick_folder`, `os_pick_file`, `os_open_external`, `os_notify`,
+/// `os_scan_code`). The host checks the app's installed manifest and the arguments; the shell then hands `{call, args}` to the
+/// app's own slot, which runs it with Android (document picker, intent, notification channel, code scanner). Main only.
+#[tauri::command]
+pub async fn os_frame_phone_call(window: WebviewWindow, host: State<'_, Host>, id: String, cmd: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_phone_call").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let (paths, id2) = (host.paths.clone(), id.clone());
+    let perms = blocking(move || crate::host::permissions_of(&paths, &id2)).await??;
+    crate::frame_calls::phone_call(&id, &perms, &cmd, &args.unwrap_or(Value::Null))
+}
+
 /// Open the sign-in window of the app of the frame (`os_login_window_open`): a window of the OS with no capability and its own
 /// data folder, showing `url`. Every web address it reaches is sent to the shell (`os://frame-login-url`), and its end
 /// (`os://frame-login-closed`). One per app: a second call replaces the first. Needs `login.window`.

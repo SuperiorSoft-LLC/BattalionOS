@@ -23,9 +23,10 @@ export type SlotEvent =
   | { ev: "opened"; id: string; slot: number; pid: number }
   | { ev: "ended"; id: string; reason: "reused" | "ended"; text: string }
   | { ev: "error"; id: string; text: string }
-  | { ev: "slots"; id: ""; slots: { slot: number; app: string | null; pid: number }[] };
+  | { ev: "slots"; id: ""; slots: { slot: number; app: string | null; pid: number }[] }
+  | { ev: "native"; id: string; req: string; ok: boolean; result?: unknown; error?: string };
 
-const EVENTS = ["request", "left", "opened", "ended", "error", "slots"];
+const EVENTS = ["request", "left", "opened", "ended", "error", "slots", "native"];
 
 export function parseSlotEvent(text: string): SlotEvent | null {
   try {
@@ -42,7 +43,8 @@ export type SlotOp =
   | { op: "hello" }
   | { op: "open"; id: string; url: string; origin: string; name: string; files?: PageFiles }
   | { op: "close"; id: string }
-  | { op: "reply"; id: string; message: unknown };
+  | { op: "reply"; id: string; message: unknown }
+  | { op: "native"; id: string; req: string; call: string; args: unknown };
 
 /** The open op of app `id`: its page url marked as a frame of `id` (`flag`), its origin, and (AND-3b) the files the slot serves. */
 export function openOp(id: string, page: AppPage, name: string, flag: string): SlotOp {
@@ -69,5 +71,33 @@ export class SlotWindows {
   }
   drop(id: string) {
     this.tokens.delete(id);
+  }
+}
+
+/**
+ * AND-4: native calls run by an app's own slot (document picker, intent, notification, code scanner). The host has already checked
+ * the app's permission (`os_frame_phone_call`); the slot answers with a `native` event carrying the same `req`. One promise per call.
+ */
+export class NativeCalls {
+  private next = 0;
+  private pending = new Map<string, { id: string; done: (r: { ok: boolean; result?: unknown; error?: string }) => void }>();
+  call(c: SlotChannel, id: string, checked: { call: string; args: unknown }): Promise<unknown> {
+    const req = `n${++this.next}`;
+    return new Promise((resolve, reject) => {
+      this.pending.set(req, { id, done: (r) => (r.ok ? resolve(r.result ?? null) : reject(new Error(r.error || "the call failed"))) });
+      send(c, { op: "native", id, req, call: checked.call, args: checked.args });
+    });
+  }
+  /** The slot's answer; only the slot of the app that asked can settle its call. */
+  settle(ev: { id: string; req: string; ok: boolean; result?: unknown; error?: string }): boolean {
+    const p = this.pending.get(ev.req);
+    if (!p || p.id !== ev.id) return false;
+    this.pending.delete(ev.req);
+    p.done(ev);
+    return true;
+  }
+  /** The app's slot ended: its open calls fail. */
+  drop(id: string, why = "the app was closed") {
+    for (const [req, p] of [...this.pending]) if (p.id === id) (this.pending.delete(req), p.done({ ok: false, error: why }));
   }
 }

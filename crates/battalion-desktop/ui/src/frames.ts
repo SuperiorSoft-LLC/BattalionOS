@@ -7,7 +7,7 @@
 // window the shell did not make gets no answer at all. Only today's app commands are served; the rest are refused.
 
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
-export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close"] as const;
+export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code"] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
 
 /** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). */
@@ -28,6 +28,11 @@ export interface FrameBackend {
   openExternal(id: string, url: string): Promise<void>;
   loginOpen(id: string, url: string): Promise<void>;
   loginClose(id: string): Promise<void>;
+  /** AND-4: a notice on the app's own channel (`notifications`) and a QR code scanned by the OS (`scan.code`). */
+  notify(id: string, title: string, text: string | undefined): Promise<void>;
+  scanCode(id: string): Promise<string | null>;
+  /** AND-4: the reason a command outside the list is refused, when the device has its own (a phone: starting a program). */
+  refusal?(id: string, cmd: string): Promise<string | undefined>;
 }
 
 export interface FrameEvent { source: unknown; origin: string; data: unknown }
@@ -43,7 +48,10 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
   const d = ev.data as { bos?: unknown; id?: unknown; cmd?: unknown; args?: unknown } | null;
   if (!d || typeof d !== "object" || d.bos !== 1 || typeof d.id !== "string" || !REQUEST_ID.test(d.id) || typeof d.cmd !== "string") return null;
   const reply = (r: { ok: true; result: unknown } | { ok: false; error: string }): FrameReply => ({ to: frame.window, origin: frame.origin, message: { bos: 1, id: d.id as string, ...r } });
-  if (!(FRAME_COMMANDS as readonly string[]).includes(d.cmd)) return reply({ ok: false, error: `'${d.cmd}' is not available to an app's page` });
+  if (!(FRAME_COMMANDS as readonly string[]).includes(d.cmd)) {
+    const why = be.refusal ? await be.refusal(frame.id, d.cmd).catch((e) => text(e)) : undefined;
+    return reply({ ok: false, error: why ?? `'${d.cmd}' is not available to an app's page` });
+  }
   const args = d.args && typeof d.args === "object" ? (d.args as Record<string, unknown>) : {};
   // Today's app commands name no app or only their own; a page can never act for another one.
   if (args.id !== undefined && args.id !== frame.id) return reply({ ok: false, error: `app '${frame.id}' may not act on app '${String(args.id)}'` });
@@ -82,6 +90,12 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
       case "os_login_window_close":
         await be.loginClose(frame.id);
         return reply({ ok: true, result: null });
+      case "os_notify":
+        if (typeof args.title !== "string") return reply({ ok: false, error: "os_notify needs a title" });
+        await be.notify(frame.id, args.title, typeof args.text === "string" ? args.text : undefined);
+        return reply({ ok: true, result: null });
+      case "os_scan_code":
+        return reply({ ok: true, result: await be.scanCode(frame.id) });
     }
   } catch (e) {
     return reply({ ok: false, error: text(e) });

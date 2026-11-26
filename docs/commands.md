@@ -117,6 +117,8 @@ the permission's name. Nothing else is added: files and the clipboard are the fr
 | `os_open_external` | `url` | `network` | nothing; opens the system browser. Only `http`, `https` and `mailto` (no spaces or control characters, up to 2048 bytes); any other is refused |
 | `os_login_window_open` | `url` | `login.window` | nothing; the OS opens a window (no capability, its own data folder `webview/<id>-login`) showing `url` (`http`/`https` only). A second call replaces it |
 | `os_login_window_close` | | `login.window` | nothing; closes it (none open is not an error) |
+| `os_notify` | `title`, `text?` | `notifications` | nothing; a notice on the app's own channel (AND-4, phone only; the desktop refuses it as not available yet). `title` up to 80 characters, `text` up to 400 |
+| `os_scan_code` | | `scan.code` | the text of the QR code the OS scanned, or null when cancelled (AND-4, phone only); the page never gets the camera |
 
 The shell serves them with these main-only commands (the app id is the frame's):
 
@@ -127,9 +129,26 @@ The shell serves them with these main-only commands (the app id is the frame's):
 | `os_frame_open_external` | `id`, `url` | main | nothing |
 | `os_frame_login_open` | `id`, `url` | main | nothing |
 | `os_frame_login_close` | `id` | main | nothing |
+| `os_frame_phone_call` | `id`, `cmd`, `args?` | main | `{call, args}` checked for the app's slot (AND-4) |
 
 Events to the shell: `os://frame-login-url` `{id, url}` (the sign-in window reached a web address) and `os://frame-login-closed` `{id}`.
 The shell sends them on to that app's frame only, as `{bos: 1, event: "os_login_url", url}` and `{bos: 1, event: "os_login_closed"}`.
+
+#### On a phone (AND-4)
+
+The same page messages, the same `answer()` in the shell: the shell asks `os_frame_phone_call` (the host reads the app's installed
+`app.json`, refuses an undeclared call with the permission's name, and cleans the arguments), then hands `{call, args}` to the app's
+own slot, which runs it with Android and answers through the hub:
+
+| `cmd` | On Android | Result |
+|---|---|---|
+| `os_pick_file` / `os_pick_folder` | the system document picker (Storage Access Framework); the slot keeps read access | a `content://` address (a phone has no file paths), or null |
+| `os_open_external` | an intent (`ACTION_VIEW`; `mailto` = `ACTION_SENDTO`) | nothing; "No app on this phone opens that link" when none does |
+| `os_notify` | a notification channel per app (`bos-app-<id>`, named after the app); `POST_NOTIFICATIONS` is asked at the first notice | nothing; refused with a plain sentence when the person says no |
+| `os_scan_code` | the Google code scanner (QR only); BattalionOS asks for no camera permission and the page gets only the text | the text, or null |
+
+`process.spawn` is never granted on a phone, even when `app.json` declares it: any call that would start a program is refused
+("starting a program is never allowed on a phone"). The sign-in window calls are not served on a phone yet.
 ## Events (emitted to all windows)
 
 | Event | Payload |

@@ -64,6 +64,8 @@ export interface Os {
   frameOpenExternal(id: string, url: string): Promise<void>;
   frameLoginOpen(id: string, url: string): Promise<void>;
   frameLoginClose(id: string): Promise<void>;
+  /** AND-4: a page's native call on a phone, checked by the host against the app's manifest: `{call, args}` for its slot. */
+  framePhoneCall(id: string, cmd: string, args?: Record<string, unknown>): Promise<{ call: string; args: unknown }>;
   /** The sign-in window of an app reached an address (`os://frame-login-url`) or ended (`os://frame-login-closed`); returns the unsubscribe. */
   onFrameLogin(cb: (e: { id: string; url?: string; closed?: boolean }) => void): () => void;
   /** BOS-19: the app a start from outside asked for (`--open <id>`), once; `null` when none (`os_take_open_request`). */
@@ -153,6 +155,7 @@ export const hostOs: Os = {
   frameOpenExternal: async (id, url) => void (await call("os_frame_open_external", { id, url })),
   frameLoginOpen: async (id, url) => void (await call("os_frame_login_open", { id, url })),
   frameLoginClose: async (id) => void (await call("os_frame_login_close", { id })),
+  framePhoneCall: (id, cmd, args) => call("os_frame_phone_call", { id, cmd, args: args ?? {} }),
   onFrameLogin(cb) {
     const a = tauri().event.listen("os://frame-login-url", (e) => cb(e.payload as { id: string; url: string }));
     const b = tauri().event.listen("os://frame-login-closed", (e) => cb({ ...(e.payload as { id: string }), closed: true }));

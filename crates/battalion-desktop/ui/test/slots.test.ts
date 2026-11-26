@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import { describe, expect, it } from "vitest";
 import { answer, type FrameBackend } from "../src/frames";
-import { parseSlotEvent, slotChannel, SlotWindows, openOp } from "../src/slots";
+import { NativeCalls, parseSlotEvent, slotChannel, SlotWindows, openOp } from "../src/slots";
 
 const be: FrameBackend = {
   appStatus: async (id) => ({ id, state: "running" }),
@@ -14,6 +14,8 @@ const be: FrameBackend = {
   openExternal: async () => {},
   loginOpen: async () => {},
   loginClose: async () => {},
+  notify: async () => {},
+  scanCode: async () => null,
 };
 
 describe("app slots (AND-3)", () => {
@@ -65,5 +67,34 @@ describe("openOp (AND-3b)", () => {
   it("sends no files when the host serves the page itself", () => {
     const op = openOp("a", { id: "a", version: "1", origin: "http://127.0.0.1:5", url: "http://127.0.0.1:5/i.html?x=1" }, "A", "f");
     expect(op).toEqual({ op: "open", id: "a", url: "http://127.0.0.1:5/i.html?x=1&f=a", origin: "http://127.0.0.1:5", name: "A" });
+  });
+});
+
+describe("native calls run by the app's slot (AND-4)", () => {
+  const channel = () => {
+    const sent: unknown[] = [];
+    return { sent, c: { postMessage: (m: string) => void sent.push(JSON.parse(m)), onmessage: null } };
+  };
+  it("sends the checked call to the app's slot and resolves with the slot's answer", async () => {
+    const { sent, c } = channel();
+    const n = new NativeCalls();
+    const p = n.call(c, "aa", { call: "pick_file", args: { title: "T" } });
+    expect(sent).toEqual([{ op: "native", id: "aa", req: "n1", call: "pick_file", args: { title: "T" } }]);
+    const ev = parseSlotEvent(JSON.stringify({ ev: "native", id: "aa", req: "n1", ok: true, result: "content://x/1" }));
+    expect(ev?.ev).toBe("native");
+    expect(n.settle(ev as never)).toBe(true);
+    await expect(p).resolves.toBe("content://x/1");
+  });
+  it("only the asking app's slot settles a call; a refusal is the slot's sentence; an ended slot fails its calls", async () => {
+    const { c } = channel();
+    const n = new NativeCalls();
+    const p1 = n.call(c, "aa", { call: "notify", args: {} });
+    expect(n.settle({ id: "bb", req: "n1", ok: true })).toBe(false);
+    expect(n.settle({ id: "aa", req: "n1", ok: false, error: "Notifications are turned off for BattalionOS." })).toBe(true);
+    await expect(p1).rejects.toThrow("Notifications are turned off");
+    const p2 = n.call(c, "aa", { call: "scan_code", args: {} });
+    n.drop("aa");
+    await expect(p2).rejects.toThrow("the app was closed");
+    expect(n.settle({ id: "aa", req: "n2", ok: true })).toBe(false);
   });
 });

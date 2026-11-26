@@ -53,6 +53,7 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
       when (msg.what) {
         SlotHub.REPLY -> msg.data.getString("json")?.let { j -> proxy?.postMessage(j) }
         SlotHub.FINISH -> endSelf()
+        SlotHub.NATIVE -> msg.data.getString("json")?.let { j -> native.run(JSONObject(j)) }
       }
     }
   })
@@ -67,6 +68,11 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
 
     // The OS's own process ended: a slot never runs without it.
     override fun onServiceDisconnected(name: ComponentName?) = endSelf()
+  }
+
+  /** AND-4: the native calls of this slot's app, run in this activity (it is on screen when its page asks). */
+  private val native = NativeCalls(this) { result ->
+    send(Message.obtain(null, SlotHub.NATIVE_DONE).apply { data = Bundle().apply { putString("json", result.toString()) } })
   }
 
   private fun send(m: Message) {

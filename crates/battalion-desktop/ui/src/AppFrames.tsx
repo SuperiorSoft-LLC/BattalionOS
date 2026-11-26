@@ -8,7 +8,7 @@ import { answer, eventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
-import { openOp, parseSlotEvent, send, slotChannel, SlotWindows, type SlotChannel } from "./slots";
+import { NativeCalls, openOp, parseSlotEvent, send, slotChannel, SlotWindows, type SlotChannel } from "./slots";
 
 /** The query the shell adds to a page's url so the page knows it is shown inside the OS window (the frame is what the OS trusts, not this). */
 export const FRAME_FLAG = "bos-app";
@@ -38,6 +38,7 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
   // AND-3: on Android every app's page runs in its own process slot (the host's channel); everywhere else in a frame here.
   const slots = useMemo(() => (given === undefined ? slotChannel() : given), [given]);
   const slotWin = useRef(new SlotWindows());
+  const native = useRef(new NativeCalls());
   const [pages, setPages] = useState<Record<string, AppPage>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [tick, setTick] = useState(0);
@@ -110,17 +111,24 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
     for (const id of Object.keys(proc.current)) if (!m.views.includes(id)) delete proc.current[id];
   }, [m.views]);
 
+  // AND-4: on a phone the native calls run in the app's own slot, after the host checked them against the app's manifest.
+  const phone = slots ? async (id: string, cmd: string, args: Record<string, unknown>) => native.current.call(slots, id, await os.framePhoneCall(id, cmd, args)) : null;
+  const notOnDesktop = async () => Promise.reject(new Error("not available on this device yet"));
   const backend: FrameBackend = {
     appStatus: (id) => os.appStatus(id),
     appHealth: (id) => os.appHealth(id),
     badge: (id, count, text) => os.frameBadge(id, count, text),
     close,
     minimize,
-    pickFolder: (id, title) => os.framePickFolder(id, title),
-    pickFile: (id, title) => os.framePickFile(id, title),
-    openExternal: (id, url) => os.frameOpenExternal(id, url),
+    pickFolder: (id, title) => (phone ? (phone(id, "os_pick_folder", { title }) as Promise<string | null>) : os.framePickFolder(id, title)),
+    pickFile: (id, title) => (phone ? (phone(id, "os_pick_file", { title }) as Promise<string | null>) : os.framePickFile(id, title)),
+    openExternal: (id, url) => (phone ? phone(id, "os_open_external", { url }).then(() => undefined) : os.frameOpenExternal(id, url)),
     loginOpen: (id, url) => os.frameLoginOpen(id, url),
     loginClose: (id) => os.frameLoginClose(id),
+    notify: (id, title, text) => (phone ? phone(id, "os_notify", { title, text }).then(() => undefined) : notOnDesktop()),
+    scanCode: (id) => (phone ? (phone(id, "os_scan_code", {}) as Promise<string | null>) : notOnDesktop()),
+    // On a phone the host words the refusal of a call a page may not make (process.spawn: never on a phone).
+    refusal: slots ? (id, cmd) => os.framePhoneCall(id, cmd).then(() => undefined) : undefined,
   };
   const backendRef = useRef(backend);
   backendRef.current = backend;
@@ -170,7 +178,11 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
           if (mRef.current.active === ev.id) minimize(ev.id);
           shownSlot.current = null;
           break;
+        case "native":
+          native.current.settle(ev);
+          break;
         case "ended":
+          native.current.drop(ev.id);
           slotWin.current.drop(ev.id);
           if (shownSlot.current === ev.id) shownSlot.current = null;
           slotViews.current = slotViews.current.filter((v) => v !== ev.id);

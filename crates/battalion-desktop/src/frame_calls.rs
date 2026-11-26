@@ -9,6 +9,9 @@ pub const PICK_FILE: &str = "os_pick_file";
 pub const OPEN_EXTERNAL: &str = "os_open_external";
 pub const LOGIN_WINDOW_OPEN: &str = "os_login_window_open";
 pub const LOGIN_WINDOW_CLOSE: &str = "os_login_window_close";
+/// AND-4: a notice on the app's own notification channel (`notifications`), and a QR code scanned by the OS (`scan.code`).
+pub const NOTIFY: &str = "os_notify";
+pub const SCAN_CODE: &str = "os_scan_code";
 
 /// The one manifest permission each call needs; `None` = not a native call (refused by the caller).
 pub fn permission_for(cmd: &str) -> Option<&'static str> {
@@ -16,6 +19,8 @@ pub fn permission_for(cmd: &str) -> Option<&'static str> {
         PICK_FOLDER | PICK_FILE => Some("files.user"),
         OPEN_EXTERNAL => Some("network"),
         LOGIN_WINDOW_OPEN | LOGIN_WINDOW_CLOSE => Some("login.window"),
+        NOTIFY => Some("notifications"),
+        SCAN_CODE => Some("scan.code"),
         _ => None,
     }
 }
@@ -87,6 +92,51 @@ pub fn dialog_title(title: Option<&str>, fallback: &str) -> String {
     }
 }
 
+/// The permission a phone never grants, whatever the manifest says: Android does not let an app start a program it downloaded.
+pub const PHONE_NEVER: &str = "process.spawn";
+
+/// AND-4: the calls a phone serves natively (the Android side runs them in the app's own slot): the call name the slot knows.
+pub fn phone_call_name(cmd: &str) -> Option<&'static str> {
+    match cmd {
+        PICK_FOLDER => Some("pick_folder"),
+        PICK_FILE => Some("pick_file"),
+        OPEN_EXTERNAL => Some("open_external"),
+        NOTIFY => Some("notify"),
+        SCAN_CODE => Some("scan_code"),
+        _ => None,
+    }
+}
+
+/// Short single-line text: control characters dropped, at most `max` characters.
+fn short(v: Option<&serde_json::Value>, max: usize) -> String {
+    v.and_then(|v| v.as_str()).unwrap_or("").chars().filter(|c| !c.is_control()).take(max).collect::<String>().trim().to_string()
+}
+
+/// AND-4: the check of a phone call of app `id` (its manifest `permissions`): the permission, then the arguments, made safe for
+/// the slot. Returns `{call, args}` for the Android side. `process.spawn` (and any call that would need it) is always refused.
+pub fn phone_call(id: &str, permissions: &[String], cmd: &str, args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    if cmd == PHONE_NEVER || cmd.contains("spawn") {
+        return Err("starting a program is never allowed on a phone (Android does not let an app run a program it downloaded)".into());
+    }
+    let call = phone_call_name(cmd).ok_or_else(|| format!("'{cmd}' is not available on this device"))?;
+    require(id, permissions, cmd)?;
+    let args = match cmd {
+        PICK_FOLDER => json!({"title": dialog_title(args.get("title").and_then(|t| t.as_str()), "Choose a folder")}),
+        PICK_FILE => json!({"title": dialog_title(args.get("title").and_then(|t| t.as_str()), "Choose a file")}),
+        OPEN_EXTERNAL => json!({"url": external_link(args.get("url").and_then(|u| u.as_str()).ok_or("os_open_external needs a url")?)?}),
+        NOTIFY => {
+            let title = short(args.get("title"), 80);
+            if title.is_empty() {
+                return Err("os_notify needs a title".into());
+            }
+            json!({"title": title, "text": short(args.get("text"), 400)})
+        }
+        _ => json!({}),
+    };
+    Ok(json!({"call": call, "args": args}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +201,32 @@ mod tests {
         assert_eq!(dialog_title(Some("  "), "F"), "F");
         assert_eq!(dialog_title(Some("Project\nfolder"), "F"), "Projectfolder");
         assert_eq!(dialog_title(Some(&"x".repeat(500)), "F").len(), 120);
+    }
+    #[test]
+    fn phone_calls_are_checked_against_the_manifest() {
+        use serde_json::json;
+        let all = perms(&["files.user", "network", "notifications", "scan.code", "process.spawn"]);
+        let ok = phone_call("aa", &all, PICK_FILE, &json!({"title": "A\nB"})).unwrap();
+        assert_eq!(ok, json!({"call": "pick_file", "args": {"title": "AB"}}));
+        assert_eq!(phone_call("aa", &all, PICK_FOLDER, &json!({})).unwrap()["args"]["title"], "Choose a folder");
+        assert_eq!(phone_call("aa", &all, OPEN_EXTERNAL, &json!({"url": "mailto:a@b.c"})).unwrap()["call"], "open_external");
+        assert!(phone_call("aa", &all, OPEN_EXTERNAL, &json!({"url": "intent://x#Intent;end"})).is_err());
+        assert!(phone_call("aa", &all, OPEN_EXTERNAL, &json!({})).is_err());
+        let n = phone_call("aa", &all, NOTIFY, &json!({"title": "x".repeat(200), "text": "hi"})).unwrap();
+        assert_eq!(n["args"]["title"].as_str().unwrap().len(), 80);
+        assert!(phone_call("aa", &all, NOTIFY, &json!({"title": " "})).is_err());
+        assert_eq!(phone_call("aa", &all, SCAN_CODE, &json!({})).unwrap(), json!({"call": "scan_code", "args": {}}));
+        // Undeclared: a plain refusal naming the permission.
+        for (cmd, need) in [(PICK_FILE, "files.user"), (OPEN_EXTERNAL, "network"), (NOTIFY, "notifications"), (SCAN_CODE, "scan.code")] {
+            let e = phone_call("aa", &[], cmd, &json!({"url": "https://a", "title": "t"})).unwrap_err();
+            assert!(e.contains(need), "{e}");
+        }
+        // Never on a phone, even when declared.
+        for c in ["process.spawn", "os_process_spawn", "os_spawn"] {
+            let e = phone_call("aa", &all, c, &json!({})).unwrap_err();
+            assert!(e.contains("never allowed on a phone"), "{e}");
+        }
+        assert!(phone_call("aa", &all, LOGIN_WINDOW_OPEN, &json!({})).is_err());
+        assert!(phone_call("aa", &all, "os_exit", &json!({})).is_err());
     }
 }
