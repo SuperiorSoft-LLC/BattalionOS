@@ -2,12 +2,13 @@
 // The app area: one frame per open app, drawn from the app's own page origin. A frame is hidden (never reloaded) on minimize or switch
 // and removed only by Close. The page talks to the OS by messages (frames.ts); the app is the frame that sent it. While the app is not
 // running the area says so, with Retry, and the frame loads again once it runs; an update loads the new version.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../kit";
 import { answer, eventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
-import { areaOf, type Model } from "./store";
+import { areaOf, labelOf, type Model } from "./store";
+import { parseSlotEvent, send, slotChannel, SlotWindows, type SlotChannel } from "./slots";
 
 /** The query the shell adds to a page's url so the page knows it is shown inside the OS window (the frame is what the OS trusts, not this). */
 export const FRAME_FLAG = "bos-app";
@@ -33,7 +34,10 @@ function Frame({ id, page, reload, active, onWindow }: { id: string; page: AppPa
   );
 }
 
-export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os; close: (id: string) => void; minimize: (id: string) => void; retry: (id: string) => void }) {
+export function AppFrames({ m, os, close, minimize, retry, notify, slots: given }: { m: Model; os: Os; close: (id: string) => void; minimize: (id: string) => void; retry: (id: string) => void; notify?: (text: string) => void; slots?: SlotChannel | null }) {
+  // AND-3: on Android every app's page runs in its own process slot (the host's channel); everywhere else in a frame here.
+  const slots = useMemo(() => (given === undefined ? slotChannel() : given), [given]);
+  const slotWin = useRef(new SlotWindows());
   const [pages, setPages] = useState<Record<string, AppPage>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [tick, setTick] = useState(0);
@@ -122,7 +126,69 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
   backendRef.current = backend;
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
+  const mRef = useRef(m);
+  mRef.current = m;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+
+  // AND-3: the active view is shown in its slot (opened there the first time); a closed view ends its slot's process.
+  const shownSlot = useRef<string | null>(null);
+  const slotViews = useRef<string[]>([]);
   useEffect(() => {
+    if (!slots) return;
+    for (const id of slotViews.current) {
+      if (m.views.includes(id)) continue;
+      send(slots, { op: "close", id });
+      slotWin.current.drop(id);
+    }
+    slotViews.current = [...m.views];
+    const id = m.active;
+    if (!id) shownSlot.current = null;
+    const page = id ? pages[id] : undefined;
+    if (id && page && shownSlot.current !== id) {
+      shownSlot.current = id;
+      send(slots, { op: "open", id, url: `${page.url}${page.url.includes("?") ? "&" : "?"}${FRAME_FLAG}=${encodeURIComponent(id)}`, origin: page.origin, name: labelOf(m, id) });
+    }
+  }, [slots, m, pages]);
+
+  // What the slots say: a page's request (answered by frames.ts, as a frame's), back to the desktop, a slot ended.
+  useEffect(() => {
+    if (!slots) return;
+    slots.onmessage = (e) => {
+      const ev = parseSlotEvent(e.data);
+      if (!ev) return;
+      switch (ev.ev) {
+        case "request": {
+          const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: slotWin.current.token(id) }));
+          void answer(frames, { source: slotWin.current.token(ev.id), origin: ev.origin, data: ev.data }, backendRef.current).then((r) => {
+            const to = r && slotWin.current.idOf(r.to);
+            if (r && to) send(slots, { op: "reply", id: to, message: r.message });
+          });
+          break;
+        }
+        case "left":
+          if (mRef.current.active === ev.id) minimize(ev.id);
+          shownSlot.current = null;
+          break;
+        case "ended":
+          slotWin.current.drop(ev.id);
+          if (shownSlot.current === ev.id) shownSlot.current = null;
+          slotViews.current = slotViews.current.filter((v) => v !== ev.id);
+          close(ev.id);
+          notifyRef.current?.(ev.text);
+          break;
+        case "error":
+          if (shownSlot.current === ev.id) shownSlot.current = null;
+          notifyRef.current?.(ev.text);
+          break;
+      }
+    };
+    send(slots, { op: "hello" });
+    return () => void (slots.onmessage = null);
+  }, [slots, close, minimize]);
+
+  useEffect(() => {
+    if (slots) return;
     const on = (ev: MessageEvent) => {
       const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
       void answer(frames, { source: ev.source, origin: ev.origin, data: ev.data }, backendRef.current).then((r) => {
@@ -131,17 +197,18 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
     };
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
-  }, []);
+  }, [slots]);
 
   // The sign-in window of an app (opened for its page by os_login_window_open) reports to THAT app's frame only.
   useEffect(
     () =>
       os.onFrameLogin((e) => {
-        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
+        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: slots ? slotWin.current.token(id) : (windows.current[id] ?? null) }));
         const r = e.closed ? eventFor(frames, e.id, "os_login_closed") : e.url ? eventFor(frames, e.id, "os_login_url", { url: e.url }) : null;
-        if (r) (r.to as Window).postMessage(r.message, r.origin);
+        if (r && slots) send(slots, { op: "reply", id: e.id, message: r.message });
+        else if (r) (r.to as Window).postMessage(r.message, r.origin);
       }),
-    [os],
+    [os, slots],
   );
 
   return (
@@ -152,7 +219,12 @@ export function AppFrames({ m, os, close, minimize, retry }: { m: Model; os: Os;
         const page = pages[id];
         return (
           <div key={id} className={`absolute inset-0 bg-background ${active ? "" : "hidden"}`} data-view={id}>
-            {page && <Frame id={id} page={page} reload={reloads[id] ?? 0} active={active} onWindow={onWindow} />}
+            {page && !slots && <Frame id={id} page={page} reload={reloads[id] ?? 0} active={active} onWindow={onWindow} />}
+            {page && slots && area.kind !== "status" && !errors[id] && (
+              <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" data-slot-view={id}>
+                <Button size="sm" onClick={() => { shownSlot.current = null; send(slots, { op: "open", id, url: `${page.url}${page.url.includes("?") ? "&" : "?"}${FRAME_FLAG}=${encodeURIComponent(id)}`, origin: page.origin, name: labelOf(m, id) }); shownSlot.current = id; }}>Show {labelOf(m, id)}</Button>
+              </div>
+            )}
             {(area.kind === "status" || errors[id]) && (
               <div className="absolute inset-0 z-10 grid place-items-center bg-background" role="status" data-view-status={id}>
                 <div className="flex flex-col items-center gap-3 text-sm">

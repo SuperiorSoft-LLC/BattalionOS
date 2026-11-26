@@ -39,11 +39,33 @@ refused ("app has neither a process part for this platform nor a UI part").
 
 ## What the phone shell does differently
 
-- One window (the shell); app pages open in its app area, and the taskbar is the app switcher.
+- The shell keeps the desktop, the Armory and the taskbar (the app switcher). Each open app's page runs in its **own
+  Android process slot** (AND-3), not in the shell's window: see "App slots" below.
 - One tap opens an icon; the back gesture closes the Armory, then takes an open app back to the desktop.
 - The layout keeps clear of the system bars, the cutout and the keyboard.
 - No tray, no single-instance, no Start-menu shortcuts and no self update: the
   OS updates through its store.
+
+## App slots (one process per app)
+
+Truth: `crates/battalion-android/gen/android/app/src/main/java/org/battalionos/os/devtest/{SlotHub,AppSlot}.kt`,
+`crates/battalion-desktop/ui/src/slots.ts`, `AppFrames.tsx`.
+
+- The manifest declares a fixed pool of 4 slot activities, `AppSlot0..3`, each with its own process (`:app0`..`:app3`).
+  Android creates and ends those processes; the OS's hub (`SlotHub`, in the OS's own process) gives a slot to an app
+  while it is open and ends the slot's process before the slot serves another app.
+- Each slot sets the WebView data folder suffix to the app id (`app_webview_app-<id>` under the OS's private folder), so
+  an app's cookies, localStorage and cache are its own: one app cannot read another's, or the shell's.
+- A slot shows a small OS-owned host page that holds the app's page in one frame at the app's own origin. The page
+  contract does not change: the app still calls `window.parent.postMessage({bos: 1, ...})`, and the shell answers with
+  the same `frames.ts` rules as on the desktop. The OS knows the app from the slot it gave, never from a message.
+- Back in an app returns to the shell's desktop; the app keeps running in its slot. A taskbar tap shows it again (same
+  process, same state). Each slot is also its own entry in Android's Recents.
+- How many slots may be in use at once is the setting `inUse` (shared preferences `bos_slots`), 1 to 4; default 4.
+  When all are busy, the slot used longest ago is closed and the shell says so plainly ("All 2 app slots were in use,
+  so Slot A (the one used longest ago) was closed to open Slot C."). A slot that Android ends (crash, low memory)
+  is reported the same way ("... was ended by Android").
+- Needs Android 9 (API 28, `minSdk 28`) and a WebView with the message-listener feature.
 
 ## Build it
 

@@ -24,6 +24,45 @@
             </intent-filter>
         </activity>
 
+
+        <!-- AND-3: app slot 0: one app's page in its own process (created and ended by the OS's hub, SlotHub.kt). -->
+        <activity
+            android:name=".AppSlot0"
+            android:process=":app0"
+            android:taskAffinity="${applicationId}.app0"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:theme="@style/Theme.battalion_android"
+            android:exported="false" />
+        <!-- AND-3: app slot 1: one app's page in its own process (created and ended by the OS's hub, SlotHub.kt). -->
+        <activity
+            android:name=".AppSlot1"
+            android:process=":app1"
+            android:taskAffinity="${applicationId}.app1"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:theme="@style/Theme.battalion_android"
+            android:exported="false" />
+        <!-- AND-3: app slot 2: one app's page in its own process (created and ended by the OS's hub, SlotHub.kt). -->
+        <activity
+            android:name=".AppSlot2"
+            android:process=":app2"
+            android:taskAffinity="${applicationId}.app2"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:theme="@style/Theme.battalion_android"
+            android:exported="false" />
+        <!-- AND-3: app slot 3: one app's page in its own process (created and ended by the OS's hub, SlotHub.kt). -->
+        <activity
+            android:name=".AppSlot3"
+            android:process=":app3"
+            android:taskAffinity="${applicationId}.app3"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:theme="@style/Theme.battalion_android"
+            android:exported="false" />
+        <service android:name=".SlotHubService" android:exported="false" />
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"
