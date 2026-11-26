@@ -53,6 +53,8 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     shellView = webView
+    // AND-6: the page area is the shell's dark colour from the start, not a blank white page before the HTML paints.
+    webView.setBackgroundColor(Color.parseColor("#0e0f12"))
     if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
     WebViewCompat.addWebMessageListener(webView, "bosBoot", setOf("http://tauri.localhost", "https://tauri.localhost")) { _, message, _, isMainFrame, reply ->
       if (!isMainFrame || message.data?.contains("\"taps\"") != true) return@addWebMessageListener
