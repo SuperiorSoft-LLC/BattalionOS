@@ -22,6 +22,9 @@ impl Armory {
         if feed.contract > CONTRACT {
             return Err(ArmoryError::ContractNotSupported { id: app.id.clone(), os: CONTRACT, min: feed.contract, max: feed.contract });
         }
+        if app.platforms.as_ref().is_some_and(|p| !p.contains(&platform_key())) {
+            return Err(ArmoryError::NoPlatform(platform_key()));
+        }
         feed.platforms.get(&platform_key()).cloned().ok_or_else(|| ArmoryError::NoPlatform(platform_key()))
     }
 

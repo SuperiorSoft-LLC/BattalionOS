@@ -66,7 +66,7 @@ impl World {
     }
     fn armory(&self) -> Armory {
         let sup = common::sup(self.paths.clone(), SupSettings { kill_wait_ms: 5_000, auto_restart: false, ..Default::default() });
-        Armory::with_parts(self.paths.clone(), sup, "1.0.0", Settings::default(), Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }))
+        Armory::with_parts(self.paths.clone(), sup, "1.0.0", Settings::default(), Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: false }))
     }
     /// Publish an installer signed by key `signer` (the OS pins key 7), a feed that names version `ver`.
     fn publish(&self, ver: &str, signer: u8, tamper: bool) -> OsFeed {

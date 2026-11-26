@@ -189,7 +189,7 @@ impl World {
         let sup = common::sup(self.paths.clone(), fast());
         match fetcher {
             Some(f) => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, f),
-            None => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 })),
+            None => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: false })),
         }
     }
 
@@ -363,7 +363,7 @@ fn crash_child() {
     let root = PathBuf::from(root);
     let paths = Paths::new(root.join("home"));
     let st = Settings { sources: vec![file_url(&root.join("catalog.json"))], ..Settings::default() };
-    let a = Armory::with_parts(paths.clone(), common::sup(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
+    let a = Armory::with_parts(paths.clone(), common::sup(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: false }));
     let plan = root.join("first-run.json");
     let o = firstrun::run(&a, &plan, &mut |_| {});
     println!("child finished without being killed: {o:?} ({id})");

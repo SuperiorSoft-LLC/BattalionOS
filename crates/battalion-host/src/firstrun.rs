@@ -181,6 +181,18 @@ fn fail(paths: &Paths, mut state: State, id: String, reason: String, net: bool) 
 /// A source the person set themselves is never replaced.
 pub fn seed_sources(paths: &Paths, plan_path: &Path) -> std::io::Result<bool> {
     let Ok(Some(plan)) = read_plan(plan_path) else { return Ok(false) };
+    seed_source_list(paths, &plan.sources)
+}
+
+/// The catalog urls of a plan's text (`{"sources":[...]}`), for a build that carries its plan inside
+/// (AND-2: the Android app has no folder beside an exe). Bad text = none.
+pub fn plan_sources(text: &str) -> Vec<String> {
+    serde_json::from_str::<Plan>(text).map(|p| p.sources).unwrap_or_default()
+}
+
+/// [`seed_sources`] with the urls in hand: written only when `os.json` names no source yet.
+pub fn seed_source_list(paths: &Paths, sources: &[String]) -> std::io::Result<bool> {
+    let plan = Plan { sources: sources.to_vec(), ..Plan::default() };
     if plan.sources.is_empty() {
         return Ok(false);
     }

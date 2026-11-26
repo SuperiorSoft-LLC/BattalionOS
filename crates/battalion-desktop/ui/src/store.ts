@@ -99,6 +99,7 @@ export function reduce(m: Model, a: Action): Model {
 export type AppView =
   | { kind: "available" }
   | { kind: "incompatible" }
+  | { kind: "unavailable"; reason: string }
   | { kind: "installing"; stage: string }
   | { kind: "failed"; error: string }
   | { kind: "installed"; running: boolean; version: string };
@@ -130,6 +131,7 @@ export function appView(m: Model, id: string): AppView {
   if (inst && inst.state !== "absent") return { kind: "installed", running: RUNNING.includes(inst.state), version: inst.version };
   const entry = m.catalog?.apps.find((c) => c.id === id);
   if (entry && !entry.compatible) return { kind: "incompatible" };
+  if (entry?.unavailable) return { kind: "unavailable", reason: entry.unavailable };
   return { kind: "available" };
 }
 

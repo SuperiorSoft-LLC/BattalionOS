@@ -33,6 +33,7 @@ pub mod remove;
 pub mod update;
 
 pub use catalog::{CatalogEntry, Listing};
+pub use info::Offer;
 pub use install::{Installed, InstalledApp};
 pub use progress::{Progress, ProgressSink};
 pub use recover::Recovered;
@@ -53,7 +54,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
-    /// Catalog urls (`https:` or `file:`), first wins on a duplicate id.
+    /// Catalog urls (`https:` or `file:`; loopback `http:` only with `dev_allow_loopback_http`), first wins on a duplicate id.
     pub sources: Vec<String>,
     pub max_catalog_bytes: u64,
     pub max_feed_bytes: u64,
@@ -72,6 +73,9 @@ pub struct Settings {
     /// AND-1: this OS runs app pages only (Android): a package with native content (ELF, dex, JAR/APK,
     /// DLL/EXE, Mach-O by magic bytes) and an app with `init` are refused. Default: on for Android, off elsewhere.
     pub pages_only: bool,
+    /// AND-2, developer setting (off by default, every platform): also fetch `http:` urls whose host is
+    /// loopback (`127.0.0.1`, `[::1]`, `localhost`), for a test catalog or feed. Never on by default.
+    pub dev_allow_loopback_http: bool,
 }
 
 impl Default for Settings {
@@ -89,6 +93,7 @@ impl Default for Settings {
             check_busy: true,
             http_timeout_ms: 30_000,
             pages_only: cfg!(target_os = "android"),
+            dev_allow_loopback_http: false,
         }
     }
 }
@@ -165,6 +170,7 @@ impl std::fmt::Display for ArmoryError {
             NoChannel { id, channel } => write!(f, "app '{id}' has no channel '{channel}'"),
             Catalog(m) => write!(f, "catalog: {m}"),
             Feed(m) => write!(f, "feed: {m}"),
+            NoPlatform(p) if p.starts_with("android-") => write!(f, "not available on phones yet (the feed has no {p} package)"),
             NoPlatform(p) => write!(f, "the feed has no package for {p}"),
             PagesOnly(m) => write!(f, "not installed: {m}; on this device BattalionOS runs app pages only"),
             ContractNotSupported { id, os, min, max } => write!(f, "app '{id}' needs contract {min}..{max}, this OS speaks {os}"),
@@ -217,7 +223,11 @@ pub trait Fetcher: Send + Sync {
 
 pub struct DefaultFetcher {
     pub timeout_ms: u64,
+    /// [`Settings::dev_allow_loopback_http`].
+    pub allow_loopback_http: bool,
 }
+
+pub use battalion_app_api::catalog::is_loopback_http;
 
 /// `file:///C:/x/y`, `file:///x/y`, `file:C:\x\y` -> a path.
 pub fn file_url_path(url: &str) -> Option<PathBuf> {
@@ -233,8 +243,9 @@ impl Fetcher for DefaultFetcher {
         if let Some(p) = file_url_path(url) {
             return Ok(Box::new(std::fs::File::open(p)?));
         }
-        if !url.starts_with("https://") {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "only https and file urls are fetched"));
+        let loopback = self.allow_loopback_http && is_loopback_http(url);
+        if !url.starts_with("https://") && !loopback {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "only https and file urls are fetched (a loopback http url needs the developer setting armory.devAllowLoopbackHttp)"));
         }
         let t = std::time::Duration::from_millis(self.timeout_ms);
         let agent = ureq::AgentBuilder::new().timeout_connect(t).timeout_read(t).build();
@@ -257,7 +268,7 @@ impl Armory {
     /// each app's `minOs`.
     pub fn new(paths: Paths, sup: Supervisor, os_version: &str) -> Armory {
         let settings = Settings::load(&paths);
-        let fetcher = Arc::new(DefaultFetcher { timeout_ms: settings.http_timeout_ms });
+        let fetcher = Arc::new(DefaultFetcher { timeout_ms: settings.http_timeout_ms, allow_loopback_http: settings.dev_allow_loopback_http });
         Armory::with_parts(paths, sup, os_version, settings, fetcher)
     }
 

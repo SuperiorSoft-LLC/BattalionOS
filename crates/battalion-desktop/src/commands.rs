@@ -336,7 +336,8 @@ pub async fn os_catalog(window: WebviewWindow, host: State<'_, Host>) -> R<Value
     // The offered version needs each app's feed: read here, off the UI thread; a feed that cannot be read is just "no version".
     let (l, offered) = blocking(move || {
         let l = a.catalog()?;
-        let offered: Vec<Option<String>> = l.apps.iter().map(|e| a.offered(e, "stable")).collect();
+        // AND-2: and whether this device can install it (the catalog's `platforms`, else the feed's packages), with the reason.
+        let offered: Vec<battalion_host::armory::Offer> = l.apps.iter().map(|e| a.offer(e, "stable")).collect();
         Ok::<_, battalion_host::armory::ArmoryError>((l, offered))
     })
     .await?
@@ -344,7 +345,7 @@ pub async fn os_catalog(window: WebviewWindow, host: State<'_, Host>) -> R<Value
     Ok(json!({
         "apps": l.apps.iter().zip(offered).map(|(e, v)| json!({
             "id": e.app.id, "name": e.app.name, "publisher": e.app.publisher, "summary": e.app.summary,
-            "icon": catalog_icon(e.app.icon.as_deref()), "version": v, "source": e.source, "compatible": e.compatible
+            "icon": catalog_icon(e.app.icon.as_deref()), "version": v.version, "unavailable": v.unavailable, "source": e.source, "compatible": e.compatible
         })).collect::<Vec<_>>(),
         "rejected": l.rejected, "sourceErrors": l.source_errors, "fromCache": l.from_cache
     }))

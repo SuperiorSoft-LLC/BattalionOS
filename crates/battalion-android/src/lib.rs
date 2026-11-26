@@ -48,6 +48,12 @@ pub fn run() {
             // The OS home is the app's own private storage (`<data>/os`); nothing outside it.
             let paths = Paths::new(app.path().app_data_dir()?.join("os"));
             paths.ensure()?;
+            // AND-2: the same public catalog as the Windows installer's first-run.json (data, carried in the build; a
+            // phone has no folder beside an exe). Seeded only while os.json names no source; a source set by hand stays.
+            let sources = battalion_host::firstrun::plan_sources(include_str!("../../../packaging/first-run.json"));
+            if let Err(e) = battalion_host::firstrun::seed_source_list(&paths, &sources) {
+                eprintln!("catalog sources: {e}");
+            }
             app.manage(Host::new(paths));
             for (id, r) in app.state::<Host>().sup.recover_all() {
                 if let Err(e) = r {

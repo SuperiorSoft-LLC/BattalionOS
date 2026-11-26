@@ -31,6 +31,7 @@ function StateChip({ m, id }: { m: Model; id: string }) {
   if (v.kind === "installing") return <Chip tone="blue">{v.stage}…</Chip>;
   if (v.kind === "failed") return <Chip tone="red">Failed</Chip>;
   if (v.kind === "incompatible") return <Chip tone="neutral">Not compatible</Chip>;
+  if (v.kind === "unavailable") return <Chip tone="neutral">Not available</Chip>;
   return null;
 }
 
@@ -127,6 +128,7 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
             Remove
           </Button>
         )}
+        {v.kind === "unavailable" && <span className="text-sm text-muted-foreground">{v.reason}</span>}
         {v.kind === "incompatible" && <span className="text-sm text-muted-foreground">This app needs a different BattalionOS version.</span>}
       </div>
     </div>

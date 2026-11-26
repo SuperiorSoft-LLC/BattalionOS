@@ -34,6 +34,11 @@ pub struct CatalogApp {
     pub permissions: Vec<String>,
     /// channel name -> feed url (https, or a file for tests and the Sandbox).
     pub channels: BTreeMap<String, String>,
+    /// AND-2, optional: the platforms (`windows-x86_64`, `android-aarch64`, ...) the app's feeds carry a
+    /// package for, so a device can tell what it cannot install without reading every feed.
+    /// Absent = not said; the feed decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -80,7 +85,7 @@ impl std::fmt::Display for CatalogError {
             BadId(i) => write!(f, "app id '{i}' is not allowed"),
             NoKey(i) => write!(f, "app '{i}' has no public key"),
             NoChannel(i) => write!(f, "app '{i}' has no channel"),
-            InsecureUrl { id, url } => write!(f, "app '{id}' channel url '{url}' is not https or file"),
+            InsecureUrl { id, url } => write!(f, "app '{id}' channel url '{url}' is not https, file or loopback http"),
             NotAnApp { id, kind } => write!(f, "'{id}' is not an app (its kind is '{kind}'); the Armory lists apps only, so it is skipped"),
         }
     }
@@ -104,7 +109,7 @@ impl std::fmt::Display for FeedError {
             BadVersion(v) => write!(f, "feed version '{v}' is not major.minor.patch"),
             NoPlatforms => write!(f, "feed lists no platform"),
             BadSha256 { platform } => write!(f, "sha256 for {platform} is not 64 hex characters"),
-            InsecureUrl { platform, url } => write!(f, "package url for {platform} '{url}' is not https or file"),
+            InsecureUrl { platform, url } => write!(f, "package url for {platform} '{url}' is not https, file or loopback http"),
             EmptySignature { platform } => write!(f, "signature for {platform} is empty"),
         }
     }
@@ -112,7 +117,8 @@ impl std::fmt::Display for FeedError {
 impl std::error::Error for FeedError {}
 
 fn url_ok(u: &str) -> bool {
-    u.starts_with("https://") || u.starts_with("file:")
+    // A loopback http url is well formed here; the Armory fetches it only with its developer setting (AND-2).
+    u.starts_with("https://") || u.starts_with("file:") || is_loopback_http(u)
 }
 
 impl Catalog {
@@ -204,4 +210,23 @@ impl Feed {
         }
         Ok(f)
     }
+}
+
+/// `http://127.0.0.1:8000/x`, `http://localhost/x`, `http://[::1]:9/x`: an http url to this device itself.
+/// Anything with user info (a name and an at sign before the host) or another host is not.
+pub fn is_loopback_http(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else { return false };
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if auth.contains('@') {
+        return false;
+    }
+    let host = if let Some(v6) = auth.strip_prefix('[') {
+        match v6.split_once(']') {
+            Some((h, port)) if port.is_empty() || port.starts_with(':') => h,
+            _ => return false,
+        }
+    } else {
+        auth.split(':').next().unwrap_or("")
+    };
+    matches!(host.to_ascii_lowercase().as_str(), "127.0.0.1" | "::1" | "localhost")
 }

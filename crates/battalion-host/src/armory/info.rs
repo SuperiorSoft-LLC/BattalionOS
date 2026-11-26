@@ -5,6 +5,7 @@
 
 use super::*;
 use battalion_app_api::manifest::safe_rel_path;
+use crate::supervisor::platform_key;
 use battalion_app_api::{Feed, Version};
 
 /// An icon larger than this is not inlined (a list of data urls must stay small).
@@ -76,6 +77,37 @@ impl Armory {
     pub fn offered(&self, e: &CatalogEntry, channel: &str) -> Option<String> {
         self.feed(&e.app, channel).ok().map(|(f, _)| f.version)
     }
+
+    /// AND-2: what a list shows for a catalog entry on this device: the version on offer and, when this device
+    /// cannot install it, the plain reason. The catalog's optional `platforms` decides first (no feed read);
+    /// without it the feed's packages decide. A feed that cannot be read says nothing either way.
+    pub fn offer(&self, e: &CatalogEntry, channel: &str) -> Offer {
+        let here = platform_key();
+        if e.app.platforms.as_ref().is_some_and(|p| !p.iter().any(|x| *x == here)) {
+            return Offer { version: None, unavailable: Some(not_available_here()) };
+        }
+        match self.feed(&e.app, channel) {
+            Ok((f, _)) => {
+                let unavailable = (!f.platforms.contains_key(&here)).then(not_available_here);
+                Offer { version: Some(f.version), unavailable }
+            }
+            Err(_) => Offer::default(),
+        }
+    }
+}
+
+/// See [`Armory::offer`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Offer {
+    pub version: Option<String>,
+    /// Set when this device cannot install the app: the reason in words.
+    pub unavailable: Option<String>,
+}
+
+/// The plain reason an app is not offered on this device.
+pub fn not_available_here() -> String {
+    let p = platform_key();
+    if p.starts_with("android-") { "Not available on phones yet.".into() } else { format!("Not available for {p} yet.") }
 }
 
 #[cfg(test)]

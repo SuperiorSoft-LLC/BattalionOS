@@ -17,7 +17,7 @@ export interface InstalledApp {
   /** The badge the running app put on itself (`os_badge`), or null. */
   badge?: string | null;
 }
-export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null }
+export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null; unavailable?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
 export interface AppPage { id: string; version: string; origin: string; url: string }
 import type { OsUpdateInfo } from "./osUpdate";

@@ -199,7 +199,7 @@ impl World {
         let sup = common::sup(self.paths.clone(), fast());
         match fetcher {
             Some(f) => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, f),
-            None => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 })),
+            None => Armory::with_parts(self.paths.clone(), sup, "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: false })),
         }
     }
 
@@ -372,7 +372,7 @@ fn a_network_cut_mid_download_leaves_nothing_and_a_retry_works() {
     let w = World::new("cut");
     w.publish(&Pkg::new("cut-one", "1.0.0"));
     for error in [true, false] {
-        let f = Arc::new(Cutting { inner: battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }, cut: 100_000, error });
+        let f = Arc::new(Cutting { inner: battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: false }, cut: 100_000, error });
         let err = w.armory_with(w.settings(), Some(f)).install("cut-one", "stable").unwrap_err();
         if error {
             assert!(matches!(err, ArmoryError::Fetch { .. }), "{err:?}");
@@ -580,7 +580,7 @@ fn crash_child() {
     let (Ok(root), Ok(op), Ok(id)) = (std::env::var("BOS_CHILD_ROOT"), std::env::var("BOS_CHILD_OP"), std::env::var("BOS_CHILD_ID")) else { return };
     let paths = Paths::new(PathBuf::from(&root).join("home"));
     let st = Settings { sources: vec![file_url(&PathBuf::from(&root).join("catalog.json"))], ..Settings::default() };
-    let a = Armory::with_parts(paths.clone(), common::sup(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
+    let a = Armory::with_parts(paths.clone(), common::sup(paths, fast()), "1.0.0", st, Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: false }));
     let r = match op.as_str() {
         "install" => a.install(&id, "stable").map(|_| ()),
         "update" => a.update(&id, &UpdateOptions::default()).map(|_| ()),
@@ -798,7 +798,7 @@ fn the_os_exit_stops_every_app_cleanly() {
     let w = World::new("exit");
     w.publish(&Pkg::new("exit-one", "1.0.0"));
     let sup = common::sup(w.paths.clone(), fast());
-    let os = Armory::with_parts(w.paths.clone(), sup.clone(), "1.0.0", w.settings(), Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000 }));
+    let os = Armory::with_parts(w.paths.clone(), sup.clone(), "1.0.0", w.settings(), Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: false }));
     os.install("exit-one", "stable").unwrap();
     w.publish(&Pkg::new("exit-two", "1.0.0"));
     os.install("exit-two", "stable").unwrap();
@@ -830,5 +830,105 @@ fn a_pages_only_os_refuses_init_and_native_content() {
     assert!(w.absent("native-one") && w.staging_is_empty());
     for (head, native) in [(&b"\x7fELF\x02\x01"[..], true), (b"dex\n035\0", true), (b"PK\x03\x04", true), (b"MZ\x90\0", true), (b"<!doctype html>", false), (b"\0asm\x01\0\0\0", false), (b"", false)] {
         assert_eq!(native_kind(head).is_some(), native, "{head:?}");
+    }
+}
+
+// ---- AND-2: what this device can install; the developer loopback http setting -------------
+
+#[test]
+fn an_app_without_a_package_for_this_device_is_listed_with_the_plain_reason_and_refused() {
+    use battalion_host::armory::info::not_available_here;
+    let w = World::new("platforms");
+    w.publish(&Pkg::new("demo-one", "1.0.0"));
+    let a = w.armory();
+    let e = a.find("demo-one").unwrap();
+    let o = a.offer(&e, "stable");
+    assert_eq!((o.version.as_deref(), o.unavailable), (Some("1.0.0"), None), "a feed with this device's package is offered");
+
+    // The feed carries only another platform's package.
+    let fp = w.root.join("feeds").join("demo-one-stable.json");
+    let text = std::fs::read_to_string(&fp).unwrap().replace(&format!("\"{}\"", platform_key()), "\"other-platform\"");
+    std::fs::write(&fp, text).unwrap();
+    let o = a.offer(&a.find("demo-one").unwrap(), "stable");
+    assert_eq!(o.unavailable, Some(not_available_here()));
+    assert!(matches!(a.install("demo-one", "stable"), Err(ArmoryError::NoPlatform(_))));
+    assert!(w.absent("demo-one"));
+}
+
+#[test]
+fn the_catalog_platforms_list_decides_without_the_feed() {
+    use battalion_host::armory::info::not_available_here;
+    let w = World::new("catplatforms");
+    w.publish(&Pkg::new("demo-one", "1.0.0"));
+    let set = |list: serde_json::Value| {
+        let mut c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(w.catalog_path()).unwrap()).unwrap();
+        c["apps"][0]["platforms"] = list;
+        std::fs::write(w.catalog_path(), c.to_string()).unwrap();
+    };
+    set(serde_json::json!(["other-platform"]));
+    let a = w.armory();
+    let o = a.offer(&a.find("demo-one").unwrap(), "stable");
+    assert_eq!(o, battalion_host::armory::Offer { version: None, unavailable: Some(not_available_here()) });
+    assert!(matches!(a.install("demo-one", "stable"), Err(ArmoryError::NoPlatform(_))));
+    set(serde_json::json!(["other-platform", platform_key()]));
+    let o = a.offer(&a.find("demo-one").unwrap(), "stable");
+    assert_eq!(o.unavailable, None);
+    a.install("demo-one", "stable").unwrap();
+}
+
+#[test]
+fn only_a_loopback_http_url_counts_as_loopback() {
+    use battalion_host::armory::is_loopback_http;
+    for ok in ["http://127.0.0.1:8000/c.json", "http://localhost/c.json", "http://LOCALHOST:1", "http://[::1]:9/x", "http://127.0.0.1"] {
+        assert!(is_loopback_http(ok), "{ok}");
+    }
+    // User info before another host (built at run time: the push scan reads `a@b` as an e-mail address).
+    let user_info = format!("http://127.0.0.1{}other.example/x", '@');
+    for no in ["https://127.0.0.1/x", user_info.as_str(), "http://127.0.0.1.other.example/x", "http://example.com:8000/x", "http://[::1]x/", "http://localhost.other/x", "file:///x"] {
+        assert!(!is_loopback_http(no), "{no}");
+    }
+}
+
+/// Serves one file over plain http on 127.0.0.1 (port 0), for a fixed number of requests.
+fn serve_http_once(body: Vec<u8>, requests: usize) -> String {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for s in l.incoming().take(requests) {
+            let Ok(mut s) = s else { continue };
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf);
+            let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            let _ = s.write_all(&body);
+        }
+    });
+    format!("http://127.0.0.1:{port}/catalog.json")
+}
+
+#[test]
+fn a_loopback_http_catalog_needs_the_developer_setting() {
+    let w = World::new("loopback");
+    w.publish(&Pkg::new("demo-one", "1.0.0"));
+    let url = serve_http_once(std::fs::read(w.catalog_path()).unwrap(), 2);
+    assert!(!Settings::default().dev_allow_loopback_http, "off by default");
+
+    let st = Settings { sources: vec![url.clone()], ..Settings::default() };
+    let off = Armory::new_for_test(&w, st.clone());
+    assert!(matches!(off.catalog(), Err(ArmoryError::Offline(m)) if m.contains("devAllowLoopbackHttp")));
+
+    let on = Armory::new_for_test(&w, Settings { dev_allow_loopback_http: true, ..st });
+    let l = on.catalog().unwrap();
+    assert_eq!(l.apps.iter().map(|e| e.app.id.as_str()).collect::<Vec<_>>(), ["demo-one"]);
+    on.install("demo-one", "stable").unwrap();
+}
+
+trait NewForTest {
+    fn new_for_test(w: &World, st: Settings) -> Armory;
+}
+impl NewForTest for Armory {
+    /// The real fetcher, with the loopback switch as the settings say (what `Armory::new` builds).
+    fn new_for_test(w: &World, st: Settings) -> Armory {
+        let f = Arc::new(battalion_host::armory::DefaultFetcher { timeout_ms: 5000, allow_loopback_http: st.dev_allow_loopback_http });
+        w.armory_with(st, Some(f))
     }
 }
