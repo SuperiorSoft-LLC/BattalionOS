@@ -3,6 +3,8 @@
 // not in a frame of this window. The shell keeps the taskbar, back and close; the host tells it what the slots do over one channel
 // (`window.bosSlots`, given only to the shell page). Pure parts here, so they are tested without a phone.
 
+import type { AppPage, PageFiles } from "./os";
+
 /** The channel the Android host gives the shell page (absent everywhere else: the desktop keeps its frames). */
 export interface SlotChannel {
   postMessage(message: string): void;
@@ -38,9 +40,15 @@ export function parseSlotEvent(text: string): SlotEvent | null {
 /** What the shell sends. */
 export type SlotOp =
   | { op: "hello" }
-  | { op: "open"; id: string; url: string; origin: string; name: string }
+  | { op: "open"; id: string; url: string; origin: string; name: string; files?: PageFiles }
   | { op: "close"; id: string }
   | { op: "reply"; id: string; message: unknown };
+
+/** The open op of app `id`: its page url marked as a frame of `id` (`flag`), its origin, and (AND-3b) the files the slot serves. */
+export function openOp(id: string, page: AppPage, name: string, flag: string): SlotOp {
+  const url = `${page.url}${page.url.includes("?") ? "&" : "?"}${flag}=${encodeURIComponent(id)}`;
+  return page.files ? { op: "open", id, url, origin: page.origin, name, files: page.files } : { op: "open", id, url, origin: page.origin, name };
+}
 
 export const send = (c: SlotChannel, op: SlotOp) => c.postMessage(JSON.stringify(op));
 

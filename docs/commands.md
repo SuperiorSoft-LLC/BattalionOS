@@ -77,6 +77,9 @@ has no window label of its own: the shell takes the app id from WHICH frame sent
 
 - The page is drawn in a frame in the shell's app area, from its own origin `http://127.0.0.1:<port>` (the app's page server). The frame is
   hidden, never reloaded, on minimize or switch; Close removes it. An update loads the new version in the frame.
+- **Android (AND-3b):** no page server and no port. `os_app_page` answers origin `http://<id>.bos.localhost` and adds `files`
+  (`{root, pageDir, csp}`: the version folder, the entry page's folder, the same CSP); the app's slot serves the page from them by
+  request interception (docs/apps/android.md).
 - **Port and origin.** `battalion_host::uiport`: each app with a `ui` has one page port, chosen once and kept in `<home>/ui-ports/<id>`, the
   same between runs, updates and OS restarts. Before the app starts the OS gives the origin as `BATTALION_UI_ORIGIN` and `uiOrigin` in the
   context (docs/app-abi.md); the app lets exactly that origin reach its socket and refuses others (403).

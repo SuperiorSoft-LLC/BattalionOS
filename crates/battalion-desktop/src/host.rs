@@ -40,8 +40,31 @@ pub struct Page {
     pub version: String,
     pub origin: String,
     pub url: String,
-    /// `None` when the page comes from a dev app's own dev server (BOS-31): nothing of ours serves it.
+    /// `None` when the page comes from a dev app's own dev server (BOS-31), or when the slot serves it (AND-3b, `files`).
     _server: Option<AppServer>,
+    files: Option<PageFiles>,
+}
+
+/// AND-3b: where the page's files are, for a host that serves them itself by request interception (Android: the app's slot answers
+/// `http://<id>.bos.localhost/...` from these, no port). The same rules as the page server: only files under `root`, a missing one
+/// retried under `page_dir`, every answer with `csp`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageFiles {
+    pub root: String,
+    /// The entry page's folder, relative to `root` (`""` = none).
+    pub page_dir: String,
+    pub csp: String,
+}
+
+/// AND-3b: pages are served by request interception, not by a loopback page server: on Android any other app can reach a loopback
+/// port. The desktop keeps its page server.
+pub const PAGES_BY_INTERCEPTION: bool = cfg!(target_os = "android");
+
+/// The origin of app `id`'s page when its host serves it by interception: one host name per app, so each app has its own origin.
+/// `http` and not `https`: a `.localhost` origin is a secure context either way, and from `https` the page could not reach a daemon
+/// at a plain `ws://` address on the network (mixed content), which it can on the desktop (`http://127.0.0.1:<port>`).
+pub fn intercept_origin(id: &str) -> String {
+    format!("http://{id}.bos.localhost")
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,19 +75,26 @@ pub struct PageInfo {
     pub origin: String,
     /// The page's entry url on that origin.
     pub url: String,
+    /// Set when the host serves the page by interception ([`PAGES_BY_INTERCEPTION`]).
+    pub files: Option<PageFiles>,
 }
 
 /// The page of app `id` for a frame in the OS window. Starts the page server on the app's one kept port, or reuses it; after an
 /// update (another version folder) the server is replaced on the same port, so the origin never changes. Needs no app process:
 /// the frame shows what the app says while it is down.
 pub fn page_of(paths: &Paths, sup: &Supervisor, pages: &Mutex<HashMap<String, Page>>, id: &str) -> Result<PageInfo, String> {
+    page_of_on(paths, sup, pages, id, PAGES_BY_INTERCEPTION)
+}
+
+/// [`page_of`], with the way the page is served given (`intercept`: the host serves the files itself, no server is started).
+pub fn page_of_on(paths: &Paths, sup: &Supervisor, pages: &Mutex<HashMap<String, Page>>, id: &str, intercept: bool) -> Result<PageInfo, String> {
     let cur = battalion_host::Current::load(&paths.current_json(id).map_err(|e| e.0)?)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("app '{id}' is not installed"))?;
     let mut pages = pages.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(p) = pages.get(id) {
         if p.version == cur.version {
-            return Ok(PageInfo { id: id.into(), version: p.version.clone(), origin: p.origin.clone(), url: p.url.clone() });
+            return Ok(PageInfo { id: id.into(), version: p.version.clone(), origin: p.origin.clone(), url: p.url.clone(), files: p.files.clone() });
         }
     }
     pages.remove(id); // drops the old server: its port is free for the new one
@@ -78,16 +108,28 @@ pub fn page_of(paths: &Paths, sup: &Supervisor, pages: &Mutex<HashMap<String, Pa
     // permissions as an installed app. Only loopback (checked again here).
     if let Some(u) = battalion_host::dev::load(paths, id).and_then(|d| d.dev_url) {
         let origin = battalion_host::dev::dev_url_origin(&u)?;
-        pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: u.clone(), _server: None });
-        return Ok(PageInfo { id: id.into(), version: cur.version, origin, url: u });
+        pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: u.clone(), _server: None, files: None });
+        return Ok(PageInfo { id: id.into(), version: cur.version, origin, url: u, files: None });
+    }
+    if intercept {
+        // No app process on this host, so no app url in the policy (the page's own origin and the manifest's `connect`).
+        let origin = intercept_origin(id);
+        let url = format!("{origin}/{entry}");
+        let files = PageFiles {
+            root: vdir.to_string_lossy().into_owned(),
+            page_dir: page_dir.as_ref().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default(),
+            csp: crate::serve::csp_for(&ui.connect, None),
+        };
+        pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: url.clone(), _server: None, files: Some(files.clone()) });
+        return Ok(PageInfo { id: id.into(), version: cur.version, origin, url, files: Some(files) });
     }
     let port = battalion_host::uiport::port_for(paths, id).map_err(|e| e.to_string())?;
     let app_url = app_url_of(sup, id);
     let srv = AppServer::start_on(vdir, page_dir, ui.connect.clone(), port, Some(app_url)).map_err(|e| format!("the page of '{id}' could not be served on port {port}: {e}"))?;
     let origin = srv.origin();
     let url = format!("{origin}/{entry}");
-    pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: url.clone(), _server: Some(srv) });
-    Ok(PageInfo { id: id.into(), version: cur.version, origin, url })
+    pages.insert(id.to_string(), Page { version: cur.version.clone(), origin: origin.clone(), url: url.clone(), _server: Some(srv), files: None });
+    Ok(PageInfo { id: id.into(), version: cur.version, origin, url, files: None })
 }
 
 /// Is app `id` installed with a page? (`os_open_app_window` checks it before the shell opens a view.)
@@ -190,4 +232,56 @@ pub fn run_first_run(app: &AppHandle, host: &Host) -> battalion_host::firstrun::
             Outcome::Failed { id, reason } => serde_json::json!({"status": "failed", "id": id, "error": reason}),
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An installed page-only app (the fixture `page-app`) in a fresh OS home.
+    fn installed() -> (tempfile::TempDir, Paths, Supervisor) {
+        let d = tempfile::tempdir().unwrap();
+        let paths = Paths::new(d.path().join("os"));
+        paths.ensure().unwrap();
+        let fx = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/page-app");
+        let v = paths.content_dir("page-app", "1.0.0").unwrap();
+        std::fs::create_dir_all(v.join("ui")).unwrap();
+        std::fs::copy(fx.join("app.json"), v.join("app.json")).unwrap();
+        std::fs::copy(fx.join("ui/index.html"), v.join("ui/index.html")).unwrap();
+        let cur = battalion_host::Current { version: "1.0.0".into(), previous: None, state: battalion_host::AppState::Stopped, public_key: String::new() };
+        let cj = paths.current_json("page-app").unwrap();
+        std::fs::create_dir_all(cj.parent().unwrap()).unwrap();
+        std::fs::write(&cj, serde_json::to_vec(&cur).unwrap()).unwrap();
+        let sup = Supervisor::new(paths.clone());
+        (d, paths, sup)
+    }
+
+    /// AND-3b: served by interception, the page has its own `<id>.bos.localhost` origin and its files, and no server is started.
+    #[test]
+    fn interception_gives_the_app_its_own_origin_and_no_port() {
+        let (_d, paths, sup) = installed();
+        let pages = Mutex::new(HashMap::new());
+        let p = page_of_on(&paths, &sup, &pages, "page-app", true).unwrap();
+        assert_eq!(p.origin, "http://page-app.bos.localhost");
+        assert_eq!(p.url, "http://page-app.bos.localhost/ui/index.html");
+        let f = p.files.expect("files for the slot");
+        assert!(std::path::Path::new(&f.root).join("ui/index.html").is_file());
+        assert_eq!(f.page_dir, "ui");
+        assert_eq!(f.csp, crate::serve::csp_for(&[], None));
+        assert!(pages.lock().unwrap()["page-app"]._server.is_none(), "no page server on this host");
+        assert!(!paths.root().join("ui-ports").join("page-app").exists(), "no page port was kept");
+        // Asked again, the same page (no server either).
+        assert_eq!(page_of_on(&paths, &sup, &pages, "page-app", true).unwrap().origin, p.origin);
+    }
+
+    /// The desktop keeps its loopback page server.
+    #[test]
+    fn the_desktop_keeps_its_page_server() {
+        let (_d, paths, sup) = installed();
+        let pages = Mutex::new(HashMap::new());
+        let p = page_of_on(&paths, &sup, &pages, "page-app", false).unwrap();
+        assert!(p.origin.starts_with("http://127.0.0.1:"));
+        assert!(p.files.is_none());
+        assert!(!PAGES_BY_INTERCEPTION, "this test runs on a desktop");
+    }
 }

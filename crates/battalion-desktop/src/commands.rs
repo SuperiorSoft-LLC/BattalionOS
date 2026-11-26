@@ -115,7 +115,11 @@ pub async fn os_app_page(window: WebviewWindow, host: State<'_, Host>, id: Strin
     crate::access::app_label(&id).map_err(|e| e.to_string())?;
     let (paths, sup, pages) = (host.paths.clone(), host.sup.clone(), host.pages.clone());
     let r = blocking(move || crate::host::page_of(&paths, &sup, &pages, &id)).await??;
-    Ok(json!({"id": r.id, "version": r.version, "origin": r.origin, "url": r.url}))
+    let mut v = json!({"id": r.id, "version": r.version, "origin": r.origin, "url": r.url});
+    if let Some(f) = r.files {
+        v["files"] = json!({"root": f.root, "pageDir": f.page_dir, "csp": f.csp});
+    }
+    Ok(v)
 }
 
 /// The badge of the app whose frame sent the message. The shell names the app from the frame (never from the message); an app

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import { describe, expect, it } from "vitest";
 import { answer, type FrameBackend } from "../src/frames";
-import { parseSlotEvent, slotChannel, SlotWindows } from "../src/slots";
+import { parseSlotEvent, slotChannel, SlotWindows, openOp } from "../src/slots";
 
 const be: FrameBackend = {
   appStatus: async (id) => ({ id, state: "running" }),
@@ -53,5 +53,17 @@ describe("app slots (AND-3)", () => {
     w.drop("a");
     expect(w.idOf(t)).toBeNull();
     expect(w.token("a")).not.toBe(t);
+  });
+});
+
+describe("openOp (AND-3b)", () => {
+  it("marks the url as the app's frame and carries the files the slot serves", () => {
+    const files = { root: "/data/os/apps/a/1.0.0", pageDir: "ui", csp: "default-src 'self'" };
+    const op = openOp("a", { id: "a", version: "1.0.0", origin: "http://a.bos.localhost", url: "http://a.bos.localhost/ui/index.html", files }, "A", "bos-app");
+    expect(op).toEqual({ op: "open", id: "a", url: "http://a.bos.localhost/ui/index.html?bos-app=a", origin: "http://a.bos.localhost", name: "A", files });
+  });
+  it("sends no files when the host serves the page itself", () => {
+    const op = openOp("a", { id: "a", version: "1", origin: "http://127.0.0.1:5", url: "http://127.0.0.1:5/i.html?x=1" }, "A", "f");
+    expect(op).toEqual({ op: "open", id: "a", url: "http://127.0.0.1:5/i.html?x=1&f=a", origin: "http://127.0.0.1:5", name: "A" });
   });
 });

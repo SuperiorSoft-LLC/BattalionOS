@@ -95,6 +95,9 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
     if (app == null) { endSelf(); return }
     val url = intent.getStringExtra("url") ?: ""
     val origin = intent.getStringExtra("origin") ?: ""
+    // AND-3b: the app's page files, served below at the app's own host (no port); given by the hub, which checked them.
+    val files = intent.getStringExtra("root")?.let { r -> PageFiles(r, intent.getStringExtra("pageDir") ?: "", intent.getStringExtra("csp") ?: "") }
+    val appHost = PageFiles.hostOf(app)
     @Suppress("DEPRECATION")
     setTaskDescription(android.app.ActivityManager.TaskDescription(intent.getStringExtra("name") ?: app))
     val wv = WebView(this)
@@ -125,6 +128,10 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
             return if (req.url.path == "/" || req.url.path.isNullOrEmpty()) WebResourceResponse("text/html", "utf-8", hostPage(url, origin).byteInputStream())
             else WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), "".byteInputStream())
           }
+          val host = req.url.host ?: return null
+          // The app's own page. Any other `*.bos.localhost` (another app's) is never served here, and never reaches the network.
+          if (req.url.scheme == "http" && host == appHost && files != null) return files.answer(req.method, req.url.encodedPath ?: "/")
+          if (host == "bos.localhost" || host.endsWith(".bos.localhost")) return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), "".byteInputStream())
           return null
         }
 

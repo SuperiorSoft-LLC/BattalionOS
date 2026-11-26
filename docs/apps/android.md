@@ -59,6 +59,14 @@ Truth: `crates/battalion-android/gen/android/app/src/main/java/org/battalionos/o
 - A slot shows a small OS-owned host page that holds the app's page in one frame at the app's own origin. The page
   contract does not change: the app still calls `window.parent.postMessage({bos: 1, ...})`, and the shell answers with
   the same `frames.ts` rules as on the desktop. The OS knows the app from the slot it gave, never from a message.
+- The page is served by the slot itself, by request interception, at `http://<app-id>.bos.localhost/` (one host name
+  per app, so each app has its own origin). No page server and no port: any other Android app can reach a loopback
+  port. The rules are the desktop page server's (`PageFiles.kt` follows `serve.rs`): GET and HEAD only, only files under
+  the app's version folder, a file missing at the root is looked up in the entry page's folder, and each answer carries
+  the same Content-Security-Policy, `nosniff` and `no-store`. `os_app_page` gives the shell those files (`files`:
+  `root`, `pageDir`, `csp`); the hub opens a slot only when the root is inside the OS's private folder and the origin
+  is the app's own. `http`, not `https`: a `.localhost` origin is a secure context either way, and an `https` page
+  could not reach a daemon at a plain `ws://` address (mixed content). The desktop keeps its loopback page server.
 - Back in an app returns to the shell's desktop; the app keeps running in its slot. A taskbar tap shows it again (same
   process, same state). Each slot is also its own entry in Android's Recents.
 - How many slots may be in use at once is the setting `inUse` (shared preferences `bos_slots`), 1 to 4; default 4.

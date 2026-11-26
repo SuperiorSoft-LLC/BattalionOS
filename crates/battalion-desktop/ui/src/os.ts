@@ -19,7 +19,9 @@ export interface InstalledApp {
 }
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null; unavailable?: string | null }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
-export interface AppPage { id: string; version: string; origin: string; url: string }
+/** AND-3b: where the page's files are, when the host serves them itself by request interception (Android; absent on the desktop). */
+export interface PageFiles { root: string; pageDir: string; csp: string }
+export interface AppPage { id: string; version: string; origin: string; url: string; files?: PageFiles }
 import type { OsUpdateInfo } from "./osUpdate";
 export type ArmoryOp= "install" | "update" | "rollback" | "remove";
 /** `os://armory-progress`: bytes, total and percent only while the stage is `download`. */

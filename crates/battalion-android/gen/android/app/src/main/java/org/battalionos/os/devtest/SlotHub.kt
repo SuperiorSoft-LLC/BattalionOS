@@ -51,6 +51,8 @@ object SlotHub {
   }
 
   private val slots = List(SLOT_CLASSES.size) { Slot() }
+  /** The page files of each app the shell opened (AND-3b), by app id. */
+  private val pages = HashMap<String, PageFiles>()
   private val main = Handler(Looper.getMainLooper())
 
   /** Sends one event to the shell page (set by MainActivity once the shell's channel is up). */
@@ -102,8 +104,26 @@ object SlotHub {
     }
   })
 
-  /** The shell opens (or shows) app `id` with its page `url` at `origin`. */
-  fun open(ctx: Context, id: String, url: String, origin: String, name: String) {
+  /** AND-3b: the files the slot serves for app `id` (from the OS's `os_app_page`): its version folder inside this app's private
+   *  storage, the entry page's folder in it, and the page's CSP. `null` when they are not acceptable (then nothing is opened). */
+  fun pageFiles(ctx: Context, id: String, origin: String, files: JSONObject?): PageFiles? {
+    if (files == null || origin != PageFiles.originOf(id)) return null
+    val root = try { java.io.File(files.optString("root")).canonicalFile } catch (_: Exception) { return null }
+    val home = ctx.dataDir.canonicalFile
+    if (!root.path.startsWith(home.path + java.io.File.separator) || !root.isDirectory) return null
+    val csp = files.optString("csp")
+    if (csp.isEmpty() || csp.any { it < ' ' }) return null
+    return PageFiles(root.path, files.optString("pageDir"), csp)
+  }
+
+  /** The shell opens (or shows) app `id` with its page `url` at `origin`, served by its slot from `files` (AND-3b). */
+  fun open(ctx: Context, id: String, url: String, origin: String, name: String, files: JSONObject? = null) {
+    val pf = pageFiles(ctx, id, origin, files)
+    if (pf == null) {
+      emit("error", id) { put("text", "$name could not be opened: its page is not where BattalionOS keeps apps.") }
+      return
+    }
+    pages[id] = pf
     val have = slots.indexOfFirst { it.app == id && it.ending == null }
     if (have >= 0) {
       slots[have].shown = SystemClock.elapsedRealtime()
@@ -144,6 +164,7 @@ object SlotHub {
     // A fresh start clears whatever task the slot had (an ended app's task must never come back with the new process).
     val it = Intent(ctx, SLOT_CLASSES[i])
       .putExtra("slot", i).putExtra("app", id).putExtra("url", url).putExtra("origin", origin).putExtra("name", name)
+      .apply { pages[id]?.let { f -> putExtra("root", f.root).putExtra("pageDir", f.pageDir).putExtra("csp", f.csp) } }
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or (if (fresh) Intent.FLAG_ACTIVITY_CLEAR_TASK else 0))
     ctx.startActivity(it)
   }

@@ -8,7 +8,7 @@ import { answer, eventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
-import { parseSlotEvent, send, slotChannel, SlotWindows, type SlotChannel } from "./slots";
+import { openOp, parseSlotEvent, send, slotChannel, SlotWindows, type SlotChannel } from "./slots";
 
 /** The query the shell adds to a page's url so the page knows it is shown inside the OS window (the frame is what the OS trusts, not this). */
 export const FRAME_FLAG = "bos-app";
@@ -147,7 +147,7 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
     const page = id ? pages[id] : undefined;
     if (id && page && shownSlot.current !== id) {
       shownSlot.current = id;
-      send(slots, { op: "open", id, url: `${page.url}${page.url.includes("?") ? "&" : "?"}${FRAME_FLAG}=${encodeURIComponent(id)}`, origin: page.origin, name: labelOf(m, id) });
+      send(slots, openOp(id, page, labelOf(m, id), FRAME_FLAG));
     }
   }, [slots, m, pages]);
 
@@ -222,7 +222,7 @@ export function AppFrames({ m, os, close, minimize, retry, notify, slots: given 
             {page && !slots && <Frame id={id} page={page} reload={reloads[id] ?? 0} active={active} onWindow={onWindow} />}
             {page && slots && area.kind !== "status" && !errors[id] && (
               <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground" data-slot-view={id}>
-                <Button size="sm" onClick={() => { shownSlot.current = null; send(slots, { op: "open", id, url: `${page.url}${page.url.includes("?") ? "&" : "?"}${FRAME_FLAG}=${encodeURIComponent(id)}`, origin: page.origin, name: labelOf(m, id) }); shownSlot.current = id; }}>Show {labelOf(m, id)}</Button>
+                <Button size="sm" onClick={() => { shownSlot.current = null; send(slots, openOp(id, page, labelOf(m, id), FRAME_FLAG)); shownSlot.current = id; }}>Show {labelOf(m, id)}</Button>
               </div>
             )}
             {(area.kind === "status" || errors[id]) && (
