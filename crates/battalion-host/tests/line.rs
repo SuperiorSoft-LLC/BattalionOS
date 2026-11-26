@@ -40,10 +40,12 @@ fn word() -> String {
     ["plug", "in"].concat()
 }
 
-/// Names of the third-party build tools that carry the word in their own names. They are not ours.
+/// Names of the third-party build tools (Tauri, Vite) that carry the word in their own names or config keys. They are not ours.
 fn third_party() -> Vec<String> {
     let w = word();
-    vec![format!("tauri-{w}"), format!("tauri_{w}"), format!("@vitejs/{w}-react"), format!(".{w}("), format!("\"{w}s\""), format!("{w}s: [")]
+    vec![format!("tauri-{w}"), format!("tauri_{w}"), format!("@vitejs/{w}-react"), format!(".{w}("), format!("\"{w}s\""), format!("{w}s: ["),
+        // Tauri's own single-instance plugin and its updater config key (`plugins.updater.*`, read as `get("plugins")`).
+        format!("single-instance {w}"), format!("{w}s.updater"), format!("get(\"{w}s\")")]
 }
 
 #[test]
