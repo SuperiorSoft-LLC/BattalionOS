@@ -249,6 +249,12 @@
           "markdownDescription": "Enables the os_frame_open_external command without any pre-configured scope."
         },
         {
+          "description": "Enables the os_frame_phone_call command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-os-frame-phone-call",
+          "markdownDescription": "Enables the os_frame_phone_call command without any pre-configured scope."
+        },
+        {
           "description": "Enables the os_frame_pick_file command without any pre-configured scope.",
           "type": "string",
           "const": "allow-os-frame-pick-file",
@@ -427,6 +433,12 @@
           "type": "string",
           "const": "deny-os-frame-open-external",
           "markdownDescription": "Denies the os_frame_open_external command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the os_frame_phone_call command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-os-frame-phone-call",
+          "markdownDescription": "Denies the os_frame_phone_call command without any pre-configured scope."
         },
         {
           "description": "Denies the os_frame_pick_file command without any pre-configured scope.",

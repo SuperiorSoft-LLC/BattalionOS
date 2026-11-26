@@ -196,8 +196,19 @@ object SlotHub {
   }
 
   /** AND-4: the shell hands app `id`'s slot a native call (already checked by the host). No slot = a plain refusal. */
-  fun native(id: String, req: String, call: String, args: JSONObject) {
+  fun native(id: String, req: String, call: String, args: JSONObject, ctx: Context? = null) {
     val s = slots.firstOrNull { it.app == id && it.ending == null }
+    // The code scanner answers in the process that asked, through its own activity, which lives in this (the OS's) process: so
+    // the hub runs it here, for the app whose slot is open, and the page still gets only the text.
+    if (call == "scan_code" && s?.messenger != null && ctx != null) {
+      val i = slots.indexOf(s)
+      NativeCalls.scan(ctx) { ok, v ->
+        // The scanner ran in the OS's task: the app's slot comes back to the front (same process, same page).
+        try { ctx.startActivity(Intent(ctx, SLOT_CLASSES[i]).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}
+        emit("native", id) { put("req", req); put("ok", ok); if (ok) put("result", v ?: JSONObject.NULL) else put("error", v) }
+      }
+      return
+    }
     val m = s?.messenger
     if (m == null) {
       emit("native", id) { put("req", req); put("ok", false); put("error", "the app is not open") }

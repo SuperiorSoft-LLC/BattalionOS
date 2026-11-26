@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-frame-phone-call"
+description = "Enables the os_frame_phone_call command without any pre-configured scope."
+commands.allow = ["os_frame_phone_call"]
+
+[[permission]]
+identifier = "deny-os-frame-phone-call"
+description = "Denies the os_frame_phone_call command without any pre-configured scope."
+commands.deny = ["os_frame_phone_call"]

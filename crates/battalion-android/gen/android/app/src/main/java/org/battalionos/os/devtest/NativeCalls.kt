@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.google.mlkit.common.sdkinternal.MlKitContext
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -69,7 +70,7 @@ class NativeCalls(private val act: ComponentActivity, private val answer: (JSONO
         "pick_folder" -> openTree.launch(null)
         "open_external" -> openLink(args.optString("url"))
         "notify" -> notify(args)
-        "scan_code" -> scan()
+        // scan_code is run by the hub in the OS process (its result comes back there).
         else -> fail("'${j.optString("call")}' is not available on this device")
       }
     } catch (e: Exception) {
@@ -128,11 +129,16 @@ class NativeCalls(private val act: ComponentActivity, private val answer: (JSONO
     }
   }
 
-  private fun scan() {
-    val opts = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-    GmsBarcodeScanning.getClient(act, opts).startScan()
-      .addOnSuccessListener { b -> done(b.rawValue) }
-      .addOnCanceledListener { done(null) }
-      .addOnFailureListener { e -> fail("The code scanner is not available on this phone (${e.message ?: "Google Play services"}).") }
+  companion object {
+    /** Google's code scanner, QR only, run in the OS's own process (see SlotHub.native); `done(ok, text-or-error)`. */
+    fun scan(ctx: android.content.Context, done: (Boolean, String?) -> Unit) {
+      MlKitContext.initializeIfNeeded(ctx.applicationContext)
+      val opts = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+      GmsBarcodeScanning.getClient(ctx, opts).startScan()
+        .addOnSuccessListener { b -> done(true, b.rawValue) }
+        .addOnCanceledListener { done(true, null) }
+        .addOnFailureListener { e -> done(false, "The code scanner is not available on this phone (${e.message ?: "Google Play services"}).") }
+    }
   }
+
 }

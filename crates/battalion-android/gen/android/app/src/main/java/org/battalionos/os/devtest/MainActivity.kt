@@ -44,7 +44,7 @@ class MainActivity : TauriActivity() {
         "close" -> SlotHub.close(id)
         "reply" -> SlotHub.reply(id, m.optJSONObject("message")?.toString() ?: return@addWebMessageListener)
         // AND-4: a native call the host already checked against the app's manifest; the app's own slot runs it.
-        "native" -> SlotHub.native(id, m.optString("req"), m.optString("call"), m.optJSONObject("args") ?: JSONObject())
+        "native" -> SlotHub.native(id, m.optString("req"), m.optString("call"), m.optJSONObject("args") ?: JSONObject(), applicationContext)
       }
     }
   }
