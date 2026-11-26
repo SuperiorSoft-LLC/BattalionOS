@@ -189,4 +189,4 @@ and `BATTALION_OS_UPDATE_PUBKEY` replace the feed address and the key.
 ## Developer builds (BOS-31)
 
 A build with the cargo feature `dev` (never a release build) adds: `os_window_info` answers `dev: true`; the event `os://dev-app` (`{id, status: started|restarted|failed, ms?, error?}`); and
-the command line `--dev-app <folder> [--dev-url <loopback url>]`. No command is added. See [develop-an-app.md](develop-an-app.md).
+the command line `--dev-app <folder> [--dev-url <loopback url>]`. No command is added. See [apps/create.md](apps/create.md#develop-with-live-reload).

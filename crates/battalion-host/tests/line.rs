@@ -2,7 +2,7 @@
 //! Guard: the line between BattalionOS apps and the other kind of extension the products built on it
 //! may have. The OS manages apps only. No OS crate may depend on a host, SDK or WIT crate of that
 //! other kind, and no OS source may carry that kind's word (a type, field, command, route, event or
-//! UI text). `docs/apps.md` is the only place the word may appear. Words are built from pieces so
+//! UI text). `docs/apps/overview.md` is the only place the word may appear. Words are built from pieces so
 //! this file does not trip itself.
 
 use std::path::{Path, PathBuf};
@@ -82,7 +82,7 @@ fn the_os_source_has_no_plugin_type_field_command_route_event_or_text() {
     assert!(all.len() > 10, "guard found too few files: {}", all.len());
     let mut hits = Vec::new();
     for f in all {
-        // docs/ is not scanned; docs/apps.md is where the word may appear.
+        // docs/ is not scanned; docs/apps/overview.md is where the word may appear.
         let text = std::fs::read_to_string(&f).unwrap_or_default().to_lowercase();
         for (i, line) in text.lines().enumerate() {
             let mut l = line.to_string();
