@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# BOS-SCAN-CRASH-1: ML Kit (os_scan_code) registers its parts through Firebase ComponentDiscovery, which builds each
+# registrar named in the manifest by reflection (no-argument constructor). R8 full mode (AGP 9) dropped those
+# constructors and the ComponentRegistrar interface, so ML Kit had no components and GmsBarcodeScanning.getClient
+# crashed the OS with a NullPointerException on a release build only. Keep every registrar whole.
+-keep class * implements com.google.firebase.components.ComponentRegistrar { public <init>(); }
+-keep interface com.google.firebase.components.ComponentRegistrar
