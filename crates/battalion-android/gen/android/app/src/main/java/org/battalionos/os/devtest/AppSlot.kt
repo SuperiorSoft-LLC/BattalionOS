@@ -106,8 +106,12 @@ abstract class AppSlot(private val index: Int) : AppCompatActivity() {
     wv.settings.domStorageEnabled = true
     wv.settings.allowFileAccess = false
     wv.settings.allowContentAccess = false
+    // AND-UI-2: a WebView ignores its own padding (the page still draws under the bars), so the slot pads its content frame instead,
+    // with the same insets as MainActivity: status, gesture/navigation bar, cutout and the keyboard.
     setContentView(wv)
-    ViewCompat.setOnApplyWindowInsetsListener(wv) { v, insets ->
+    val root = findViewById<android.view.View>(android.R.id.content)
+    root.setBackgroundColor(Color.parseColor("#0e0f12"))
+    ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
       val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
