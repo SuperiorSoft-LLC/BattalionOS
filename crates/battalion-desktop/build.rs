@@ -37,6 +37,10 @@ const COMMANDS: &[&str] = &[
     "os_update_check",
     "os_update_install",
     "os_update_abort",
+    "os_local_repos",
+    "os_local_repo_add",
+    "os_local_repo_rename",
+    "os_local_repo_remove",
 ];
 
 fn main() {

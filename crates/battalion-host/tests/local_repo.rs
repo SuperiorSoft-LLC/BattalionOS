@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-//! LOCAL-REPO-1: local repos. A repo is written here in the layout `infantry app publish` writes (repo.json,
+//! LOCAL-REPO-1: local repos. A repo is written here in the layout an app publish command writes (repo.json,
 //! catalog.json, apps/<id>/<channel>.json, the .bosapp and its minisign signature, keys/local-repo.pub), all in a
 //! temp dir. Publish -> list -> install -> update; tampered or foreign-key packages are refused; remote sources
 //! are listed as before.
@@ -85,7 +85,7 @@ impl World {
         w.finish().unwrap().into_inner()
     }
 
-    /// What `infantry app publish` writes: package + sig + feed + catalog entry, in `<home>/local-repos/<slug>/`.
+    /// What an app publish command writes: package + sig + feed + catalog entry, in `<home>/local-repos/<slug>/`.
     fn publish(&self, repo: &str, id: &str, version: &str, signer: &SigningKey, catalog_key: &SigningKey) -> PathBuf {
         let dir = self.paths.root().join("local-repos").join(repo.to_lowercase().replace(' ', "-"));
         let app = dir.join("apps").join(id);
@@ -204,10 +204,10 @@ fn repos_can_be_added_renamed_and_removed() {
     assert!(a.remove_local_repo("nope").is_err());
 }
 
-/// Cross-check with the real publisher: `LOCAL_REPO_E2E_HOME` = an --os-home that `infantry app publish` wrote
+/// Cross-check with the real publisher: `LOCAL_REPO_E2E_HOME` = an --os-home that an app publish command wrote
 /// (a temp dir). Skipped when unset.
 #[test]
-fn installs_what_infantry_app_publish_wrote() {
+fn installs_what_a_real_publisher_wrote() {
     let Ok(home) = std::env::var("LOCAL_REPO_E2E_HOME") else { return };
     let paths = Paths::new(PathBuf::from(home));
     paths.ensure().unwrap();

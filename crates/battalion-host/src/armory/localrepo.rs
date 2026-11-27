@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! LOCAL-REPO-1: private local app repos. A local repo is a folder on this machine holding the same catalog v2 and
-//! feed v1 files as a remote source; agents publish into it (`infantry app publish`). Nothing is fetched from the
+//! feed v1 files as a remote source; agents publish into it (an app publish command). Nothing is fetched from the
 //! network: every url in a local repo is a `file:` url inside the repo's own folder.
 //!
 //! ```text

@@ -374,7 +374,7 @@ export interface LocalRepoActions {
   changed(): void;
 }
 
-/** LOCAL-REPO-1: the private local repos agents publish to (`infantry app publish <dir> --repo <name>`): add, rename, remove. */
+/** LOCAL-REPO-1: the private local repos agents publish to (an app publish command with `--repo <name>`): add, rename, remove. */
 export function LocalRepos({ r }: { r: LocalRepoActions }) {
   const [repos, setRepos] = useState<LocalRepo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -395,7 +395,7 @@ export function LocalRepos({ r }: { r: LocalRepoActions }) {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
-        Apps an agent builds on this machine (<span className="font-mono">infantry app publish &lt;dir&gt; --repo &lt;name&gt;</span>). They are signed with this device&apos;s own key and install without the internet.
+        Apps an agent builds and publishes on this machine (its app publish command, with <span className="font-mono">--repo &lt;name&gt;</span>). They are signed with this device&apos;s own key and install without the internet.
       </p>
       {error && <RefusalBanner text={error} onDismiss={() => setError(null)} />}
       <form
