@@ -6,6 +6,8 @@
 // the app is the frame whose window is `event.source`, and the message must come from that frame's own origin. A message from a
 // window the shell did not make gets no answer at all. Only today's app commands are served; the rest are refused.
 
+import { osThemeEvent, type OsThemeEvent, type WinTokens } from "../kit/lib/win-tokens";
+
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
 export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code"] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
@@ -106,4 +108,9 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
 export function eventFor(frames: readonly FrameEntry[], appId: string, event: "os_login_url" | "os_login_closed", data?: { url: string }): { to: unknown; origin: string; message: Record<string, unknown> } | null {
   const frame = frames.find((f) => f.id === appId && f.window != null);
   return frame ? { to: frame.window, origin: frame.origin, message: { bos: 1, event, ...(data ?? {}) } } : null;
+}
+
+/** WM-4: the `os_theme` event for every app frame that has a window (sent at start, on a frame load and on a light/dark change). */
+export function themeEvents(frames: readonly FrameEntry[], tokens: WinTokens): { id: string; to: unknown; origin: string; message: OsThemeEvent }[] {
+  return frames.filter((f) => f.window != null).map((f) => ({ id: f.id, to: f.window, origin: f.origin, message: osThemeEvent(tokens) }));
 }

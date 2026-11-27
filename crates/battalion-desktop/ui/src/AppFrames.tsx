@@ -4,7 +4,8 @@
 // running the area says so, with Retry, and the frame loads again once it runs; an update loads the new version.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../kit";
-import { answer, eventFor, type FrameBackend, type FrameEntry } from "./frames";
+import { winTokens } from "../kit/lib/win-tokens";
+import { answer, eventFor, themeEvents, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
@@ -45,7 +46,13 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
   const [reloads, setReloads] = useState<Record<string, number>>({});
   const windows = useRef<Record<string, Window | null>>({});
   const was = useRef<Record<string, boolean>>({});
-  const onWindow = useCallback((id: string, w: Window | null) => void (windows.current[id] = w), []);
+  // WM-4: the OS theme tokens follow the .dark class on <html>; every frame gets them when it loads and on a change.
+  const osDark = () => typeof document === "undefined" || document.documentElement.classList.contains("dark");
+  const onWindow = useCallback((id: string, w: Window | null) => {
+    windows.current[id] = w;
+    const origin = pagesRef.current[id]?.origin;
+    if (w && origin) for (const r of themeEvents([{ id, origin, window: w }], winTokens(osDark()))) (r.to as Window).postMessage(r.message, r.origin);
+  }, []);
 
   // The page of every view: fetched when the view opens, and again when the app's version changes (an update).
   const versions = m.views.map((id) => `${id}@${m.installed.find((a) => a.id === id)?.version ?? ""}`).join(",");
@@ -236,6 +243,22 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     };
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
+  }, [slots]);
+
+  useEffect(() => {
+    if (typeof MutationObserver === "undefined") return;
+    let dark = osDark();
+    const ob = new MutationObserver(() => {
+      if (osDark() === dark) return;
+      dark = osDark();
+      const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: slots ? slotWin.current.token(id) : (windows.current[id] ?? null) }));
+      for (const r of themeEvents(frames, winTokens(dark))) {
+        if (slots) send(slots, { op: "reply", id: r.id, message: r.message });
+        else (r.to as Window).postMessage(r.message, r.origin);
+      }
+    });
+    ob.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => ob.disconnect();
   }, [slots]);
 
   // The sign-in window of an app (opened for its page by os_login_window_open) reports to THAT app's frame only.

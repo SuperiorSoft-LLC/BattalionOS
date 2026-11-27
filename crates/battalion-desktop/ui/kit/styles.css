@@ -284,3 +284,33 @@
     scrollbar-width: none;
   }
 }
+
+/* WM-4 (OS-WINDOW-1 §3): the window chrome tokens, defaults from the OS bar (kit/lib/win-tokens.ts holds the same set). */
+:root {
+  --bos-win-bg: #f4f5f7;
+  --bos-win-fg: #1a1c20;
+  --bos-win-border: #d3d7de;
+  --bos-win-radius: 8px;
+  --bos-win-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  --bos-win-title-h: 32px;
+  --bos-win-title-bg: #f4f5f7;
+  --bos-win-title-bg-inactive: #e9ebef;
+  --bos-win-btn-hover: #e9ebef;
+  --bos-win-btn-danger: #dc2626;
+  --bos-win-focus-ring: #b45309;
+  --bos-win-snap-preview: rgba(180, 83, 9, 0.18);
+}
+.dark {
+  --bos-win-bg: #0e0f12;
+  --bos-win-fg: #e6e7ea;
+  --bos-win-border: #262a31;
+  --bos-win-radius: 8px;
+  --bos-win-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --bos-win-title-h: 32px;
+  --bos-win-title-bg: #0e0f12;
+  --bos-win-title-bg-inactive: #16181c;
+  --bos-win-btn-hover: #262a31;
+  --bos-win-btn-danger: #ef4444;
+  --bos-win-focus-ring: #f59e0b;
+  --bos-win-snap-preview: rgba(245, 158, 11, 0.18);
+}
