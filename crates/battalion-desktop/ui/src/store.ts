@@ -239,6 +239,36 @@ export const iconOf = (m: Model, id: string): string | null => m.installed.find(
 export const availableOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.available ?? null;
 /** The version a rollback goes back to, or null. */
 export const previousOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.previous ?? null;
+/** ARMORY-CHANNEL-SWITCH: the channels the picker offers, from the catalog entry: stable, prerelease, nightly first (in that
+ *  order, when listed), then any other. Empty when the catalog names none (the picker is hidden). */
+export const channelsOf = (m: Model, id: string): string[] => {
+  const listed = m.installed.find((a) => a.id === id)?.channels ?? [];
+  const known = ["stable", "prerelease", "nightly"];
+  return [...known.filter((c) => listed.includes(c)), ...listed.filter((c) => !known.includes(c)).sort()];
+};
+/** Compare dotted versions numerically ("0.8.10" > "0.8.8"); a pre-release suffix sorts before its release. */
+export const compareVersions = (a: string, b: string): number => {
+  const [ca, pa = ""] = a.split("-", 2);
+  const [cb, pb = ""] = b.split("-", 2);
+  const na = ca!.split(".").map(Number), nb = cb!.split(".").map(Number);
+  for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+    const d = (na[i] ?? 0) - (nb[i] ?? 0);
+    if (d) return Math.sign(d);
+  }
+  if (pa === pb) return 0;
+  return pa === "" ? 1 : pb === "" ? -1 : pa < pb ? -1 : 1;
+};
+/** ARMORY-CHANNEL-SWITCH: what the picker says about the app's current channel. `none`: the channel has no build yet; `stays`:
+ *  its build is older than the installed one, so the app stays where it is (never a silent downgrade, no update offered). */
+export type ChannelNote = { kind: "none" } | { kind: "stays"; installed: string; channel: string } | null;
+export const channelNoteOf = (m: Model, id: string): ChannelNote => {
+  const a = m.installed.find((x) => x.id === id);
+  if (!a || !(a.channels ?? []).length) return null;
+  if (!a.channelVersion) return { kind: "none" };
+  return compareVersions(a.channelVersion, a.version) < 0 ? { kind: "stays", installed: a.version, channel: a.channel } : null;
+};
+export const channelText = (n: ChannelNote): string | null =>
+  n?.kind === "none" ? "No builds on this channel yet" : n?.kind === "stays" ? `Stays on ${n.installed} until ${n.channel} passes it` : null;
 /** UPDATE-LIVE-1: the version "Later" was chosen for. */
 export const pendingOf = (m: Model, id: string): string | null => m.installed.find((a) => a.id === id)?.pendingUpdate ?? null;
 

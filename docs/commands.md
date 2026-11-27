@@ -48,6 +48,7 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 | `os_login_done` | | login | nothing; closes the login window, emits `os://login-changed` |
 
 | `os_update_app` | `id`, `now?` | main | `{id, from, to}`, or `{id, notReady: true, version, reason, etaMs}` when the running app did not get ready within `armory.prepareWaitMs` (UPDATE-LIVE-1: the new version is staged first, the app is asked to get ready and the update applies by itself once it is; `now: true` = "Update now", the app checkpoints at once). Refused: up to date, bad signature, other key. Stops and starts only this app; emits `os://app-updated` when it is done |
+| `os_set_app_channel` | `id`, `channel` | main | nothing. Moves an installed app to another channel its catalog entry lists (refused: not installed, or a channel the entry does not list). Installs nothing: only the app's channel is saved, then the channel's feed is read (a channel with no feed is no offer, not an error). An update from there still refuses a version not newer than the installed one |
 | `os_update_later` | `id` | main | `{id, pending}`: "Later". The app is told to carry on; the version applies by itself at the app's next `os_start_app` or the next moment it is idle (checked every `armory.pendingCheckMs`) |
 | `os_rollback_app` | `id` | main | `{id, from, to}`; refused when there is no previous version or the state schema changed |
 | `os_remove_app` | `id` | main | `{ok}`; closes the app's window, stops it, deletes its versions; its state folder stays |
@@ -64,7 +65,7 @@ window that calls (its label from the runtime); neither takes an id.
 | `os_badge` | `count?` (number), `text?` (string) | `app-<id>` | nothing. Sets the caller's own badge: a count (above 99 shows `99+`) or a text of up to 8 characters, not both; `count` 0, an empty text, or neither clears it. The desktop icon shows it (`badge` in `os_list_apps`), and so do the app window's taskbar button (an overlay dot on Windows, the badge label where the OS has one) and its title `(<badge>) <id>`. It is cleared when the app stops (`os_stop_app`), is updated, rolled back or removed, or is no longer running when `os_list_apps` is read |
 | `os_show_desktop` | | `app-<id>` | nothing. Brings `main` to the front (shown, un-minimized, focused) and minimizes the calling app window; the window stays open and the app keeps running |
 
-`os_list_apps` rows also carry `badge`: the running app's badge text, or null.
+`os_list_apps` rows also carry `badge`: the running app's badge text, or null; `channels`: the channel names the app's catalog entry lists (cached catalog, empty when unknown); and `channelVersion`: the version the app's channel's cached feed names, newer or not, or null when that channel has no build yet.
 
 Added by BOS-17 (an app opens inside the window). Both are for `main` only (the shell). An app's page is drawn by the shell in a frame, so it
 has no window label of its own: the shell takes the app id from WHICH frame sent a message, and acts for that app with these.

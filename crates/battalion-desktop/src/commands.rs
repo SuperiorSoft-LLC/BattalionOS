@@ -49,7 +49,7 @@ pub async fn os_list_apps(window: WebviewWindow, app: AppHandle, host: State<'_,
     };
     Ok(json!(list
         .iter()
-        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "pendingUpdate": a.pending_update, "badge": badge_of(a)}))
+        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "pendingUpdate": a.pending_update, "channels": a.channels, "channelVersion": a.channel_version, "badge": badge_of(a)}))
         .collect::<Vec<_>>()))
 }
 
@@ -433,6 +433,27 @@ pub async fn os_update_app(window: WebviewWindow, app: AppHandle, host: State<'_
         Err(ArmoryError::NotReady { version, reason, eta_ms }) => Ok(json!({"id": id2, "notReady": true, "version": version, "reason": reason, "etaMs": eta_ms})),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// ARMORY-CHANNEL-SWITCH: move app `id` to another channel its catalog entry lists. Nothing is installed: only the channel is
+/// saved, the channel's feed is read (so the list shows its version), and every window hears the change. An update from there
+/// still refuses a version that is not newer than the installed one (never a silent downgrade).
+#[tauri::command]
+pub async fn os_set_app_channel(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, channel: String) -> R<()> {
+    authorize_shell(window.label(), "os_set_app_channel").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    let id2 = id.clone();
+    blocking(move || -> battalion_host::armory::Result<()> {
+        a.set_channel(&id, &channel)?;
+        // A channel with no feed yet (404, offline, nothing cached) is no offer, not an error.
+        let entry = a.find(&id)?;
+        let _ = a.feed(&entry.app, &channel);
+        Ok(())
+    })
+    .await?
+    .map_err(|e| e.to_string())?;
+    announce(&app, &host, &id2).await;
+    Ok(())
 }
 
 /// UPDATE-LIVE-1 "Later": app `id` updates by itself at its next start or the next moment it is idle. Answers the version.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-os-set-app-channel"
+description = "Enables the os_set_app_channel command without any pre-configured scope."
+commands.allow = ["os_set_app_channel"]
+
+[[permission]]
+identifier = "deny-os-set-app-channel"
+description = "Denies the os_set_app_channel command without any pre-configured scope."
+commands.deny = ["os_set_app_channel"]

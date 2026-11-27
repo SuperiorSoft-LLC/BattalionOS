@@ -84,6 +84,19 @@ impl Armory {
         Ok(out)
     }
 
+    /// ARMORY-CHANNEL-SWITCH: the channel names each app's catalog entry lists, from the cached catalogs only (no
+    /// network; first source wins, as in [`Armory::catalog`]). An app no cached catalog names is absent.
+    pub fn cached_channels(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+        let mut out = std::collections::BTreeMap::new();
+        for src in &self.settings.sources {
+            let Some((apps, _)) = std::fs::read_to_string(self.catalog_cache(src)).ok().and_then(|t| Catalog::parse_lenient(&t).ok()) else { continue };
+            for app in apps {
+                out.entry(app.id.clone()).or_insert_with(|| app.channels.keys().cloned().collect());
+            }
+        }
+        out
+    }
+
     pub fn find(&self, id: &str) -> Result<CatalogEntry> {
         self.paths.app_dir(id)?;
         let listing = self.catalog()?;

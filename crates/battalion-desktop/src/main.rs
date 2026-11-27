@@ -70,6 +70,7 @@ fn main() {
             os_login_done,
             os_update_app,
             os_update_later,
+            os_set_app_channel,
             os_rollback_app,
             os_remove_app,
             os_exit,
