@@ -130,6 +130,25 @@ impl std::fmt::Display for WinError {
 }
 impl std::error::Error for WinError {}
 
+/// WM-3: `bos.taskbar.groupWindows` (os.json `{"taskbar": {"groupWindows": false}}`, default true): an app's windows group under its
+/// taskbar button; false gives one button per window.
+pub fn taskbar_group_windows(paths: &Paths) -> bool {
+    #[derive(Deserialize, Default)]
+    #[serde(default, rename_all = "camelCase")]
+    struct Taskbar {
+        group_windows: Option<bool>,
+    }
+    #[derive(Deserialize, Default)]
+    struct Os {
+        #[serde(default)]
+        taskbar: Taskbar,
+    }
+    match store::read_json::<Os>(&paths.os_json()) {
+        Ok(Some(o)) => o.taskbar.group_windows.unwrap_or(true),
+        _ => true,
+    }
+}
+
 /// The window settings (os.json `windows` section).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -558,5 +577,15 @@ mod tests {
         assert_eq!(WindowSettings::load(&p).save_debounce_ms, 500);
         std::fs::write(p.os_json(), r#"{"windows":{"saveDebounceMs":42}}"#).unwrap();
         assert_eq!(WindowSettings::load(&p).save_debounce_ms, 42);
+    }
+
+    #[test]
+    fn taskbar_groups_windows_unless_os_json_says_false() {
+        let (_d, p) = home();
+        assert!(taskbar_group_windows(&p));
+        std::fs::write(p.os_json(), r#"{"taskbar":{"groupWindows":false}}"#).unwrap();
+        assert!(!taskbar_group_windows(&p));
+        std::fs::write(p.os_json(), r#"{"windows":{"saveDebounceMs":42}}"#).unwrap();
+        assert!(taskbar_group_windows(&p));
     }
 }

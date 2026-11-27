@@ -11,11 +11,11 @@ import { Desktop } from "./Desktop";
 import { PhoneSettings } from "./PhoneSettings";
 import { send, slotChannel } from "./slots";
 import { FirstRun } from "./FirstRun";
-import { errText, hostPlatform, type ArmoryOp, type Os } from "./os";
+import { errText, hostPlatform, taskbarGroupWindows, type ArmoryOp, type Os } from "./os";
 import { backStep, layoutFor, useBackGesture, type Layout } from "./phone";
 import { armoryHasUpdate, osReadyText, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
-import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun } from "./store";
-import { Taskbar } from "./Taskbar";
+import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun, type Win } from "./store";
+import { Taskbar, type WinOp } from "./Taskbar";
 import { appAt, takeEarlyTap } from "./earlyTaps";
 import { ResizeEdges, TitleBar } from "./TitleBar";
 
@@ -190,6 +190,26 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const openArmory = useCallback(() => { setArmory(true); void loadCatalog(); void os.osUpdateCheck().then(setOsInfo, () => {}); }, [loadCatalog, os]);
   // AND-6 (f4f965ad): once the desktop is drawn, a tap made earlier (splash, blank page, loading state) opens the icon under it.
   const ready = m.loaded && platformKnown;
+  // WM-3: the taskbar shows each app's windows (read from the WM); a click there restores, focuses or closes one through the WM.
+  useEffect(() => void taskbarGroupWindows().then((on) => dispatch({ type: "group-windows", on })), []);
+  const loadWins = useCallback((id: string) => {
+    if (phone) return; // no window calls on a phone yet (WM-2)
+    void os.frameWin(id, "os_win_list", {}).then((r) => dispatch({ type: "wins-loaded", id, wins: Array.isArray(r) ? (r as Win[]) : [] }), () => {});
+  }, [os, phone]);
+  useEffect(() => os.onWin((p) => {
+    const e = p as { id?: unknown; wid?: unknown; change?: unknown };
+    if (typeof e.id !== "string") return;
+    if (e.change === "closed" && typeof e.wid === "string") dispatch({ type: "win-closed", id: e.id, wid: e.wid });
+    loadWins(e.id);
+  }), [os, loadWins]);
+  const viewIds = m.views.join(",");
+  useEffect(() => { for (const id of m.views) loadWins(id); }, [viewIds, loadWins]); // eslint-disable-line react-hooks/exhaustive-deps
+  const winOp = useCallback((id: string, wid: string, op: WinOp) => {
+    void os.frameWin(id, op === "focus" ? "os_win_focus" : "os_win_close", { wid }).then(() => {
+      if (op === "close") dispatch({ type: "win-closed", id, wid });
+      loadWins(id);
+    }, (e) => setNotice(errText(e)));
+  }, [os, loadWins]);
   const openRef = useRef<(id: string) => void>(() => {});
   openRef.current = (id) => (id === ARMORY_ICON ? openArmory() : void open(id));
   useEffect(() => {
@@ -234,12 +254,12 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
       <Desktop ids={icons} view={view} label={label} icon={icon} tapOpens={phone} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
-        <AppFrames m={m} os={os} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
+        <AppFrames m={m} os={os} winChanged={loadWins} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
         {!ready && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), updateNow, later, rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone && slotChannel() ? () => setSettings(true) : undefined} />
+      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone && slotChannel() ? () => setSettings(true) : undefined} onWin={winOp} />
       {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} />}
     </div>
   );

@@ -27,7 +27,14 @@ export interface Model {
   active: string | null;
   /** AND-6: apps whose phone slot ended by itself (crash, memory, reuse). Their taskbar button stays, marked ended; a tap opens them fresh. */
   ended: string[];
+  /** WM-3: each app's open windows (from the WM, `os_win_list`), by app id. */
+  wins?: Record<string, Win[]>;
+  /** WM-3: `bos.taskbar.groupWindows` (default true); false = one taskbar button per window. */
+  groupWindows?: boolean;
 }
+
+/** WM-3: one window row as the WM lists it (the fields the taskbar reads). */
+export interface Win { wid: string; app: string; title: string; icon?: string | null; badge?: { count?: number; text?: string } | null; attention?: boolean; state: unknown; z?: number }
 
 export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, ops: {}, progress: {}, firstRunDismissed: false, views: [], active: null, ended: [] };
 
@@ -50,7 +57,10 @@ export type Action =
   | { type: "view-open"; id: string }
   | { type: "view-minimize"; id: string }
   | { type: "view-close"; id: string }
-  | { type: "view-ended"; id: string };
+  | { type: "view-ended"; id: string }
+  | { type: "wins-loaded"; id: string; wins: Win[] }
+  | { type: "win-closed"; id: string; wid: string }
+  | { type: "group-windows"; on: boolean };
 
 const without = <T,>(r: Record<string, T>, id: string): Record<string, T> => {
   const { [id]: _gone, ...rest } = r;
@@ -100,6 +110,14 @@ export function reduce(m: Model, a: Action): Model {
       return { ...m, views: m.views.filter((id) => id !== a.id), active: m.active === a.id ? null : m.active, ended: m.ended.filter((id) => id !== a.id) };
     case "view-ended":
       return { ...m, views: m.views.filter((id) => id !== a.id), active: m.active === a.id ? null : m.active, ended: m.ended.includes(a.id) ? m.ended : [...m.ended, a.id] };
+    case "wins-loaded":
+      return { ...m, wins: a.wins.length ? { ...(m.wins ?? {}), [a.id]: a.wins } : without(m.wins ?? {}, a.id) };
+    case "win-closed": {
+      const left = (m.wins?.[a.id] ?? []).filter((w) => w.wid !== a.wid);
+      return { ...m, wins: left.length ? { ...(m.wins ?? {}), [a.id]: left } : without(m.wins ?? {}, a.id) };
+    }
+    case "group-windows":
+      return { ...m, groupWindows: a.on };
   }
 }
 
@@ -172,13 +190,34 @@ export const taskItems = (m: Model): TaskItem[] =>
 
 /** A taskbar button: a live or failed app (`taskItems`), and any app with a view, even one that stopped. `active` = it fills the app area. */
 /** `ended` (AND-6): the app's phone slot ended; the button stays, not running, and a tap opens the app fresh (as Windows shows a closed app). */
-export interface BarItem extends TaskItem { open: boolean; active: boolean; ended: boolean }
+/** WM-3: `key` is unique per button; `windows` are the app's open windows (grouped), or the one window of an ungrouped button (`wid`).
+ *  `mark` is the app badge (`os_badge`), or, when there is none, the sum of its windows' counts. `attention`: a window asks for it. */
+export interface BarWindow { wid: string; title: string; icon: string | null; mark: string | null; attention: boolean; minimized: boolean }
+export interface BarItem extends TaskItem { key: string; open: boolean; active: boolean; ended: boolean; windows: BarWindow[]; wid?: string; attention: boolean }
+
+const winMark = (w: Win): string | null => (w.badge?.text ? w.badge.text : w.badge?.count ? String(w.badge.count) : null);
+const barWindow = (w: Win): BarWindow => ({ wid: w.wid, title: w.title, icon: w.icon ?? null, mark: winMark(w), attention: w.attention === true, minimized: w.state === "minimized" });
+/** The sum of the windows' counts, or null when none has one. */
+export const winCountSum = (ws: readonly Win[]): number | null => {
+  const counts = ws.map((w) => w.badge?.count ?? 0);
+  const sum = counts.reduce((a, b) => a + b, 0);
+  return sum > 0 ? sum : null;
+};
+
 export const barItems = (m: Model): BarItem[] => {
   const live = taskItems(m);
   const extra = [...m.views, ...(m.ended ?? [])].filter((id, i, all) => all.indexOf(id) === i && !live.some((t) => t.id === id)).map((id) => ({ id, running: false, badge: false, mark: m.installed.find((a) => a.id === id)?.badge ?? null }));
-  return [...live, ...extra].map((t) => {
+  const group = m.groupWindows !== false;
+  return [...live, ...extra].flatMap((t): BarItem[] => {
     const ended = (m.ended ?? []).includes(t.id) && !m.views.includes(t.id);
-    return { ...t, running: ended ? false : t.running, open: m.views.includes(t.id), active: m.active === t.id, ended };
+    const wins = ended ? [] : [...(m.wins?.[t.id] ?? [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+    const sum = winCountSum(wins);
+    const base = { ...t, running: ended ? false : t.running, open: m.views.includes(t.id), active: m.active === t.id, ended };
+    if (group || wins.length === 0) {
+      return [{ ...base, key: t.id, mark: t.mark ?? (sum === null ? null : String(sum)), windows: wins.map(barWindow), attention: wins.some((w) => w.attention === true) }];
+    }
+    // Ungrouped ("never combine"): one button per window, each with its own badge and attention.
+    return wins.map((w) => { const bw = barWindow(w); return { ...base, key: `${t.id}/${w.wid}`, wid: w.wid, mark: bw.mark, windows: [bw], attention: bw.attention }; });
   });
 };
 

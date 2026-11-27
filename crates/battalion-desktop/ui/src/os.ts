@@ -125,6 +125,8 @@ const win = () => (tauri() as unknown as { window: { getCurrentWindow(): TauriWi
 export interface DevAppEvent { id: string; status: "started" | "restarted" | "failed"; ms?: number; error?: string }
 export const devMark = (): Promise<boolean> => (call<{ dev?: boolean }>("os_window_info").then((r) => r.dev === true, () => false));
 /** AND-UI-1: the platform the host runs on (`android`, `windows`, ...), or null when the host does not say (or is absent). */
+/** WM-3: the setting `bos.taskbar.groupWindows` (os.json `{"taskbar": {"groupWindows": false}}`); true unless the host says false. */
+export const taskbarGroupWindows = (): Promise<boolean> => call<{ groupWindows?: boolean }>("os_window_info").then((r) => r.groupWindows !== false, () => true);
 export const hostPlatform = (): Promise<string | null> => {
   try {
     return call<{ platform?: string }>("os_window_info").then((r) => r.platform ?? null, () => null);

@@ -20,7 +20,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
 }
 
 #[tauri::command]
-pub async fn os_window_info(window: WebviewWindow) -> R<Value> {
+pub async fn os_window_info(window: WebviewWindow, host: State<'_, Host>) -> R<Value> {
     let label = window.label().to_string();
     let app = match caller_of(&label).map_err(|e| e.to_string())? {
         Caller::App(id) => Value::String(id),
@@ -28,7 +28,9 @@ pub async fn os_window_info(window: WebviewWindow) -> R<Value> {
     };
     // `dev` is true only in a developer build (BOS-31): the shell shows a "dev" mark. `platform` (AND-UI-1) picks the shell's layout:
     // a phone (android, ios) has no window buttons and opens with one tap.
-    Ok(json!({"label": label, "app": app, "dev": battalion_host::dev::ENABLED, "platform": std::env::consts::OS}))
+    // `groupWindows` (WM-3): the setting `bos.taskbar.groupWindows` the shell's taskbar follows.
+    let group_windows = crate::windows::taskbar_group_windows(&host.paths);
+    Ok(json!({"label": label, "app": app, "dev": battalion_host::dev::ENABLED, "platform": std::env::consts::OS, "groupWindows": group_windows}))
 }
 
 #[tauri::command]

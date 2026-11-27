@@ -35,7 +35,7 @@ function Frame({ id, page, reload, active, onWindow }: { id: string; page: AppPa
   );
 }
 
-export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, notify, slots: given }: { m: Model; os: Os; close: (id: string) => void; ended?: (id: string) => void; onSlotLimit?: (l: { inUse: number; max: number }) => void; minimize: (id: string) => void; retry: (id: string) => void; notify?: (text: string) => void; slots?: SlotChannel | null }) {
+export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, notify, slots: given, winChanged }: { winChanged?: (id: string) => void; m: Model; os: Os; close: (id: string) => void; ended?: (id: string) => void; onSlotLimit?: (l: { inUse: number; max: number }) => void; minimize: (id: string) => void; retry: (id: string) => void; notify?: (text: string) => void; slots?: SlotChannel | null }) {
   // AND-3: on Android every app's page runs in its own process slot (the host's channel); everywhere else in a frame here.
   const slots = useMemo(() => (given === undefined ? slotChannel() : given), [given]);
   const slotWin = useRef(new SlotWindows());
@@ -148,7 +148,8 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     notify: (id, title, text) => (phone ? phone(id, "os_notify", { title, text }).then(() => undefined) : notOnDesktop()),
     scanCode: (id) => (phone ? (phone(id, "os_scan_code", {}) as Promise<string | null>) : notOnDesktop()),
     // WM-2: the window calls are served by the desktop host's window manager (not on a phone yet).
-    win: (id, cmd, args) => (phone ? notOnDesktop() : os.frameWin(id, cmd, args)),
+    // WM-3: after a page's window call (open and set send no event) the shell reads that app's windows again for the taskbar.
+    win: (id, cmd, args) => (phone ? notOnDesktop() : os.frameWin(id, cmd, args).then((r) => { if (cmd !== "os_win_list") winChanged?.(id); return r; })),
     // On a phone the host words the refusal of a call a page may not make (process.spawn: never on a phone).
     refusal: slots ? (id, cmd) => os.framePhoneCall(id, cmd).then(() => undefined) : undefined,
   };
