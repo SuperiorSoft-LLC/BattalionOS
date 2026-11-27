@@ -6,6 +6,7 @@ pub const READY_JSON: &str = include_str!("../schemas/ready.schema.json");
 pub const HEALTH_JSON: &str = include_str!("../schemas/health.schema.json");
 pub const CATALOG_JSON: &str = include_str!("../schemas/catalog.schema.json");
 pub const FEED_JSON: &str = include_str!("../schemas/feed.schema.json");
+pub const WINDOW_JSON: &str = include_str!("../schemas/window.schema.json");
 
 pub const ALL: &[(&str, &str)] = &[
     ("app", APP_JSON),
@@ -13,4 +14,5 @@ pub const ALL: &[(&str, &str)] = &[
     ("health", HEALTH_JSON),
     ("catalog", CATALOG_JSON),
     ("feed", FEED_JSON),
+    ("window", WINDOW_JSON),
 ];

@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OS-WINDOW-1 window calls and events (battalion-sdk::windows); the TS types are generated from this file",
+  "$defs": {
+    "Rect": {
+      "type": "object",
+      "required": ["x", "y", "w", "h"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number" },
+        "h": { "type": "number" }
+      }
+    },
+    "WindowKind": { "enum": ["inline", "float", "native"] },
+    "SnapZone": { "enum": ["left", "right", "tl", "tr", "bl", "br"] },
+    "WindowState": {
+      "oneOf": [
+        { "enum": ["normal", "minimized", "maximized"] },
+        {
+          "type": "object",
+          "required": ["snap"],
+          "properties": { "snap": { "$ref": "#/$defs/SnapZone" } }
+        }
+      ]
+    },
+    "WindowBadge": {
+      "type": "object",
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "text": { "type": "string" }
+      }
+    },
+    "WindowSpec": {
+      "type": "object",
+      "required": ["key"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/WindowKind" },
+        "title": { "type": "string" },
+        "icon": { "type": "string" },
+        "route": { "type": "string", "pattern": "^/" },
+        "bounds": { "$ref": "#/$defs/Rect" },
+        "state": { "$ref": "#/$defs/WindowState" }
+      }
+    },
+    "Opened": {
+      "type": "object",
+      "required": ["wid", "kind", "state", "bounds", "restored"],
+      "properties": {
+        "wid": { "type": "string" },
+        "kind": { "$ref": "#/$defs/WindowKind" },
+        "state": { "$ref": "#/$defs/WindowState" },
+        "bounds": { "$ref": "#/$defs/Rect" },
+        "restored": { "type": "boolean" }
+      }
+    },
+    "WindowInfo": {
+      "type": "object",
+      "required": ["wid", "key", "kind", "title", "state", "bounds", "z"],
+      "properties": {
+        "wid": { "type": "string" },
+        "key": { "type": "string" },
+        "kind": { "$ref": "#/$defs/WindowKind" },
+        "title": { "type": "string" },
+        "icon": { "type": "string" },
+        "badge": { "$ref": "#/$defs/WindowBadge" },
+        "attention": { "type": "boolean" },
+        "state": { "$ref": "#/$defs/WindowState" },
+        "bounds": { "$ref": "#/$defs/Rect" },
+        "z": { "type": "integer", "minimum": 0 },
+        "route": { "type": "string" }
+      }
+    },
+    "WindowPatch": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "icon": { "type": "string" },
+        "badge": { "oneOf": [{ "$ref": "#/$defs/WindowBadge" }, { "type": "null" }] },
+        "attention": { "type": "boolean" },
+        "bounds": { "$ref": "#/$defs/Rect" }
+      }
+    },
+    "WinEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["change", "wid", "state", "bounds"],
+          "properties": {
+            "change": { "const": "state" },
+            "wid": { "type": "string" },
+            "state": { "$ref": "#/$defs/WindowState" },
+            "bounds": { "$ref": "#/$defs/Rect" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["change", "wid"],
+          "properties": {
+            "change": { "const": "closed" },
+            "wid": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["change", "wid", "z"],
+          "properties": {
+            "change": { "const": "focus" },
+            "wid": { "type": "string" },
+            "z": { "type": "integer", "minimum": 0 },
+            "state": { "$ref": "#/$defs/WindowState" }
+          }
+        }
+      ]
+    }
+  }
+}

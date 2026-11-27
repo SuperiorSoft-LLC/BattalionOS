@@ -11,6 +11,7 @@ pub mod manifest;
 pub mod runtime;
 pub mod schemas;
 pub mod version;
+pub mod windows;
 
 pub use catalog::{Catalog, CatalogApp, Feed, FeedPlatform};
 pub use manifest::{Manifest, ManifestError};

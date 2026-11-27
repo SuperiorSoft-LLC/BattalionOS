@@ -57,6 +57,11 @@ names only its own wids (`access::authorize_wid`): a wid of another app is refus
 | `os_win_set` | `wid`, `title?`, `icon?`, `badge?` (`{count?, text?}`, `null` clears), `attention?`, `bounds?` | nothing. `bounds` only for `inline` (the app moved it; the OS saves it) |
 | `os_win_list` | | the caller's own windows (`Window[]`, z order) |
 
+The SDK (WM-5) wraps these calls: Rust types in `battalion-app-api::windows` (`WindowSpec`, `WindowKind`, `WindowState`, `SnapZone`,
+`WinEvent`; schema `schemas/window.schema.json`), and the TS `windows` client in the kit (`kit/lib/windows`, types generated from the
+schema): `osBackend` over these calls, `localBackend` (standalone Tauri, browser) with the same rules in the page, `localStorage`, `inline`
+only, drawn by `LocalDesk` with a dock strip as the taskbar.
+
 The shell serves a frame's calls with main-only commands, one per call, the app id taken from the frame: `os_frame_win_open`,
 `os_frame_win_close`, `os_frame_win_minimize`, `os_frame_win_restore`, `os_frame_win_maximize`, `os_frame_win_focus`,
 `os_frame_win_snap`, `os_frame_win_set`, `os_frame_win_list`, each with `id` and `args` (the page's arguments; an `id` in them is dropped).
