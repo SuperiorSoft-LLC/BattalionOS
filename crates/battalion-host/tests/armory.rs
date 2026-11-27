@@ -1018,3 +1018,24 @@ fn later_applies_at_the_next_idle_moment_or_the_next_start() {
     assert_eq!(a.pending_update("prep-three"), None, "nothing pending after it is applied");
     assert_eq!(a.apply_pending("prep-three").unwrap(), None);
 }
+
+/// UPDATE-LOCK-1: a process the OS did not start (an agent's MCP bridge) runs from the installed version's `bin`.
+/// Windows will not delete a running program, so the update must not depend on removing that folder.
+#[test]
+fn an_update_succeeds_while_an_outside_process_runs_from_the_old_version() {
+    let w = World::new("updlock");
+    let a = running_v1(&w, "upd-lock");
+    let exe = w.paths.version_dir("upd-lock", "1.0.0").unwrap().join(common::HELPER_IN_PACKAGE);
+    let mut bridge = std::process::Command::new(&exe).args(["--sleep", "60"]).spawn().unwrap();
+    w.publish(&Pkg::new("upd-lock", "2.0.0"));
+    let up = a.update("upd-lock", &UpdateOptions::default());
+    eprintln!("update 1->2: {up:?}");
+    w.publish(&Pkg::new("upd-lock", "3.0.0"));
+    let up3 = a.update("upd-lock", &UpdateOptions::default());
+    eprintln!("update 2->3: {up3:?}; 1.0.0 still on disk: {}", w.paths.version_dir("upd-lock", "1.0.0").unwrap().exists());
+    let _ = bridge.kill();
+    let _ = bridge.wait();
+    up.unwrap();
+    up3.unwrap();
+    assert_eq!(w.current("upd-lock").unwrap().version, "3.0.0");
+}
