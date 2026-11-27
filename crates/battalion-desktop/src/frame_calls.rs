@@ -21,6 +21,8 @@ pub fn permission_for(cmd: &str) -> Option<&'static str> {
         LOGIN_WINDOW_OPEN | LOGIN_WINDOW_CLOSE => Some("login.window"),
         NOTIFY => Some("notifications"),
         SCAN_CODE => Some("scan.code"),
+        // WM-2 (OS-WINDOW-1 2.7): every window call needs `window`.
+        c if crate::win_calls::COMMANDS.contains(&c) => Some("window"),
         _ => None,
     }
 }

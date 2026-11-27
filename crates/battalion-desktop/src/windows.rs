@@ -80,6 +80,8 @@ pub struct OpenSpec {
     pub route: Option<String>,
     /// Used when nothing is saved for `(app, key)`.
     pub bounds: Option<Rect>,
+    /// Used when nothing is saved for `(app, key)` (WM-2: `os_win_open`'s `state?`).
+    pub state: Option<WinState>,
     pub monitor: Option<String>,
 }
 
@@ -171,18 +173,15 @@ pub fn wid_app(wid: &str) -> Option<&str> {
     (!app.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())).then_some(app)
 }
 
-/// The access rule: an app may only name its own wids.
+/// The access rule: an app may only name its own wids (`access::authorize_wid`, here as a `WinError`).
 pub fn authorize_wid(app: &str, wid: &str) -> Result<(), WinError> {
-    match wid_app(wid) {
-        Some(a) if a == app => Ok(()),
-        _ => Err(WinError::NotYours(wid.to_string())),
-    }
+    crate::access::authorize_wid(app, wid).map_err(|_| WinError::NotYours(wid.to_string()))
 }
 
 type Reply<T> = oneshot::Sender<T>;
 
 enum Cmd {
-    Open { app: String, spec: OpenSpec, surface: Surface, reply: Reply<Result<Window, WinError>> },
+    Open { app: String, spec: OpenSpec, surface: Surface, reply: Reply<Result<(Window, bool), WinError>> },
     Update { app: String, wid: String, patch: Patch, reply: Reply<Result<Window, WinError>> },
     Focus { app: String, wid: String, reply: Reply<Result<Window, WinError>> },
     Close { app: String, wid: String, reply: Reply<Result<(), WinError>> },
@@ -216,6 +215,10 @@ impl Windows {
 
     /// Open (or, for an existing `(app, key)`, focus) a window. Saved geometry wins over `spec.bounds`, clamped to `surface`.
     pub async fn open(&self, app: &str, spec: OpenSpec, surface: Surface) -> Result<Window, WinError> {
+        self.open_restored(app, spec, surface).await.map(|(w, _)| w)
+    }
+    /// `open`, and whether saved state for `(app, key)` was used (`restored`; false for a focus of an open window).
+    pub async fn open_restored(&self, app: &str, spec: OpenSpec, surface: Surface) -> Result<(Window, bool), WinError> {
         self.ask(|reply| Cmd::Open { app: app.into(), spec, surface, reply }).await?
     }
     pub async fn update(&self, app: &str, wid: &str, patch: Patch) -> Result<Window, WinError> {
@@ -348,7 +351,7 @@ impl WindowManager {
         Ok(self.saved.get_mut(app).expect("loaded"))
     }
 
-    async fn open(&mut self, app: String, spec: OpenSpec, surface: Surface) -> Result<Window, WinError> {
+    async fn open(&mut self, app: String, spec: OpenSpec, surface: Surface) -> Result<(Window, bool), WinError> {
         if !battalion_app_api::manifest::valid_id(&app) {
             return Err(WinError::BadApp(app));
         }
@@ -356,14 +359,15 @@ impl WindowManager {
         if let Some(w) = self.table.values_mut().find(|w| w.app == app && w.key == spec.key) {
             self.z += 1;
             w.z = self.z;
-            return Ok(w.clone());
+            return Ok((w.clone(), false));
         }
         let key = spec.key.clone();
         let saved = self.saved_for(&app).await?.get(&key).cloned();
         let default = Rect { x: 40.0, y: 40.0, w: 480.0, h: 360.0 };
+        let restored = saved.is_some();
         let (kind, bounds, state) = match saved {
             Some(s) => (spec.kind.unwrap_or(s.kind), s.bounds, s.state),
-            None => (spec.kind.unwrap_or(Kind::Inline), spec.bounds.unwrap_or(default), WinState::Normal),
+            None => (spec.kind.unwrap_or(Kind::Inline), spec.bounds.unwrap_or(default), spec.state.unwrap_or(WinState::Normal)),
         };
         let n = self.next_n.entry(app.clone()).or_insert(0);
         *n += 1;
@@ -384,7 +388,7 @@ impl WindowManager {
         };
         self.table.insert(w.wid.clone(), w.clone());
         self.remember(&w, spec.monitor);
-        Ok(w)
+        Ok((w, restored))
     }
 
     fn update(&mut self, app: &str, wid: &str, p: Patch) -> Result<Window, WinError> {

@@ -54,7 +54,7 @@ fn every_command_checks_the_calling_window() {
     for chunk in src.split("#[tauri::command]").skip(1) {
         let name = chunk.split("fn ").nth(1).unwrap().split('(').next().unwrap();
         assert!(chunk.contains("window: WebviewWindow"), "{name} takes no calling window");
-        let body_checked = chunk.contains("authorize_app(") || chunk.contains("authorize_shell(") || chunk.contains("authorize_self(") || chunk.contains("caller_of(") || chunk.contains("crate::access::LOGIN");
+        let body_checked = chunk.contains("authorize_app(") || chunk.contains("authorize_shell(") || chunk.contains("authorize_self(") || chunk.contains("caller_of(") || chunk.contains("authorize_win_caller(") || chunk.contains("crate::access::LOGIN");
         assert!(body_checked, "{name} does not check who is calling");
     }
 }
@@ -148,10 +148,41 @@ fn a_release_build_has_no_door_to_another_feed_or_key() {
 }
 
 #[test]
-fn the_window_model_is_documented_and_has_no_commands_yet() {
-    // OS-WINDOW-1 (WM-1): the model is in docs/commands.md; WM-2 adds the os_win_* commands.
+fn the_window_model_and_its_calls_are_documented() {
+    // OS-WINDOW-1 (WM-1): the model is in docs/commands.md. WM-2: the os_win_* calls and the os_win event.
     let docs = std::fs::read_to_string(format!("{}/../../docs/commands.md", env!("CARGO_MANIFEST_DIR"))).unwrap();
     assert!(docs.contains("## Windows (OS-WINDOW-1)"));
     assert!(docs.contains("bos.windows.saveDebounceMs"));
-    assert!(!commands().iter().any(|c| c.1.starts_with("os_win_")), "no os_win_* command before WM-2");
+    assert!(docs.contains("`os://win`") && docs.contains("event: \"os_win\""));
+}
+
+const WIN_CALLS: &[&str] = &["open", "close", "minimize", "restore", "maximize", "focus", "snap", "set", "list"];
+
+#[test]
+fn an_app_window_gets_the_window_calls_for_itself_and_the_shell_serves_frames() {
+    // WM-2: os_win_* for an app's own window (app-* and native win-*), the app taken from the label; os_frame_win_* main only.
+    let app = read("capabilities/app.json");
+    let main = read("capabilities/main.json");
+    let src = read("src/commands.rs");
+    assert!(app.contains("\"win-*\""), "native windows of an app get the app capability");
+    let names: BTreeSet<String> = commands().into_iter().map(|c| c.1).collect();
+    for c in WIN_CALLS {
+        let (own, frame) = (format!("os_win_{c}"), format!("os_frame_win_{c}"));
+        assert!(names.contains(&own) && names.contains(&frame), "{own} and {frame} are commands");
+        assert!(app.contains(&format!("allow-os-win-{c}\"")), "app windows are granted {own}");
+        assert!(!main.contains(&format!("allow-os-win-{c}\"")), "the shell uses {frame}, not {own}");
+        assert!(main.contains(&format!("allow-os-frame-win-{c}\"")) && !app.contains(&format!("os-frame-win-{c}")), "{frame} is main only");
+        let body = |n: &str| src.split(&format!("pub async fn {n}(")).nth(1).unwrap().split("#[tauri::command]").next().unwrap().to_string();
+        let own_body = body(&own);
+        assert!(own_body.contains("authorize_win_caller("), "{own} speaks for the app of its label");
+        let sig = own_body.split(')').next().unwrap();
+        assert!(!sig.contains(" id:"), "{own} must not take an app id");
+        assert!(body(&frame).contains("authorize_shell("), "{frame} is for the shell only");
+    }
+    // Every call checks the `window` permission, and there is no cap on the number of windows.
+    let rules = read("src/win_calls.rs");
+    assert!(rules.contains("frame_calls::require(app, permissions, cmd)"));
+    assert!(read("src/frame_calls.rs").contains("win_calls::COMMANDS.contains(&c) => Some(\"window\")"));
+    let settings = read("src/windows.rs").split("pub struct WindowSettings").nth(1).unwrap().split('}').next().unwrap().to_string();
+    assert!(!settings.to_lowercase().contains("max"), "bos.windows.max stays unset: no cap");
 }

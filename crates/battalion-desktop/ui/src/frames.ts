@@ -8,8 +8,12 @@
 
 import { osThemeEvent, type OsThemeEvent, type WinTokens } from "../kit/lib/win-tokens";
 
+/** WM-2 (OS-WINDOW-1): the window calls. The host checks the `window` permission and that a wid is the app's own. */
+export const WIN_COMMANDS = ["os_win_open", "os_win_close", "os_win_minimize", "os_win_restore", "os_win_maximize", "os_win_focus", "os_win_snap", "os_win_set", "os_win_list"] as const;
+export type WinCommand = (typeof WIN_COMMANDS)[number];
+
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
-export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code"] as const;
+export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code", ...WIN_COMMANDS] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
 
 /** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). */
@@ -33,6 +37,8 @@ export interface FrameBackend {
   /** AND-4: a notice on the app's own channel (`notifications`) and a QR code scanned by the OS (`scan.code`). */
   notify(id: string, title: string, text: string | undefined): Promise<void>;
   scanCode(id: string): Promise<string | null>;
+  /** WM-2: a window call for the app of the frame (`os_frame_win_*`); `args` are the page's. */
+  win(id: string, cmd: WinCommand, args: Record<string, unknown>): Promise<unknown>;
   /** AND-4: the reason a command outside the list is refused, when the device has its own (a phone: starting a program). */
   refusal?(id: string, cmd: string): Promise<string | undefined>;
 }
@@ -98,6 +104,16 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
         return reply({ ok: true, result: null });
       case "os_scan_code":
         return reply({ ok: true, result: await be.scanCode(frame.id) });
+      case "os_win_open":
+      case "os_win_close":
+      case "os_win_minimize":
+      case "os_win_restore":
+      case "os_win_maximize":
+      case "os_win_focus":
+      case "os_win_snap":
+      case "os_win_set":
+      case "os_win_list":
+        return reply({ ok: true, result: (await be.win(frame.id, d.cmd as WinCommand, args)) ?? null });
     }
   } catch (e) {
     return reply({ ok: false, error: text(e) });
@@ -108,6 +124,15 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
 export function eventFor(frames: readonly FrameEntry[], appId: string, event: "os_login_url" | "os_login_closed", data?: { url: string }): { to: unknown; origin: string; message: Record<string, unknown> } | null {
   const frame = frames.find((f) => f.id === appId && f.window != null);
   return frame ? { to: frame.window, origin: frame.origin, message: { bos: 1, event, ...(data ?? {}) } } : null;
+}
+
+/** WM-2: the host's `os://win` event (`{bos:1, event:"os_win", id, wid, change, ...}`) for the frame of app `id` only, without `id`. */
+export function winEventFor(frames: readonly FrameEntry[], payload: unknown): { to: unknown; origin: string; message: Record<string, unknown> } | null {
+  const p = payload as Record<string, unknown> | null;
+  if (!p || typeof p !== "object" || p.event !== "os_win" || typeof p.id !== "string" || typeof p.wid !== "string") return null;
+  const { id, ...rest } = p;
+  const frame = frames.find((f) => f.id === id && f.window != null);
+  return frame ? { to: frame.window, origin: frame.origin, message: { ...rest, bos: 1, event: "os_win" } } : null;
 }
 
 /** WM-4: the `os_theme` event for every app frame that has a window (sent at start, on a frame load and on a light/dark change). */

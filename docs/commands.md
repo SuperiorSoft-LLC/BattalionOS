@@ -14,7 +14,7 @@ The window label is the caller's identity. It comes from the Tauri runtime, neve
 
 ## Windows (OS-WINDOW-1)
 
-The OS's window model (WM-1). No commands yet: WM-2 adds `os_win_*`, WM-3 the taskbar items, WM-6 native windows.
+The OS's window model (WM-1) and its calls (WM-2). WM-3 adds the taskbar items, WM-6 native windows.
 One `WindowManager` actor (`src/windows.rs`, a tokio task behind an mpsc) owns the window table; nothing else writes it.
 
 | Field | What |
@@ -38,6 +38,32 @@ Geometry: `battalion-app-api::geometry` (Rust) and the kit's `lib/geometry.ts` (
 functions, shared by the OS and the SDKs: `clampBox`, `dragBox`, `resizeBox` (from infantry-ai `popout.ts`; minimum
 320x240, 80 px kept grabbable, 36 px bar), `snapBox` (halves `left`/`right`, quarters `tl`/`tr`/`bl`/`br`) and
 `snapZoneAt` (the zone a drag pointer near an edge or corner asks for).
+
+### Window calls (WM-2)
+
+An app's page calls these from its frame (the bridge message, `{bos: 1, id, cmd, args}`), or with `invoke` from its own `app-<id>`
+window or a native `win-<app>-<n>` window. The app is the frame's or the label's, never an argument. Every call needs the `window`
+permission in the app's installed `app.json` (read at every call); without it the call is refused with the permission's name. An app
+names only its own wids (`access::authorize_wid`): a wid of another app is refused. There is no cap on the number of windows
+(`bos.windows.max` is unset).
+
+| Command | Args | Result |
+|---|---|---|
+| `os_win_open` | `key`, `kind?` (`inline` default), `title?`, `icon?`, `route?`, `bounds?`, `state?` | `{wid, kind, state, bounds, restored}`. A `key` already open: that window is focused and returned (`restored: false`). Saved state for `(app, key)` wins over `bounds`/`state` (`restored: true`). `route` must be a path on the app's own origin (`/...`, no scheme or host); it is kept for `float`/`native` only |
+| `os_win_close` | `wid` | nothing. The window goes; its saved geometry is kept |
+| `os_win_minimize` / `os_win_restore` / `os_win_maximize` | `wid` | `{state}` |
+| `os_win_focus` | `wid` | `{state}`. Raises it to the top of its surface; a minimized window is restored first |
+| `os_win_snap` | `wid`, `zone` (`left`, `right`, `tl`, `tr`, `bl`, `br`) | `{state, bounds}`: the half or quarter of the surface |
+| `os_win_set` | `wid`, `title?`, `icon?`, `badge?` (`{count?, text?}`, `null` clears), `attention?`, `bounds?` | nothing. `bounds` only for `inline` (the app moved it; the OS saves it) |
+| `os_win_list` | | the caller's own windows (`Window[]`, z order) |
+
+The shell serves a frame's calls with main-only commands, one per call, the app id taken from the frame: `os_frame_win_open`,
+`os_frame_win_close`, `os_frame_win_minimize`, `os_frame_win_restore`, `os_frame_win_maximize`, `os_frame_win_focus`,
+`os_frame_win_snap`, `os_frame_win_set`, `os_frame_win_list`, each with `id` and `args` (the page's arguments; an `id` in them is dropped).
+
+Event `os://win`, emitted only to the owning app's windows (the shell, `app-<id>`, `win-<id>-<n>`): `{bos: 1, event: "os_win", id, wid,
+change, ...}` with `change` `state` (`state`, `bounds`: minimize, restore, maximize, snap, moved bounds), `closed`, or `focus` (`z`,
+`state`). The shell forwards it to that app's frames only, without `id`.
 
 ## Origin (spike result)
 
@@ -190,6 +216,7 @@ own slot, which runs it with Android and answers through the hub:
 | `os://frame-login-url` | `{id, url}` (BOS-25) |
 | `os://frame-login-closed` | `{id}` (BOS-25) |
 | `os://badge` | `{id, badge}` when an app sets or clears its badge (`badge` is the text or null) |
+| `os://win` | `{bos: 1, event: "os_win", id, wid, change, ...}` (WM-2): to the owning app's windows only, not to all windows (see Window calls) |
 
 ## Lifetime
 

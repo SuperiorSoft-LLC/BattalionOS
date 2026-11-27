@@ -15,7 +15,7 @@ const be: FrameBackend = {
   loginOpen: async () => {},
   loginClose: async () => {},
   notify: async () => {},
-  scanCode: async () => null,
+  scanCode: async () => null, win: async () => null,
 };
 
 describe("app slots (AND-3)", () => {

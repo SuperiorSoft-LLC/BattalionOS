@@ -688,3 +688,174 @@ fn spawn_installer(msi: &std::path::Path) -> std::io::Result<()> {
 fn spawn_installer(_msi: &std::path::Path) -> std::io::Result<()> {
     Err(std::io::Error::other("updating BattalionOS in place is only done on Windows for now"))
 }
+
+// ---- OS-WINDOW-1 (WM-2): the window calls ----
+// `os_win_*` are for an app's own window (`app-<id>`, or a native `win-<app>-<n>`): the app is the label's. `os_frame_win_*` are
+// main only and serve a page in a frame (the shell names the app of the frame, never the message). Every call checks the `window`
+// permission of the app's installed manifest, read at each call; the rules are in `win_calls.rs`.
+
+/// The surface an inline window lives in: the OS window's client area, in logical pixels.
+fn win_surface(app: &AppHandle) -> battalion_app_api::geometry::Surface {
+    let size = app.get_webview_window(crate::access::MAIN).and_then(|w| {
+        let s = w.inner_size().ok()?;
+        let f = w.scale_factor().ok()?;
+        Some((s.width as f64 / f, s.height as f64 / f))
+    });
+    let (w, h) = size.filter(|(w, h)| *w > 0.0 && *h > 0.0).unwrap_or((1200.0, 800.0));
+    battalion_app_api::geometry::Surface::sized(w, h)
+}
+
+/// `os://win` to the owning app's windows only: the shell (it forwards to that app's frames, `{bos:1, event:"os_win", ...}`),
+/// the app's own window and its native windows. Never to another app's window.
+fn emit_win(app: &AppHandle, id: &str, ev: Value) {
+    let mut payload = json!({"bos": 1, "event": "os_win", "id": id});
+    if let (Some(p), Value::Object(e)) = (payload.as_object_mut(), ev) {
+        p.extend(e);
+    }
+    let own_app = format!("{}{id}", crate::access::APP_PREFIX);
+    let own_win = format!("{}{id}-", crate::access::WIN_PREFIX);
+    for label in app.webview_windows().into_keys() {
+        let native_of_id = label.strip_prefix(&own_win).is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        if label == crate::access::MAIN || label == own_app || native_of_id {
+            let _ = app.emit_to(label.as_str(), crate::events::WIN, payload.clone());
+        }
+    }
+}
+
+async fn win_run(app: &AppHandle, host: &State<'_, Host>, id: &str, cmd: &'static str, args: Value) -> R<Value> {
+    crate::access::app_label(id).map_err(|e| e.to_string())?;
+    let (paths, id2) = (host.paths.clone(), id.to_string());
+    let perms = blocking(move || crate::host::permissions_of(&paths, &id2)).await??;
+    let done = crate::win_calls::call(&host.windows, id, &perms, cmd, &args, win_surface(app)).await?;
+    if let Some(ev) = done.event {
+        emit_win(app, id, ev);
+    }
+    Ok(done.result)
+}
+
+/// Open a window of the calling app (`key` already open: focus it). `{wid, kind, state, bounds, restored}`.
+#[tauri::command]
+pub async fn os_win_open(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, key: String, kind: Option<Value>, title: Option<String>, icon: Option<String>, route: Option<String>, bounds: Option<Value>, state: Option<Value>) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_open").map_err(|e| e.to_string())?;
+    let args = json!({"key": key, "kind": kind, "title": title.unwrap_or_default(), "icon": icon, "route": route, "bounds": bounds, "state": state});
+    win_run(&app, &host, &id, crate::win_calls::OPEN, args).await
+}
+
+#[tauri::command]
+pub async fn os_win_close(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, wid: String) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_close").map_err(|e| e.to_string())?;
+    win_run(&app, &host, &id, crate::win_calls::CLOSE, json!({"wid": wid})).await
+}
+
+#[tauri::command]
+pub async fn os_win_minimize(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, wid: String) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_minimize").map_err(|e| e.to_string())?;
+    win_run(&app, &host, &id, crate::win_calls::MINIMIZE, json!({"wid": wid})).await
+}
+
+#[tauri::command]
+pub async fn os_win_restore(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, wid: String) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_restore").map_err(|e| e.to_string())?;
+    win_run(&app, &host, &id, crate::win_calls::RESTORE, json!({"wid": wid})).await
+}
+
+#[tauri::command]
+pub async fn os_win_maximize(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, wid: String) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_maximize").map_err(|e| e.to_string())?;
+    win_run(&app, &host, &id, crate::win_calls::MAXIMIZE, json!({"wid": wid})).await
+}
+
+#[tauri::command]
+pub async fn os_win_focus(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, wid: String) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_focus").map_err(|e| e.to_string())?;
+    win_run(&app, &host, &id, crate::win_calls::FOCUS, json!({"wid": wid})).await
+}
+
+#[tauri::command]
+pub async fn os_win_snap(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, wid: String, zone: String) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_snap").map_err(|e| e.to_string())?;
+    win_run(&app, &host, &id, crate::win_calls::SNAP, json!({"wid": wid, "zone": zone})).await
+}
+
+/// Title, icon, badge (`null` clears it), attention, and bounds (inline only). Absent fields stay as they are.
+#[tauri::command]
+pub async fn os_win_set(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, wid: String, title: Option<String>, icon: Option<String>, badge: Option<Value>, attention: Option<bool>, bounds: Option<Value>) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_set").map_err(|e| e.to_string())?;
+    let mut args = json!({"wid": wid});
+    for (k, v) in [("title", title.map(Value::from)), ("icon", icon.map(Value::from)), ("badge", badge), ("attention", attention.map(Value::from)), ("bounds", bounds)] {
+        if let Some(v) = v {
+            args[k] = v;
+        }
+    }
+    win_run(&app, &host, &id, crate::win_calls::SET, args).await
+}
+
+/// The calling app's own windows, in z order.
+#[tauri::command]
+pub async fn os_win_list(window: WebviewWindow, app: AppHandle, host: State<'_, Host>) -> R<Value> {
+    let id = crate::access::authorize_win_caller(window.label(), "os_win_list").map_err(|e| e.to_string())?;
+    win_run(&app, &host, &id, crate::win_calls::LIST, json!({})).await
+}
+
+/// The shell's half for a page in a frame: `args` are the page's, the app `id` is the frame's. Main only.
+async fn frame_win(app: &AppHandle, host: &State<'_, Host>, cmd: &'static str, id: &str, args: Option<Value>) -> R<Value> {
+    let mut args = args.filter(|a| a.is_object()).unwrap_or_else(|| json!({}));
+    if let Some(o) = args.as_object_mut() {
+        o.remove("id"); // the app is the frame's, never the message's
+    }
+    win_run(app, host, id, cmd, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_open(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_open").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::OPEN, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_close(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_close").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::CLOSE, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_minimize(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_minimize").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::MINIMIZE, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_restore(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_restore").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::RESTORE, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_maximize(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_maximize").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::MAXIMIZE, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_focus(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_focus").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::FOCUS, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_snap(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_snap").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::SNAP, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_set(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_set").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::SET, &id, args).await
+}
+
+#[tauri::command]
+pub async fn os_frame_win_list(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_win_list").map_err(|e| e.to_string())?;
+    frame_win(&app, &host, crate::win_calls::LIST, &id, args).await
+}

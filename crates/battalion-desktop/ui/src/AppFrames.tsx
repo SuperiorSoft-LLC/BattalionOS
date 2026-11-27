@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../kit";
 import { winTokens } from "../kit/lib/win-tokens";
-import { answer, eventFor, themeEvents, type FrameBackend, type FrameEntry } from "./frames";
+import { answer, eventFor, themeEvents, winEventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
@@ -147,6 +147,8 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     loginClose: (id) => (phone ? phone(id, "os_login_window_close", {}).then(() => undefined) : os.frameLoginClose(id)),
     notify: (id, title, text) => (phone ? phone(id, "os_notify", { title, text }).then(() => undefined) : notOnDesktop()),
     scanCode: (id) => (phone ? (phone(id, "os_scan_code", {}) as Promise<string | null>) : notOnDesktop()),
+    // WM-2: the window calls are served by the desktop host's window manager (not on a phone yet).
+    win: (id, cmd, args) => (phone ? notOnDesktop() : os.frameWin(id, cmd, args)),
     // On a phone the host words the refusal of a call a page may not make (process.spawn: never on a phone).
     refusal: slots ? (id, cmd) => os.framePhoneCall(id, cmd).then(() => undefined) : undefined,
   };
@@ -268,6 +270,19 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
         const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: slots ? slotWin.current.token(id) : (windows.current[id] ?? null) }));
         const r = e.closed ? eventFor(frames, e.id, "os_login_closed") : e.url ? eventFor(frames, e.id, "os_login_url", { url: e.url }) : null;
         if (r && slots) send(slots, { op: "reply", id: e.id, message: r.message });
+        else if (r) (r.to as Window).postMessage(r.message, r.origin);
+      }),
+    [os, slots],
+  );
+
+  // WM-2: a window of an app changed (state, closed, focus): told to THAT app's frame only.
+  useEffect(
+    () =>
+      os.onWin((payload) => {
+        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: slots ? slotWin.current.token(id) : (windows.current[id] ?? null) }));
+        const r = winEventFor(frames, payload);
+        const id = (payload as { id?: string }).id;
+        if (r && slots && id) send(slots, { op: "reply", id, message: r.message });
         else if (r) (r.to as Window).postMessage(r.message, r.origin);
       }),
     [os, slots],

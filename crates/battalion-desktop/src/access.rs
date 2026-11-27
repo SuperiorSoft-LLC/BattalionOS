@@ -8,6 +8,8 @@ use battalion_app_api::manifest::valid_id;
 pub const MAIN: &str = "main";
 pub const LOGIN: &str = "login";
 pub const APP_PREFIX: &str = "app-";
+/// OS-WINDOW-1: a native window of an app, `win-<app>-<n>` (WM-6 opens them). Its app is in the label.
+pub const WIN_PREFIX: &str = "win-";
 
 /// Closing this window only hides it: apps and agents keep working, and a new start of the OS shows
 /// it again. Exit (`os_exit`) is the only way the OS ends. Other windows really close.
@@ -83,6 +85,26 @@ pub fn authorize_shell(label: &str, command: &str) -> Result<(), Denied> {
     }
 }
 
+/// WM-2: the app an `os_win_*` call speaks for. An `app-<id>` window or a native `win-<app>-<n>` window of that app; any other
+/// label is refused (the shell uses the `os_frame_win_*` commands, naming the app of the frame).
+pub fn authorize_win_caller(label: &str, command: &str) -> Result<String, Denied> {
+    if let Some(rest) = label.strip_prefix(WIN_PREFIX) {
+        return match rest.rsplit_once('-') {
+            Some((app, n)) if valid_id(app) && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => Ok(app.to_string()),
+            _ => Err(Denied::UnknownLabel(label.to_string())),
+        };
+    }
+    authorize_self(label, command)
+}
+
+/// WM-2: an app may only name its own wids (`w-<app>-<n>`). A wid of another app, or not a wid at all, is refused.
+pub fn authorize_wid(app: &str, wid: &str) -> Result<(), Denied> {
+    match crate::windows::wid_app(wid) {
+        Some(a) if a == app => Ok(()),
+        _ => Err(Denied::NotYours { caller: format!("{APP_PREFIX}{app}"), target: wid.to_string() }),
+    }
+}
+
 /// Commands an app makes about itself (`os_badge`, `os_show_desktop`): only an app window, and the app is the one the label
 /// names. The id is never an argument, so no window can act as another app.
 pub fn authorize_self(label: &str, command: &str) -> Result<String, Denied> {
@@ -142,6 +164,18 @@ mod tests {
                 assert!(authorize_shell(who, c).is_err(), "{who} must not call {c}");
             }
         }
+    }
+    #[test]
+    fn a_window_call_speaks_for_the_app_of_its_label_and_only_names_its_own_wids() {
+        assert_eq!(authorize_win_caller("app-aa", "os_win_open"), Ok("aa".to_string()));
+        assert_eq!(authorize_win_caller("win-my-app-3", "os_win_open"), Ok("my-app".to_string()));
+        for bad in ["main", "login", "win-", "win-aa", "win-aa-x", "win-../x-1", "evil"] {
+            assert!(authorize_win_caller(bad, "os_win_open").is_err(), "{bad}");
+        }
+        assert_eq!(authorize_wid("aa", "w-aa-1"), Ok(()));
+        assert!(authorize_wid("aa", "w-bb-1").is_err());
+        assert!(authorize_wid("aa", "w-aa-bb-1").is_err(), "w-aa-bb-1 is app aa-bb's");
+        assert!(authorize_wid("aa", "aa").is_err());
     }
     #[test]
     fn labels_must_be_well_formed() {

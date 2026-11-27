@@ -27,3 +27,7 @@ pub const OS_UPDATE: &str = "os://os-update";
 pub const DEV_APP: &str = "os://dev-app";
 /// UPDATE-LIVE-1: an app was updated, `{id, from, to}`: the shell closes its view and opens it again on the new version.
 pub const APP_UPDATED: &str = "os://app-updated";
+/// OS-WINDOW-1 (WM-2): `{bos: 1, event: "os_win", id, wid, change, ...}` to the owning app's windows only (the shell, `app-<id>` and its
+/// native `win-<id>-<n>`). `change` is `state` (`state`, `bounds`), `closed` or `focus` (`z`, `state`). The shell forwards it to that app's
+/// frames without `id`.
+pub const WIN: &str = "os://win";

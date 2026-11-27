@@ -86,7 +86,25 @@ fn main() {
             os_take_open_request,
             os_update_state,
             os_update_check,
-            os_update_install
+            os_update_install,
+            os_win_open,
+            os_win_close,
+            os_win_minimize,
+            os_win_restore,
+            os_win_maximize,
+            os_win_focus,
+            os_win_snap,
+            os_win_set,
+            os_win_list,
+            os_frame_win_open,
+            os_frame_win_close,
+            os_frame_win_minimize,
+            os_frame_win_restore,
+            os_frame_win_maximize,
+            os_frame_win_focus,
+            os_frame_win_snap,
+            os_frame_win_set,
+            os_frame_win_list
         ])
         .setup(move |app| {
             #[cfg(feature = "dev")]

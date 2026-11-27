@@ -1,9 +1,9 @@
 {
   "identifier": "app-windows",
   "description": "An app window (label app-<id>, served from its own loopback origin): itself only; the host re-checks the label.",
-  "windows": ["app-*"],
+  "windows": ["app-*", "win-*"],
   "remote": { "urls": ["http://127.0.0.1:*/*"] },
   "permissions": [
-    "allow-os-window-info", "allow-os-app-status", "allow-os-app-health", "allow-os-close-app-window", "allow-os-badge", "allow-os-show-desktop"
+    "allow-os-window-info", "allow-os-app-status", "allow-os-app-health", "allow-os-close-app-window", "allow-os-badge", "allow-os-show-desktop", "allow-os-win-open", "allow-os-win-close", "allow-os-win-minimize", "allow-os-win-restore", "allow-os-win-maximize", "allow-os-win-focus", "allow-os-win-snap", "allow-os-win-set", "allow-os-win-list"
   ]
 }
