@@ -43,6 +43,10 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 | `os_open_app_window` | `id` | main | nothing. Opens the app **inside the BattalionOS window** (BOS-17): checks the app is installed and has a page, brings `main` to the front and emits `os://app-open` (the app id); the shell then fills its app area with the app's page in a frame. It opens no window of its own (the per-app window code stays for the pop out). The name is frozen |
 | `os_close_app_window` | `id` | main, `app-<id>` | nothing; the app process keeps running |
 | `os_catalog` | | main | `{apps:[{id, source, compatible, name, publisher, summary, icon, version}], rejected, sourceErrors, fromCache}`: `icon` only when the catalog gives a `data:image/` or `https:` URL; `version` is what the app's stable feed offers (null when the feed cannot be read) |
+| `os_local_repos` | | main | LOCAL-REPO-1: `{repos:[{name, path, registered}], label}`: the private local repos (folders under `<home>/local-repos/`, plus os.json `armory.localRepos`). `os_catalog` entries from them carry `fromLocalRepo: true` and `label` "Local, built on this machine" |
+| `os_local_repo_add` | `name` | main | `{name, path, registered}`; makes an empty repo folder |
+| `os_local_repo_rename` | `name`, `newName` | main | `{name, path, registered}`; a repo set in os.json is refused |
+| `os_local_repo_remove` | `name` | main | `{ok}`; deletes the repo folder (apps installed from it stay); a repo set in os.json is refused |
 | `os_install_app` | `id`, `channel?` (default `stable`) | main | `{ok}` |
 | `os_open_login` | | main | nothing |
 | `os_login_done` | | login | nothing; closes the login window, emits `os://login-changed` |

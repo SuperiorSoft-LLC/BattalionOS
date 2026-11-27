@@ -341,7 +341,8 @@ pub async fn os_catalog(window: WebviewWindow, host: State<'_, Host>) -> R<Value
     let (l, offered) = blocking(move || {
         let l = a.catalog()?;
         // AND-2: and whether this device can install it (the catalog's `platforms`, else the feed's packages), with the reason.
-        let offered: Vec<battalion_host::armory::Offer> = l.apps.iter().map(|e| a.offer(e, "stable")).collect();
+        // LOCAL-REPO-1: an app a local repo publishes on another channel only is offered on that channel.
+        let offered: Vec<battalion_host::armory::Offer> = l.apps.iter().map(|e| a.offer(e, default_channel(&e.app))).collect();
         Ok::<_, battalion_host::armory::ArmoryError>((l, offered))
     })
     .await?
@@ -349,7 +350,8 @@ pub async fn os_catalog(window: WebviewWindow, host: State<'_, Host>) -> R<Value
     Ok(json!({
         "apps": l.apps.iter().zip(offered).map(|(e, v)| json!({
             "id": e.app.id, "name": e.app.name, "publisher": e.app.publisher, "summary": e.app.summary,
-            "icon": catalog_icon(e.app.icon.as_deref()), "version": v.version, "unavailable": v.unavailable, "source": e.source, "compatible": e.compatible
+            "icon": catalog_icon(e.app.icon.as_deref()), "version": v.version, "unavailable": v.unavailable, "source": e.source, "compatible": e.compatible,
+            "fromLocalRepo": e.from_local_repo, "label": e.from_local_repo.then_some(battalion_host::armory::LOCAL_LABEL)
         })).collect::<Vec<_>>(),
         "rejected": l.rejected, "sourceErrors": l.source_errors, "fromCache": l.from_cache
     }))
@@ -359,9 +361,17 @@ pub async fn os_catalog(window: WebviewWindow, host: State<'_, Host>) -> R<Value
 pub async fn os_install_app(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, channel: Option<String>) -> R<Value> {
     authorize_shell(window.label(), "os_install_app").map_err(|e| e.to_string())?;
     let a = host.armory.clone();
-    let ch = channel.unwrap_or_else(|| "stable".into());
     let id2 = id.clone();
-    let r = blocking(move || a.install(&id, &ch)).await?.map_err(|e| e.to_string());
+    let r = blocking(move || {
+        // LOCAL-REPO-1: no channel given and the app has no stable one (a local prerelease-only app): its first channel.
+        let ch = match channel {
+            Some(c) => c,
+            None => a.find(&id).map(|e| default_channel(&e.app).to_string()).unwrap_or_else(|_| "stable".into()),
+        };
+        a.install(&id, &ch)
+    })
+    .await?
+    .map_err(|e| e.to_string());
     announce(&app, &host, &id2).await;
     r?;
     Ok(json!({"ok": true}))
@@ -602,4 +612,47 @@ fn spawn_installer(msi: &std::path::Path) -> std::io::Result<()> {
 #[cfg(not(windows))]
 fn spawn_installer(_msi: &std::path::Path) -> std::io::Result<()> {
     Err(std::io::Error::other("updating BattalionOS in place is only done on Windows for now"))
+}
+
+/// `stable` when the app has it, else its first channel.
+fn default_channel(app: &battalion_app_api::CatalogApp) -> &str {
+    if app.channels.contains_key("stable") { "stable" } else { app.channels.keys().next().map(String::as_str).unwrap_or("stable") }
+}
+
+// ---- LOCAL-REPO-1: local repos -----------------------------------------------------------------
+
+fn repo_json(r: &battalion_host::armory::LocalRepo) -> Value {
+    json!({"name": r.name, "path": r.dir.display().to_string(), "registered": r.registered})
+}
+
+#[tauri::command]
+pub async fn os_local_repos(window: WebviewWindow, host: State<'_, Host>) -> R<Value> {
+    authorize_shell(window.label(), "os_local_repos").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    let repos = blocking(move || a.local_repos()).await?;
+    Ok(json!({"repos": repos.iter().map(repo_json).collect::<Vec<_>>(), "label": battalion_host::armory::LOCAL_LABEL}))
+}
+
+#[tauri::command]
+pub async fn os_local_repo_add(window: WebviewWindow, host: State<'_, Host>, name: String) -> R<Value> {
+    authorize_shell(window.label(), "os_local_repo_add").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    let r = blocking(move || a.add_local_repo(&name)).await?.map_err(|e| e.to_string())?;
+    Ok(repo_json(&r))
+}
+
+#[tauri::command]
+pub async fn os_local_repo_rename(window: WebviewWindow, host: State<'_, Host>, name: String, new_name: String) -> R<Value> {
+    authorize_shell(window.label(), "os_local_repo_rename").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    let r = blocking(move || a.rename_local_repo(&name, &new_name)).await?.map_err(|e| e.to_string())?;
+    Ok(repo_json(&r))
+}
+
+#[tauri::command]
+pub async fn os_local_repo_remove(window: WebviewWindow, host: State<'_, Host>, name: String) -> R<Value> {
+    authorize_shell(window.label(), "os_local_repo_remove").map_err(|e| e.to_string())?;
+    let a = host.armory.clone();
+    blocking(move || a.remove_local_repo(&name)).await?.map_err(|e| e.to_string())?;
+    Ok(json!({"ok": true}))
 }

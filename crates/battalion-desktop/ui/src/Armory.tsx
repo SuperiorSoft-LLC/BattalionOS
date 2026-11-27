@@ -2,10 +2,10 @@
 // The Armory window: Browse and Installed lists, an app page with Install, Update, Roll back and Remove (real progress, the error text
 // and Retry), and an offline notice. An install that succeeds puts the icon on the desktop by itself; the page then offers Open.
 import { ArrowLeft, Boxes, CloudOff, X } from "lucide-react";
-import { useState } from "react";
-import { Button, Chip, EmptyState, ListRow, ProgressLine, RefusalBanner, Tabs, TabsContent, TabsList, TabsTrigger } from "../kit";
+import { useEffect, useState } from "react";
+import { Button, Chip, EmptyState, Input, ListRow, ProgressLine, RefusalBanner, Tabs, TabsContent, TabsList, TabsTrigger } from "../kit";
 import { AppIcon } from "./AppIcon";
-import type { ArmoryOp } from "./os";
+import type { ArmoryOp, LocalRepo } from "./os";
 import { confirmText, osRowActions, OS_ROW, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, availableOf, browseIds, desktopIds, iconOf, labelOf, offline, previousOf, progressOf, type Model } from "./store";
 
@@ -85,7 +85,9 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span className="font-mono">{id}</span>
-        {entry && <span>· from {entry.source}</span>}
+        {entry && !entry.fromLocalRepo && <span>· from {entry.source}</span>}
+        {entry?.fromLocalRepo && <Chip tone="blue">{entry.label ?? "Local, built on this machine"}</Chip>}
+        {entry?.fromLocalRepo && <span>· {entry.source.replace(/^local:/, "")}</span>}
         {v.kind === "installed" && <span>· version {v.version}</span>}
         {v.kind !== "installed" && entry?.version && <span>· latest {entry.version}</span>}
         <StateChip m={m} id={id} />
@@ -201,7 +203,7 @@ function OsRow({ m, os }: { m: Model; os: OsRowProps }) {
   );
 }
 
-export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: OsRowProps }) {
+export function Armory({ m, a, osRow, repos }: { m: Model; a: ArmoryActions; osRow?: OsRowProps; repos?: LocalRepoActions }) {
   const [page, setPage] = useState<string | null>(null);
   const off = offline(m);
   const browse = browseIds(m);
@@ -213,7 +215,16 @@ export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: Os
   const icon = (id: string) => <AppIcon icon={iconOf(m, id)} className="size-5" />;
   const browseRow = (id: string) => (
     <button key={id} type="button" className="block w-full text-left" onClick={() => setPage(id)} aria-label={`Open ${labelOf(m, id)} page`}>
-      <ListRow row={{ id, title: labelOf(m, id), subtitle: subtitle(id) }} icon={icon(id)} trailing={<StateChip m={m} id={id} />} />
+      <ListRow
+        row={{ id, title: labelOf(m, id), subtitle: subtitle(id) }}
+        icon={icon(id)}
+        trailing={
+          <span className="flex items-center gap-1">
+            {m.catalog?.apps.find((c) => c.id === id)?.fromLocalRepo && <Chip tone="neutral">Local</Chip>}
+            <StateChip m={m} id={id} />
+          </span>
+        }
+      />
     </button>
   );
   // Installed rows carry their own buttons, so the row itself is not a button.
@@ -279,6 +290,7 @@ export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: Os
             <TabsList>
               <TabsTrigger value="browse">Browse</TabsTrigger>
               <TabsTrigger value="installed">Installed ({installed.length})</TabsTrigger>
+              {repos && <TabsTrigger value="local">Local repos</TabsTrigger>}
             </TabsList>
             <TabsContent value="browse" className="mt-3 flex flex-col gap-2">
               {m.catalogLoading && !m.catalog && <ProgressLine value={null} />}
@@ -293,9 +305,125 @@ export function Armory({ m, a, osRow }: { m: Model; a: ArmoryActions; osRow?: Os
               {installed.length === 0 && <EmptyState icon={<Boxes />} title="Nothing installed yet" hint="Install an app from Browse and it appears on the desktop." />}
               {installed.map(installedRow)}
             </TabsContent>
+            {repos && (
+              <TabsContent value="local" className="mt-3 flex flex-col gap-2">
+                <LocalRepos r={repos} />
+              </TabsContent>
+            )}
           </Tabs>
         )}
       </div>
     </section>
+  );
+}
+
+/** LOCAL-REPO-1: what the Local repos tab can do (the host's os_local_repo_* commands). */
+export interface LocalRepoActions {
+  list(): Promise<LocalRepo[]>;
+  add(name: string): Promise<void>;
+  rename(name: string, newName: string): Promise<void>;
+  remove(name: string): Promise<void>;
+  /** A repo changed: the catalog is read again. */
+  changed(): void;
+}
+
+/** LOCAL-REPO-1: the private local repos agents publish to (`infantry app publish <dir> --repo <name>`): add, rename, remove. */
+export function LocalRepos({ r }: { r: LocalRepoActions }) {
+  const [repos, setRepos] = useState<LocalRepo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [editing, setEditing] = useState<{ name: string; to: string } | null>(null);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const load = () => r.list().then(setRepos, (e) => setError(String(e)));
+  useEffect(() => void load(), []);
+  const run = (p: Promise<void>) =>
+    p.then(
+      () => {
+        setError(null);
+        r.changed();
+        return load();
+      },
+      (e) => setError(String(e)),
+    );
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        Apps an agent builds on this machine (<span className="font-mono">infantry app publish &lt;dir&gt; --repo &lt;name&gt;</span>). They are signed with this device&apos;s own key and install without the internet.
+      </p>
+      {error && <RefusalBanner text={error} onDismiss={() => setError(null)} />}
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) void run(r.add(name.trim())).then(() => setName(""));
+        }}
+      >
+        <Input aria-label="New local repo name" placeholder="New repo name, e.g. Experiments" value={name} onChange={(e) => setName(e.target.value)} />
+        <Button type="submit" size="sm" disabled={!name.trim()}>
+          Add repo
+        </Button>
+      </form>
+      {repos && repos.length === 0 && <EmptyState icon={<Boxes />} title="No local repos yet" hint="The first publish makes My apps." />}
+      {repos?.map((repo) => (
+        <div key={repo.path} className="flex flex-col gap-1" data-local-repo={repo.name}>
+          {editing?.name === repo.name ? (
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (editing.to.trim()) void run(r.rename(repo.name, editing.to.trim())).then(() => setEditing(null));
+              }}
+            >
+              <Input aria-label={`New name for ${repo.name}`} value={editing.to} onChange={(e) => setEditing({ name: repo.name, to: e.target.value })} autoFocus />
+              <Button type="submit" size="sm">
+                Save
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                Cancel
+              </Button>
+            </form>
+          ) : (
+            <ListRow
+              row={{ id: repo.path, title: repo.name, subtitle: repo.path }}
+              icon={<Boxes className="size-5" />}
+              trailing={
+                repo.registered ? (
+                  <Chip tone="neutral">Set in os.json</Chip>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <Button size="xs" variant="outline" onClick={() => setEditing({ name: repo.name, to: repo.name })} aria-label={`Rename ${repo.name}`}>
+                      Rename
+                    </Button>
+                    <Button size="xs" variant="ghost" onClick={() => setConfirm(repo.name)} aria-label={`Remove ${repo.name}`}>
+                      Remove
+                    </Button>
+                  </span>
+                )
+              }
+            />
+          )}
+          {confirm === repo.name && (
+            <div role="alertdialog" aria-label={`Remove ${repo.name}`} className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm">
+              <span>Remove {repo.name} and its packages? Apps installed from it stay installed.</span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => {
+                    setConfirm(null);
+                    void run(r.remove(repo.name));
+                  }}
+                >
+                  Remove
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
