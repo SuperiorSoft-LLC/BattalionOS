@@ -162,11 +162,14 @@ pub struct WindowSettings {
     pub save_debounce_ms: u64,
     /// WM-6 `bos.windows.restoreOnStart` (default false, the cheapest): reopen an app's native windows when the app starts.
     pub restore_on_start: bool,
+    /// WM-7 `bos.windows.lowMemoryAfterSec` (default 30; 0 = off): a native window minimized or hidden this long is set to
+    /// WebView2's LOW memory target, NORMAL again on restore or focus.
+    pub low_memory_after_sec: u64,
 }
 
 impl Default for WindowSettings {
     fn default() -> Self {
-        WindowSettings { save_debounce_ms: 500, restore_on_start: false }
+        WindowSettings { save_debounce_ms: 500, restore_on_start: false, low_memory_after_sec: 30 }
     }
 }
 

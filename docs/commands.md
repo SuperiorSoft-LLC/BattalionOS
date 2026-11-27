@@ -49,6 +49,13 @@ so it is not a second sign-in). The frame's bridge is the one of the frames in `
   takes it out of the table and the app hears `closed`.
 - `bos.windows.restoreOnStart` (os.json `{"windows": {"restoreOnStart": true}}`, default false) reopens an app's native windows
   when the app starts.
+- WM-7 low memory: a native window minimized or hidden for `bos.windows.lowMemoryAfterSec` seconds (os.json
+  `{"windows": {"lowMemoryAfterSec": 30}}`, default 30, 0 = off) is set to WebView2's LOW `MemoryUsageTargetLevel`; restore or
+  focus sets NORMAL again. `TrySuspend` is not used (it stops timers and sockets). Behind `NativeWindows::memory_level`
+  (`None` on engines without one).
+- `os_win_list` carries `memoryMb` on a native window when the runtime tells it (WebView2: the working set of the renderer
+  processes holding that window's frames; a renderer shared with another window counts for both). The taskbar window list
+  shows it.
 - A phone has no windows of its own: `native` and `float` open as a slot view and `os_win_open` answers `kind: "inline"`.
 - The engine is behind the `NativeWindows` trait (`battalion-desktop::native`); the Tauri/wry implementation (`native_tauri`) is
   the only one. Every window step runs from an async command through Tauri's main-thread event loop.
@@ -74,7 +81,7 @@ names only its own wids (`access::authorize_wid`): a wid of another app is refus
 | `os_win_focus` | `wid` | `{state}`. Raises it to the top of its surface; a minimized window is restored first |
 | `os_win_snap` | `wid`, `zone` (`left`, `right`, `tl`, `tr`, `bl`, `br`) | `{state, bounds}`: the half or quarter of the surface |
 | `os_win_set` | `wid`, `title?`, `icon?`, `badge?` (`{count?, text?}`, `null` clears), `attention?`, `bounds?` | nothing. `bounds` only for `inline` (the app moved it; the OS saves it) |
-| `os_win_list` | | the caller's own windows (`Window[]`, z order) |
+| `os_win_list` | | the caller's own windows (`Window[]`, z order; native windows carry `memoryMb` where known) |
 
 The SDK (WM-5) wraps these calls: Rust types in `battalion-app-api::windows` (`WindowSpec`, `WindowKind`, `WindowState`, `SnapZone`,
 `WinEvent`; schema `schemas/window.schema.json`), and the TS `windows` client in the kit (`kit/lib/windows`, types generated from the

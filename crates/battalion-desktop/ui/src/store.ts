@@ -34,7 +34,7 @@ export interface Model {
 }
 
 /** WM-3: one window row as the WM lists it (the fields the taskbar reads). */
-export interface Win { wid: string; app: string; title: string; icon?: string | null; badge?: { count?: number; text?: string } | null; attention?: boolean; state: unknown; z?: number }
+export interface Win { wid: string; app: string; title: string; icon?: string | null; badge?: { count?: number; text?: string } | null; attention?: boolean; state: unknown; z?: number; /** WM-7: a native window's own memory, when the runtime tells it. */ memoryMb?: number }
 
 export const initial: Model = { loaded: false, installed: [], listError: null, catalog: null, catalogError: null, catalogLoading: false, installs: {}, ops: {}, progress: {}, firstRunDismissed: false, views: [], active: null, ended: [] };
 
@@ -192,11 +192,11 @@ export const taskItems = (m: Model): TaskItem[] =>
 /** `ended` (AND-6): the app's phone slot ended; the button stays, not running, and a tap opens the app fresh (as Windows shows a closed app). */
 /** WM-3: `key` is unique per button; `windows` are the app's open windows (grouped), or the one window of an ungrouped button (`wid`).
  *  `mark` is the app badge (`os_badge`), or, when there is none, the sum of its windows' counts. `attention`: a window asks for it. */
-export interface BarWindow { wid: string; title: string; icon: string | null; mark: string | null; attention: boolean; minimized: boolean }
+export interface BarWindow { wid: string; title: string; icon: string | null; mark: string | null; attention: boolean; minimized: boolean; memoryMb: number | null }
 export interface BarItem extends TaskItem { key: string; open: boolean; active: boolean; ended: boolean; windows: BarWindow[]; wid?: string; attention: boolean }
 
 const winMark = (w: Win): string | null => (w.badge?.text ? w.badge.text : w.badge?.count ? String(w.badge.count) : null);
-const barWindow = (w: Win): BarWindow => ({ wid: w.wid, title: w.title, icon: w.icon ?? null, mark: winMark(w), attention: w.attention === true, minimized: w.state === "minimized" });
+const barWindow = (w: Win): BarWindow => ({ wid: w.wid, title: w.title, icon: w.icon ?? null, mark: winMark(w), attention: w.attention === true, minimized: w.state === "minimized", memoryMb: typeof w.memoryMb === "number" ? w.memoryMb : null });
 /** The sum of the windows' counts, or null when none has one. */
 export const winCountSum = (ws: readonly Win[]): number | null => {
   const counts = ws.map((w) => w.badge?.count ?? 0);

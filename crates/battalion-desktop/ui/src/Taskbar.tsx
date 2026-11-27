@@ -17,9 +17,10 @@ export function WindowList({ app, appIcon, windows, phone, onWin }: { app: strin
     <div role="menu" aria-label={`${app} windows`} className={`absolute z-20 flex flex-col gap-1 rounded-lg border bg-popover p-2 shadow-lg ${phone ? "inset-x-2 bottom-16 max-h-[60vh] overflow-y-auto" : "bottom-12 w-64"}`}>
       {windows.map((w) => (
         <div key={w.wid} className="flex items-center gap-1" data-wid={w.wid}>
-          <Button variant="ghost" size={phone ? "lg" : "sm"} className={`min-w-0 flex-1 justify-start ${w.attention ? "motion-safe:animate-pulse" : ""}`} role="menuitem" data-attention={w.attention || undefined} onClick={() => onWin(w.wid, "focus")} aria-label={`${w.title || app}${w.minimized ? " (minimized)" : ""}${w.mark ? ` (${w.mark})` : ""}${w.attention ? " (needs attention)" : ""}`}>
+          <Button variant="ghost" size={phone ? "lg" : "sm"} className={`min-w-0 flex-1 justify-start ${w.attention ? "motion-safe:animate-pulse" : ""}`} role="menuitem" data-attention={w.attention || undefined} onClick={() => onWin(w.wid, "focus")} aria-label={`${w.title || app}${w.minimized ? " (minimized)" : ""}${w.memoryMb !== null ? ` (${w.memoryMb} MB)` : ""}${w.mark ? ` (${w.mark})` : ""}${w.attention ? " (needs attention)" : ""}`}>
             <AppIcon icon={w.icon ?? appIcon} className="size-4" />
             <span className={`truncate ${w.minimized ? "text-muted-foreground" : ""}`}>{w.title || app}</span>
+            {w.memoryMb !== null && <span className="ml-auto shrink-0 text-xs text-muted-foreground" data-memory={w.memoryMb} title="Memory this window uses">{w.memoryMb} MB</span>}
             {w.mark && <Badge variant="destructive" data-badge={w.mark}>{w.mark}</Badge>}
           </Button>
           <Button variant="ghost" size="icon" className="shrink-0" aria-label={`Close ${w.title || app}`} onClick={() => onWin(w.wid, "close")}>

@@ -60,4 +60,9 @@ describe("taskbar windows (WM-3)", () => {
   });
 
   it("groups by default", () => expect(barItems(model([app("a")], [win("w-a-1"), win("w-a-2")]))).toHaveLength(1));
+
+  it("WM-7: a native window's memory from os_win_list reaches the window list; unknown stays null", () => {
+    const items = barItems(model([app("a")], [win("w-a-1", { memoryMb: 142 }), win("w-a-2", { z: 1 })]));
+    expect(items[0]?.windows.map((w) => w.memoryMb)).toEqual([142, null]);
+  });
 });

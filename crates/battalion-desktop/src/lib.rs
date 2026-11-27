@@ -10,6 +10,7 @@ pub mod launch;
 #[cfg(feature = "gui")]
 pub mod native_tauri;
 pub mod native;
+pub mod lowmem;
 pub mod osupdate;
 pub mod serve;
 #[cfg(feature = "gui")]

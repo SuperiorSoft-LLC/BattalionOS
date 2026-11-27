@@ -34,7 +34,11 @@ pub struct NativeSpec {
 
 /// WM-7 sets a hidden native window's memory target through this; an engine without one answers `None`.
 pub trait MemoryLevel: Send + Sync {
+    /// LOW (`true`) or NORMAL. Fire and forget: done on the engine's own thread.
     fn set_low(&self, id: &NativeId, low: bool) -> Result<(), String>;
+    /// What the window's own content costs, in MB, when the runtime tells it (WebView2: the working set of the renderer
+    /// processes that hold its frames). `reply` is called once, with `None` when it is not known.
+    fn memory_mb(&self, id: &NativeId, reply: Box<dyn FnOnce(Option<u64>) + Send>);
 }
 
 /// The engine seam for native windows. Every call is made from a tokio task; an implementation does its window work on the

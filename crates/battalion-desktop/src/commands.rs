@@ -776,7 +776,36 @@ async fn win_run(app: &AppHandle, host: &Host, id: &str, cmd: &'static str, args
     if let Some(ev) = done.event {
         emit_win(app, id, ev);
     }
-    Ok(done.result)
+    let mut result = done.result;
+    if cmd == crate::win_calls::LIST {
+        add_memory(&engine, &mut result).await;
+    }
+    Ok(result)
+}
+
+/// WM-7 (POPOUT-1: users see what each window costs): `memoryMb` on each native window of an `os_win_list` answer, where the
+/// engine tells it. Asked in parallel, each with a short wait, so a slow runtime never holds the list.
+async fn add_memory(engine: &crate::native_tauri::TauriNative, result: &mut Value) {
+    use crate::native::NativeWindows;
+    let Some(m) = engine.memory_level() else { return };
+    let Some(list) = result.as_array_mut() else { return };
+    let mut asks = Vec::new();
+    for (i, w) in list.iter().enumerate() {
+        if w.get("kind").and_then(Value::as_str) != Some("native") {
+            continue;
+        }
+        let Some(n) = w.get("wid").and_then(Value::as_str).and_then(crate::native::label_of) else { continue };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        m.memory_mb(&n, Box::new(move |mb| {
+            let _ = tx.send(mb);
+        }));
+        asks.push((i, rx));
+    }
+    for (i, rx) in asks {
+        if let Ok(Ok(Some(mb))) = tokio::time::timeout(std::time::Duration::from_millis(1500), rx).await {
+            list[i]["memoryMb"] = json!(mb);
+        }
+    }
 }
 
 /// WM-6: put native window `wid` (already in the table) on screen: the OS host page with one frame of the app at its route, in the
