@@ -40,6 +40,11 @@ pub struct InstalledApp {
     pub previous: Option<String>,
     /// UPDATE-LIVE-1: the version "Later" was chosen for (applied at the next start or idle moment).
     pub pending_update: Option<String>,
+    /// ARMORY-CHANNEL-SWITCH: the version the cached feed of the app's channel names (any order against the installed
+    /// one); `None` when that channel has no readable feed yet.
+    pub channel_version: Option<String>,
+    /// ARMORY-CHANNEL-SWITCH: the channel names the app's catalog entry lists (cached catalog; empty when unknown).
+    pub channels: Vec<String>,
 }
 
 impl Armory {
@@ -62,6 +67,7 @@ impl Armory {
     /// Every app that has a `current.json`.
     pub fn installed(&self) -> Result<Vec<InstalledApp>> {
         let mut out = Vec::new();
+        let mut channels_of = self.cached_channels();
         let rd = match std::fs::read_dir(self.paths.apps()) {
             Ok(r) => r,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
@@ -76,11 +82,33 @@ impl Armory {
                 let (name, icon) = self.card_of(&id, &cur.version);
                 let previous = cur.previous.clone().filter(|v| self.paths.version_dir(&id, v).is_ok_and(|d| d.join("app.json").is_file()));
                 let available = self.cached_newer(&id, &cur.version, channel.as_deref());
-                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous, pending_update });
+                let channel_version = self.cached_version(&id, channel.as_deref());
+                let channels = channels_of.remove(&id).unwrap_or_default();
+                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous, pending_update, channel_version, channels });
             }
         }
         out.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(out)
+    }
+
+    /// ARMORY-CHANNEL-SWITCH: move an installed app to another channel its catalog entry lists. Only `Meta.channel`
+    /// is rewritten (atomically); nothing is downloaded or installed and the installed files are not touched. The next
+    /// update check reads the new channel's feed, and an update still refuses anything not newer than what is installed.
+    pub fn set_channel(&self, id: &str, channel: &str) -> Result<()> {
+        self.paths.app_dir(id)?;
+        let _lock = self.lock_app(id)?;
+        if self.load_current(id)?.is_none() {
+            return Err(ArmoryError::NotInstalled(id.into()));
+        }
+        let entry = self.find(id)?;
+        if !entry.app.channels.contains_key(channel) {
+            return Err(ArmoryError::NoChannel { id: id.into(), channel: channel.into() });
+        }
+        let path = meta_path(&self.paths, id)?;
+        let mut meta = self.load_meta(id).unwrap_or(Meta { channel: "stable".into(), state_schema: 1, previous_state_schema: None, custom_state_dir: false, pending_update: None });
+        meta.channel = channel.into();
+        store::write_json(&path, &meta)?;
+        Ok(())
     }
 
     /// Install `id` from the catalog, on `channel` (`stable` when you have no other).

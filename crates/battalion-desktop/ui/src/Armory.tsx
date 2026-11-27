@@ -3,11 +3,11 @@
 // and Retry), and an offline notice. An install that succeeds puts the icon on the desktop by itself; the page then offers Open.
 import { ArrowLeft, Boxes, CloudOff, X } from "lucide-react";
 import { useState } from "react";
-import { Button, Chip, EmptyState, ListRow, ProgressLine, RefusalBanner, Tabs, TabsContent, TabsList, TabsTrigger } from "../kit";
+import { Button, Chip, EmptyState, ListRow, ProgressLine, RefusalBanner, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger } from "../kit";
 import { AppIcon } from "./AppIcon";
 import type { ArmoryOp } from "./os";
 import { confirmText, osRowActions, OS_ROW, type OsPhase, type OsUpdateInfo } from "./osUpdate";
-import { appView, availableOf, browseIds, desktopIds, iconOf, labelOf, offline, pendingOf, previousOf, progressOf, waitText, type Model } from "./store";
+import { appView, availableOf, browseIds, channelNoteOf, channelsOf, channelText, desktopIds, iconOf, labelOf, offline, pendingOf, previousOf, progressOf, waitText, type Model } from "./store";
 
 export interface ArmoryActions {
   install(id: string): void;
@@ -17,6 +17,8 @@ export interface ArmoryActions {
   /** UPDATE-LIVE-1 "Later": the update applies by itself at the app's next start or idle moment. */
   later(id: string): void;
   rollback(id: string): void;
+  /** ARMORY-CHANNEL-SWITCH: move the app to another channel (installs nothing). */
+  setChannel(id: string, channel: string): void;
   remove(id: string): void;
   /** Clears a failed action's error. */
   dismiss(id: string): void;
@@ -88,6 +90,9 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
   const entry = m.catalog?.apps.find((c) => c.id === id);
   const newer = availableOf(m, id);
   const prev = previousOf(m, id);
+  const channels = channelsOf(m, id);
+  const channel = m.installed.find((x) => x.id === id)?.channel || "stable";
+  const note = channelText(channelNoteOf(m, id));
   const busy = op?.kind === "working" || v.kind === "installing";
   const [confirm, setConfirm] = useState(false);
   return (
@@ -111,6 +116,7 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
         {v.kind !== "installed" && entry?.version && <span>· latest {entry.version}</span>}
         <StateChip m={m} id={id} />
       </div>
+      {v.kind === "installed" && channels.length > 0 && <ChannelPicker id={id} channels={channels} channel={channel} note={note} disabled={busy} onPick={(c) => a.setChannel(id, c)} />}
       {busy && <Progress m={m} id={id} fallback={op?.kind === "working" ? VERB[op.op] : v.kind === "installing" ? v.stage : "Working"} />}
       {v.kind === "failed" && !op && <RefusalBanner text={`Install failed: ${v.error}`} onDismiss={() => a.dismiss(id)} />}
       <OpError m={m} id={id} a={a} />
@@ -138,7 +144,7 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
         {v.kind === "available" && <Button onClick={() => a.install(id)}>Install</Button>}
         {v.kind === "failed" && !op && <Button onClick={() => a.install(id)}>Retry</Button>}
         {v.kind === "installed" && !busy && <Button onClick={() => a.open(id)}>Open</Button>}
-        {v.kind === "installed" && !busy && newer && <Button variant="secondary" onClick={() => a.update(id)}>Update to {newer}</Button>}
+        {v.kind === "installed" && !busy && newer && !note && <Button variant="secondary" onClick={() => a.update(id)}>Update to {newer}</Button>}
         {v.kind === "installed" && !busy && prev && (
           <Button variant="outline" onClick={() => a.rollback(id)}>
             Roll back to {prev}
@@ -152,6 +158,29 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
         {v.kind === "unavailable" && <span className="text-sm text-muted-foreground">{v.reason}</span>}
         {v.kind === "incompatible" && <span className="text-sm text-muted-foreground">This app needs a different BattalionOS version.</span>}
       </div>
+    </div>
+  );
+}
+
+/** ARMORY-CHANNEL-SWITCH: the channel an installed app follows. Switching installs nothing; the note says when the channel has
+ *  no build yet or is behind the installed version (then no update is offered). */
+export function ChannelPicker({ id, channels, channel, note, disabled, onPick }: { id: string; channels: string[]; channel: string; note: string | null; disabled?: boolean; onPick: (c: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">Channel</span>
+      <Select value={channel} disabled={disabled} onValueChange={(c) => c !== channel && onPick(c)}>
+        <SelectTrigger size="sm" aria-label={`Channel of ${id}`} className="w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {channels.map((c) => (
+            <SelectItem key={c} value={c}>
+              {c}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {note && <span className="text-xs text-muted-foreground">{note}</span>}
     </div>
   );
 }

@@ -18,6 +18,10 @@ export interface InstalledApp {
   badge?: string | null;
   /** UPDATE-LIVE-1: "Later" was chosen for this version; it applies by itself at the next start or idle moment. */
   pendingUpdate?: string | null;
+  /** ARMORY-CHANNEL-SWITCH: the channels the app's catalog entry lists (cached catalog; empty when unknown). */
+  channels?: string[];
+  /** The version the app's channel offers (cached feed, newer or not); null when the channel has no build yet. */
+  channelVersion?: string | null;
 }
 /** UPDATE-LIVE-1: what `os_update_app` answers when the running app did not get ready in time (the new version stays staged). */
 export interface NotReady { notReady: true; version: string; reason: string; etaMs?: number | null }
@@ -53,6 +57,8 @@ export interface Os {
   update(id: string, now?: boolean): Promise<NotReady | void>;
   /** "Later": the update applies by itself at the app's next start or idle moment. */
   updateLater(id: string): Promise<void>;
+  /** ARMORY-CHANNEL-SWITCH: move an installed app to another listed channel. Installs nothing; an update still never downgrades. */
+  setChannel(id: string, channel: string): Promise<void>;
   /** An app was updated (`os://app-updated`); returns the unsubscribe. */
   onAppUpdated(cb: (id: string) => void): () => void;
   remove(id: string): Promise<void>;
@@ -156,6 +162,7 @@ export const hostOs: Os = {
     return r && r.notReady ? (r as unknown as NotReady) : undefined;
   },
   updateLater: async (id) => void (await call("os_update_later", { id })),
+  setChannel: async (id, channel) => void (await call("os_set_app_channel", { id, channel })),
   onAppUpdated(cb) {
     const sub = tauri().event.listen("os://app-updated", (e) => cb((e.payload as { id: string }).id));
     return () => void sub.then((off) => off());

@@ -72,6 +72,11 @@ impl Armory {
         (Version::parse(&feed.version)? > Version::parse(installed)?).then_some(feed.version)
     }
 
+    /// The version the cached feed of the app's channel names, newer or not (no network).
+    pub(crate) fn cached_version(&self, id: &str, channel: Option<&str>) -> Option<String> {
+        Some(Feed::parse(&std::fs::read_to_string(self.feed_cache(id, channel.unwrap_or("stable"))).ok()?).ok()?.version)
+    }
+
     /// The version a catalog entry offers on `channel`: read from its feed (the cache when
     /// offline). `None` when no feed can be read; that is not an error for a list.
     pub fn offered(&self, e: &CatalogEntry, channel: &str) -> Option<String> {

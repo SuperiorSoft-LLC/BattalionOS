@@ -1018,3 +1018,89 @@ fn later_applies_at_the_next_idle_moment_or_the_next_start() {
     assert_eq!(a.pending_update("prep-three"), None, "nothing pending after it is applied");
     assert_eq!(a.apply_pending("prep-three").unwrap(), None);
 }
+
+// ---- ARMORY-CHANNEL-SWITCH: set_channel, no silent downgrade ---------------------------------
+
+impl World {
+    /// Publish `p` on `channel` (its own feed file) and list the channels in the catalog. A channel without a published
+    /// feed is listed with a url that does not exist (a 404).
+    fn publish_on(&self, p: &Pkg, channel: &str, listed: &[&str]) {
+        let zip = self.zip_bytes(p);
+        let zpath = self.root.join("pkgs").join(format!("{}-{}.zip", p.id, p.version));
+        std::fs::write(&zpath, &zip).unwrap();
+        let feed = serde_json::json!({
+            "version": p.version, "contract": p.contract.0, "stateSchema": p.schema,
+            "platforms": { platform_key(): { "url": file_url(&zpath), "signature": sign(&key(p.signer), &zip), "sha256": battalion_host::armory::sha256_hex(&zip), "size": zip.len() } }
+        });
+        std::fs::write(self.root.join("feeds").join(format!("{}-{channel}.json", p.id)), feed.to_string()).unwrap();
+        let chans: serde_json::Map<String, serde_json::Value> =
+            listed.iter().map(|c| (c.to_string(), serde_json::json!(file_url(&self.root.join("feeds").join(format!("{}-{c}.json", p.id)))))).collect();
+        let app = serde_json::json!({ "id": p.id, "name": p.id, "publicKey": pub_b64(&key(*self.catalog_key.borrow())), "contract": { "min": p.contract.0, "max": p.contract.1 }, "channels": chans });
+        std::fs::write(self.catalog_path(), serde_json::json!({ "schema": 2, "apps": [app] }).to_string()).unwrap();
+    }
+    fn channel_of(&self, id: &str) -> String {
+        store::read_json::<serde_json::Value>(&self.paths.app_dir(id).unwrap().join("armory.json")).ok().flatten().map(|v| v["channel"].as_str().unwrap_or("").to_string()).unwrap_or_default()
+    }
+}
+
+#[test]
+fn set_channel_persists_a_listed_channel_and_refuses_an_unlisted_one() {
+    let w = World::new("chan-set");
+    w.publish_on(&Pkg::new("chan-set", "0.8.8"), "stable", &["stable", "prerelease"]);
+    let a = w.armory();
+    assert!(matches!(a.set_channel("chan-set", "prerelease"), Err(ArmoryError::NotInstalled(_))));
+    a.install("chan-set", "stable").unwrap();
+    a.set_channel("chan-set", "prerelease").unwrap();
+    assert_eq!(a.installed().unwrap()[0].channel.as_deref(), Some("prerelease"));
+    assert_eq!(a.installed().unwrap()[0].channels, vec!["prerelease".to_string(), "stable".to_string()]);
+    assert!(matches!(a.set_channel("chan-set", "nightly"), Err(ArmoryError::NoChannel { .. })));
+    assert_eq!(a.installed().unwrap()[0].channel.as_deref(), Some("prerelease"));
+    assert_eq!(w.current("chan-set").unwrap().version, "0.8.8", "nothing installed by a switch");
+}
+
+#[test]
+fn prerelease_offers_its_newer_build_and_stable_offers_nothing() {
+    let w = World::new("chan-offer");
+    w.publish_on(&Pkg::new("chan-offer", "0.8.8"), "stable", &["stable", "prerelease"]);
+    w.publish_on(&Pkg::new("chan-offer", "0.8.10"), "prerelease", &["stable", "prerelease"]);
+    let a = w.armory();
+    a.install("chan-offer", "stable").unwrap();
+    assert!(!a.check_update("chan-offer", None).unwrap().newer);
+    assert!(matches!(a.update("chan-offer", &UpdateOptions::default()), Err(ArmoryError::UpToDate(_))));
+    a.set_channel("chan-offer", "prerelease").unwrap();
+    let av = a.check_update("chan-offer", None).unwrap();
+    assert!(av.newer && av.available == "0.8.10");
+    let app = &a.installed().unwrap()[0];
+    assert_eq!((app.available.as_deref(), app.channel_version.as_deref()), (Some("0.8.10"), Some("0.8.10")));
+}
+
+#[test]
+fn switching_back_to_an_older_channel_never_downgrades() {
+    let w = World::new("chan-down");
+    w.publish_on(&Pkg::new("chan-down", "0.8.8"), "stable", &["stable", "prerelease"]);
+    w.publish_on(&Pkg::new("chan-down", "0.8.10"), "prerelease", &["stable", "prerelease"]);
+    let a = w.armory();
+    a.install("chan-down", "prerelease").unwrap();
+    a.set_channel("chan-down", "stable").unwrap();
+    assert_eq!(w.channel_of("chan-down"), "stable");
+    assert!(!a.check_update("chan-down", None).unwrap().newer);
+    assert!(matches!(a.update("chan-down", &UpdateOptions::default()), Err(ArmoryError::UpToDate(_))));
+    assert_eq!(w.current("chan-down").unwrap().version, "0.8.10");
+    assert!(w.paths.version_dir("chan-down", "0.8.10").unwrap().join("app.json").is_file());
+    assert!(!w.paths.version_dir("chan-down", "0.8.8").unwrap().exists());
+    let app = &a.installed().unwrap()[0];
+    assert_eq!((app.available.as_deref(), app.channel_version.as_deref()), (None, Some("0.8.8")));
+}
+
+#[test]
+fn a_channel_feed_that_is_missing_is_no_offer_not_an_error() {
+    let w = World::new("chan-404");
+    w.publish_on(&Pkg::new("chan-404", "0.8.8"), "stable", &["stable", "nightly"]);
+    let a = w.armory();
+    a.install("chan-404", "stable").unwrap();
+    a.set_channel("chan-404", "nightly").unwrap();
+    let e = a.find("chan-404").unwrap();
+    assert_eq!(a.offer(&e, "nightly").version, None);
+    let app = &a.installed().unwrap()[0];
+    assert_eq!((app.available.as_deref(), app.channel_version.as_deref()), (None, None));
+}
