@@ -12,6 +12,7 @@ pub mod serve;
 #[cfg(feature = "gui")]
 pub mod shortcuts;
 pub mod webview2;
+pub mod windows;
 
 #[cfg(feature = "gui")]
 pub mod commands;

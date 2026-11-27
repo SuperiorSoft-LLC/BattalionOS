@@ -508,6 +508,9 @@ pub async fn os_remove_app(window: WebviewWindow, app: AppHandle, host: State<'_
     let a = host.armory.clone();
     let id2 = id.clone();
     let r = blocking(move || a.remove(&id, &RemoveOptions::default())).await?.map_err(|e| e.to_string());
+    if r.is_ok() {
+        let _ = host.windows.app_removed(&id2).await; // OS-WINDOW-1: removing the app deletes its window file (an update keeps it)
+    }
     announce(&app, &host, &id2).await;
     r?;
     Ok(json!({"ok": true}))

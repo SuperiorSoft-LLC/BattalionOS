@@ -12,6 +12,33 @@ Crate `battalion-desktop` (Tauri 2.12.6). Names below are frozen: later tickets 
 
 The window label is the caller's identity. It comes from the Tauri runtime, never from an argument.
 
+## Windows (OS-WINDOW-1)
+
+The OS's window model (WM-1). No commands yet: WM-2 adds `os_win_*`, WM-3 the taskbar items, WM-6 native windows.
+One `WindowManager` actor (`src/windows.rs`, a tokio task behind an mpsc) owns the window table; nothing else writes it.
+
+| Field | What |
+|---|---|
+| `wid` | `w-<app>-<n>`, given by the OS. Scoped to its app: a call naming another app's wid is refused (`NotYours`). |
+| `app` | The caller's identity (its window label or frame), never an argument. |
+| `key` | Chosen by the app, stable. Opening an open `(app, key)` focuses it instead of a duplicate; it is the unit of persistence. |
+| `kind` | `inline` \| `float` \| `native`. |
+| `title`, `icon?`, `badge?` (`{count?, text?}`), `attention` | What the taskbar shows. |
+| `state` | `normal` \| `minimized` \| `maximized` \| `{snap: left\|right\|tl\|tr\|bl\|br}`. |
+| `bounds` | `{x, y, w, h}` in its surface's coordinates. |
+| `z` | OS-owned stack order (higher is on top). |
+| `route?` | `float`/`native` only: the app page path the frame loads. |
+
+Persistence: `(app, key) -> {kind, bounds, state, monitor?}` in `<root>/state/windows/<app>.json`. Writes are debounced
+by `bos.windows.saveDebounceMs` (os.json `{"windows": {"saveDebounceMs": 500}}`, default 500) and run on a blocking
+thread. A minimized window keeps its last open state. Removing the app (`os_remove_app`) deletes the file; an update
+keeps it. On restore the bounds are clamped to the current surface or monitor, so a window is never lost off-screen.
+
+Geometry: `battalion-app-api::geometry` (Rust) and the kit's `lib/geometry.ts` (TypeScript) are the same pure
+functions, shared by the OS and the SDKs: `clampBox`, `dragBox`, `resizeBox` (from infantry-ai `popout.ts`; minimum
+320x240, 80 px kept grabbable, 36 px bar), `snapBox` (halves `left`/`right`, quarters `tl`/`tr`/`bl`/`br`) and
+`snapZoneAt` (the zone a drag pointer near an edge or corner asks for).
+
 ## Origin (spike result)
 
 An origin per app at run time on Windows: a custom scheme (`bos://`) is registered once, when the

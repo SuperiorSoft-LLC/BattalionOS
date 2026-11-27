@@ -6,6 +6,7 @@
 
 pub mod abi;
 pub mod catalog;
+pub mod geometry;
 pub mod manifest;
 pub mod runtime;
 pub mod schemas;

@@ -34,6 +34,7 @@ export * from "./blocks/selected-stripes";
 export * from "./blocks/status-dot";
 export * from "./blocks/tab-page";
 export * from "./blocks/app-dialog";
+export * from "./lib/geometry";
 export * from "./lib/portal";
 export * from "./lib/time";
 export * from "./lib/utils";

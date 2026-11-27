@@ -31,13 +31,17 @@ pub struct Host {
     /// BOS-DEFAULT-INF: the apps the first run just installed, until the shell takes them (`os_take_first_run_notice`) to
     /// name them once. Held here because the run may finish before the shell listens to `os://first-run`.
     pub first_run_notice: Mutex<Vec<String>>,
+    /// OS-WINDOW-1 (WM-1): the window manager actor's handle (the window table and its persistence).
+    pub windows: crate::windows::Windows,
 }
 
 impl Host {
     pub fn new(paths: Paths) -> Host {
         let sup = Supervisor::new(paths.clone());
         let armory = std::sync::Arc::new(Armory::new(paths.clone(), sup.clone(), env!("CARGO_PKG_VERSION")));
-        Host { paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default(), open_request: Mutex::new(None), os_update: Default::default(), first_run_plan: None, first_run_notice: Mutex::new(Vec::new()) }
+        let (windows, wm) = crate::windows::Windows::start(paths.clone(), crate::windows::WindowSettings::load(&paths));
+        tauri::async_runtime::spawn(wm);
+        Host { windows, paths, sup, armory, servers: Mutex::new(HashMap::new()), pages: Default::default(), badges: Default::default(), open_request: Mutex::new(None), os_update: Default::default(), first_run_plan: None, first_run_notice: Mutex::new(Vec::new()) }
     }
 
     /// A host whose first run installs the apps of this plan text (`first-run.json`, compiled in).

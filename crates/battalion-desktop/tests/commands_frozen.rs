@@ -146,3 +146,12 @@ fn a_release_build_has_no_door_to_another_feed_or_key() {
     assert!(!read("Cargo.toml").contains("default = [\"gui\", \"test-update\"]"), "test-update is not a default feature");
     assert!(read("Cargo.toml").contains("default = [\"gui\"]"));
 }
+
+#[test]
+fn the_window_model_is_documented_and_has_no_commands_yet() {
+    // OS-WINDOW-1 (WM-1): the model is in docs/commands.md; WM-2 adds the os_win_* commands.
+    let docs = std::fs::read_to_string(format!("{}/../../docs/commands.md", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    assert!(docs.contains("## Windows (OS-WINDOW-1)"));
+    assert!(docs.contains("bos.windows.saveDebounceMs"));
+    assert!(!commands().iter().any(|c| c.1.starts_with("os_win_")), "no os_win_* command before WM-2");
+}
