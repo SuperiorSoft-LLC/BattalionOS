@@ -1,0 +1,6 @@
+{
+  "identifier": "native-windows",
+  "description": "OS-WINDOW-1 (WM-6): the OS host page of a native window (label win-<app>-<n>, bundled window.html): its bar drags the window and it hears os://win. The os_win_* calls come from app-windows; the host names the app from the label.",
+  "windows": ["win-*"],
+  "permissions": ["core:window:allow-start-dragging", "core:event:allow-listen", "core:event:allow-unlisten"]
+}

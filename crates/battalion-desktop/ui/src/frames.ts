@@ -16,8 +16,9 @@ export type WinCommand = (typeof WIN_COMMANDS)[number];
 export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code", ...WIN_COMMANDS] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
 
-/** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). */
-export interface FrameEntry { id: string; origin: string; window: unknown }
+/** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). `wid` (WM-6):
+ *  the frame is the content of native window `wid` (its host page knows it from the window the host made it for). */
+export interface FrameEntry { id: string; origin: string; window: unknown; wid?: string }
 
 /** What the shell does for the app of a frame. The app id is always the frame's. */
 export interface FrameBackend {
@@ -66,7 +67,7 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
   try {
     switch (d.cmd as FrameCommand) {
       case "os_window_info":
-        return reply({ ok: true, result: { label: `app-${frame.id}`, app: frame.id } });
+        return reply({ ok: true, result: frame.wid ? { label: `win-${frame.wid.slice(2)}`, app: frame.id, wid: frame.wid } : { label: `app-${frame.id}`, app: frame.id } });
       case "os_app_status":
         return reply({ ok: true, result: await be.appStatus(frame.id) });
       case "os_app_health":

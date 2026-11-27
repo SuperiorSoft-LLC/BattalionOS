@@ -106,6 +106,11 @@ pub struct Saved {
     pub state: WinState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<String>,
+    /// WM-6: what a `float`/`native` window showed, so `bos.windows.restoreOnStart` can reopen it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,11 +160,13 @@ pub fn taskbar_group_windows(paths: &Paths) -> bool {
 pub struct WindowSettings {
     /// `bos.windows.saveDebounceMs`: how long geometry changes gather before one write.
     pub save_debounce_ms: u64,
+    /// WM-6 `bos.windows.restoreOnStart` (default false, the cheapest): reopen an app's native windows when the app starts.
+    pub restore_on_start: bool,
 }
 
 impl Default for WindowSettings {
     fn default() -> Self {
-        WindowSettings { save_debounce_ms: 500 }
+        WindowSettings { save_debounce_ms: 500, restore_on_start: false }
     }
 }
 
@@ -206,6 +213,8 @@ enum Cmd {
     Close { app: String, wid: String, reply: Reply<Result<(), WinError>> },
     List { app: Option<String>, reply: Reply<Vec<Window>> },
     AppRemoved { app: String, reply: Reply<()> },
+    AppStopped { app: String, reply: Reply<Vec<Window>> },
+    Saved { app: String, reply: Reply<Result<BTreeMap<String, Saved>, WinError>> },
     Flush { reply: Reply<()> },
 }
 
@@ -256,6 +265,15 @@ impl Windows {
     /// The app was removed: its windows go and its file is deleted. (An update does not call this.)
     pub async fn app_removed(&self, app: &str) -> Result<(), WinError> {
         self.ask(|reply| Cmd::AppRemoved { app: app.into(), reply }).await
+    }
+    /// WM-6: the app stopped. Its native windows leave the table (their geometry stays saved) and are returned, so the caller
+    /// closes them on screen. Inline and float windows live in the app's view and go with it.
+    pub async fn app_stopped(&self, app: &str) -> Result<Vec<Window>, WinError> {
+        self.ask(|reply| Cmd::AppStopped { app: app.into(), reply }).await
+    }
+    /// What is saved for each key of `app` (the native step reads the monitor before it opens; restore-on-start reads routes).
+    pub async fn saved(&self, app: &str) -> Result<BTreeMap<String, Saved>, WinError> {
+        self.ask(|reply| Cmd::Saved { app: app.into(), reply }).await?
     }
     /// Write every pending change now (shutdown, tests).
     pub async fn flush(&self) -> Result<(), WinError> {
@@ -339,6 +357,15 @@ impl WindowManager {
                     .await;
                 }
                 let _ = reply.send(());
+            }
+            Cmd::AppStopped { app, reply } => {
+                let gone: Vec<String> = self.table.values().filter(|w| w.app == app && w.kind == Kind::Native).map(|w| w.wid.clone()).collect();
+                let v = gone.iter().filter_map(|wid| self.table.remove(wid)).collect();
+                let _ = reply.send(v);
+            }
+            Cmd::Saved { app, reply } => {
+                let r = self.saved_for(&app).await.map(|m| m.clone());
+                let _ = reply.send(r);
             }
             Cmd::Flush { reply } => {
                 self.write_dirty().await;
@@ -436,7 +463,7 @@ impl WindowManager {
             (WinState::Minimized, None) => WinState::Normal,
             (s, _) => s,
         };
-        let s = Saved { kind: w.kind, bounds: w.bounds, state, monitor: monitor.or(prev.and_then(|p| p.monitor)) };
+        let s = Saved { kind: w.kind, bounds: w.bounds, state, monitor: monitor.or(prev.and_then(|p| p.monitor)), route: w.route.clone(), title: w.title.clone() };
         if m.get(&w.key) != Some(&s) {
             m.insert(w.key.clone(), s);
             self.dirty.insert(w.app.clone());
@@ -472,7 +499,7 @@ mod tests {
         (d, p)
     }
     fn start(p: &Paths, ms: u64) -> Windows {
-        let (w, fut) = Windows::start(p.clone(), WindowSettings { save_debounce_ms: ms });
+        let (w, fut) = Windows::start(p.clone(), WindowSettings { save_debounce_ms: ms, ..Default::default() });
         tokio::spawn(fut);
         w
     }
@@ -493,7 +520,7 @@ mod tests {
         assert!(!file.exists(), "debounced: nothing written yet");
         wm.flush().await.unwrap();
         let on_disk: BTreeMap<String, Saved> = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-        assert_eq!(on_disk["session.e7"], Saved { kind: Kind::Inline, bounds: r, state: WinState::Snap(Snap::Left), monitor: Some("DISPLAY2".into()) });
+        assert_eq!(on_disk["session.e7"], Saved { kind: Kind::Inline, bounds: r, state: WinState::Snap(Snap::Left), monitor: Some("DISPLAY2".into()), route: None, title: "Chat".into() });
 
         // A fresh OS run restores the geometry.
         let wm2 = start(&p, 10_000);

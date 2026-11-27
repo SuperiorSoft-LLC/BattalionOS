@@ -34,6 +34,25 @@ by `bos.windows.saveDebounceMs` (os.json `{"windows": {"saveDebounceMs": 500}}`,
 thread. A minimized window keeps its last open state. Removing the app (`os_remove_app`) deletes the file; an update
 keeps it. On restore the bounds are clamped to the current surface or monitor, so a window is never lost off-screen.
 
+### Native windows (WM-6)
+
+`os_win_open {kind: "native", route}` makes an OS window labelled `win-<app>-<n>` (the `<n>` of its wid `w-<app>-<n>`). It loads
+the OS host page `window.html`: the `WindowFrame` bar (decorations off; the bar drags the window, so Windows snap works) and ONE
+frame of the app at `route`, on the app's own origin, in the app's own webview data directory (the one its `app-<id>` window uses,
+so it is not a second sign-in). The frame's bridge is the one of the frames in `main`; `os_window_info` there answers
+`{label: "win-<app>-<n>", app, wid}`. `os_win_minimize`/`maximize`/`restore`/`focus`/`snap`/`close` act on the OS window;
+`os_win_set {badge}` paints the overlay badge on its own taskbar button. The same key focuses the open window.
+
+- Geometry is per monitor: the saved monitor while it is attached, else the primary; the bounds are clamped to its work area.
+  Moving or resizing the window saves its bounds and monitor (debounced as above).
+- The window closes when its app stops (`os_stop_app`); its geometry and route stay saved. Closing it from the OS (Alt+F4)
+  takes it out of the table and the app hears `closed`.
+- `bos.windows.restoreOnStart` (os.json `{"windows": {"restoreOnStart": true}}`, default false) reopens an app's native windows
+  when the app starts.
+- A phone has no windows of its own: `native` and `float` open as a slot view and `os_win_open` answers `kind: "inline"`.
+- The engine is behind the `NativeWindows` trait (`battalion-desktop::native`); the Tauri/wry implementation (`native_tauri`) is
+  the only one. Every window step runs from an async command through Tauri's main-thread event loop.
+
 Geometry: `battalion-app-api::geometry` (Rust) and the kit's `lib/geometry.ts` (TypeScript) are the same pure
 functions, shared by the OS and the SDKs: `clampBox`, `dragBox`, `resizeBox` (from infantry-ai `popout.ts`; minimum
 320x240, 80 px kept grabbable, 36 px bar), `snapBox` (halves `left`/`right`, quarters `tl`/`tr`/`bl`/`br`) and

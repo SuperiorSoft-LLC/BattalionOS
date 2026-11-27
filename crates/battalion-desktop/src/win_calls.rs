@@ -89,6 +89,20 @@ async fn find(wm: &Windows, app: &str, wid: &str) -> Result<Option<Window>, Stri
 /// Run window call `cmd` for app `app` (whose manifest `permissions` the caller read just now). `surface` is the area the window
 /// lives in (it clamps a restore and gives a snap its halves and quarters).
 pub async fn call(wm: &Windows, app: &str, permissions: &[String], cmd: &str, args: &Value, surface: Surface) -> Result<Done, String> {
+    call_on(wm, app, permissions, cmd, args, surface, true).await
+}
+
+/// The kind a window is opened as: an OS without its own windows (a phone, `os_windows` false) opens `float` and `native` as a
+/// slot view, `inline`. `open` answers this kind (design 2.2).
+pub fn kind_used(asked: Option<Kind>, os_windows: bool) -> Option<Kind> {
+    match asked {
+        Some(Kind::Float | Kind::Native) if !os_windows => Some(Kind::Inline),
+        k => k,
+    }
+}
+
+/// `call` on an OS that has (`os_windows`) or has not (a phone) windows of its own.
+pub async fn call_on(wm: &Windows, app: &str, permissions: &[String], cmd: &str, args: &Value, surface: Surface, os_windows: bool) -> Result<Done, String> {
     if !COMMANDS.contains(&cmd) {
         return Err(format!("'{cmd}' is not a window call"));
     }
@@ -103,7 +117,7 @@ pub async fn call(wm: &Windows, app: &str, permissions: &[String], cmd: &str, ar
                 return Err("os_win_open needs a key".into());
             }
             let route = a.route.as_deref().map(route).transpose()?;
-            let spec = OpenSpec { key: a.key, kind: a.kind, title: a.title, icon: a.icon, route, bounds: a.bounds, state: a.state, monitor: None };
+            let spec = OpenSpec { key: a.key, kind: kind_used(a.kind, os_windows), title: a.title, icon: a.icon, route, bounds: a.bounds, state: a.state, monitor: None };
             let (w, restored) = wm.open_restored(app, spec, surface).await.map_err(e)?;
             Ok(Done { result: json!({"wid": w.wid, "kind": w.kind, "state": w.state, "bounds": w.bounds, "restored": restored}), event: None })
         }
@@ -170,12 +184,22 @@ mod tests {
         vec!["window".into()]
     }
     fn start(p: &Paths) -> Windows {
-        let (w, fut) = Windows::start(p.clone(), WindowSettings { save_debounce_ms: 10_000 });
+        let (w, fut) = Windows::start(p.clone(), WindowSettings { save_debounce_ms: 10_000, ..Default::default() });
         tokio::spawn(fut);
         w
     }
     async fn open(wm: &Windows, app: &str, key: &str) -> Value {
         call(wm, app, &win(), OPEN, &json!({"key": key, "title": "Chat", "bounds": {"x": 50, "y": 60, "w": 700, "h": 500}}), BIG).await.unwrap().result
+    }
+
+    #[tokio::test]
+    async fn a_phone_opens_native_as_a_slot_view_and_says_so() {
+        let d = tempfile::tempdir().unwrap();
+        let wm = start(&Paths::new(d.path()));
+        let r = call_on(&wm, "aa", &win(), OPEN, &json!({"key": "n", "kind": "native", "route": "/s"}), BIG, false).await.unwrap().result;
+        assert_eq!(r["kind"], "inline");
+        let r = call_on(&wm, "aa", &win(), OPEN, &json!({"key": "m", "kind": "native", "route": "/s"}), BIG, true).await.unwrap().result;
+        assert_eq!(r["kind"], "native");
     }
 
     #[tokio::test]

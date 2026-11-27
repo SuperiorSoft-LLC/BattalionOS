@@ -80,7 +80,9 @@ pub async fn os_start_app(window: WebviewWindow, app: AppHandle, host: State<'_,
         updated(&app, &host, &u).await;
     }
     let sup = host.sup.clone();
+    let id2 = id.clone();
     let s = blocking(move || sup.start(&id)).await?.map_err(|e| e.to_string())?;
+    restore_native_of(&app, &host, &id2).await;
     Ok(status_json(&s))
 }
 
@@ -93,6 +95,7 @@ pub async fn os_stop_app(window: WebviewWindow, app: AppHandle, host: State<'_, 
     if host.badges.set(&id2, None) {
         paint_badge(&app, &id2, None);
     }
+    close_native_of(&app, &host, &id2).await;
     Ok(status_json(&s))
 }
 
@@ -292,6 +295,11 @@ fn paint_badge(app: &AppHandle, id: &str, badge: Option<&str>) {
         Some(b) => format!("({b}) {id}"),
         None => id.to_string(),
     });
+    paint_window_badge(&w, badge);
+}
+
+/// The badge on one window's own taskbar button (an app window, or a native window of WM-6). `None` removes it.
+pub(crate) fn paint_window_badge(w: &WebviewWindow, badge: Option<&str>) {
     #[cfg(windows)]
     {
         // Windows has no badge label: a red dot overlay on the taskbar button; the count is in the title.
@@ -709,7 +717,7 @@ fn win_surface(app: &AppHandle) -> battalion_app_api::geometry::Surface {
 
 /// `os://win` to the owning app's windows only: the shell (it forwards to that app's frames, `{bos:1, event:"os_win", ...}`),
 /// the app's own window and its native windows. Never to another app's window.
-fn emit_win(app: &AppHandle, id: &str, ev: Value) {
+pub(crate) fn emit_win(app: &AppHandle, id: &str, ev: Value) {
     let mut payload = json!({"bos": 1, "event": "os_win", "id": id});
     if let (Some(p), Value::Object(e)) = (payload.as_object_mut(), ev) {
         p.extend(e);
@@ -724,15 +732,108 @@ fn emit_win(app: &AppHandle, id: &str, ev: Value) {
     }
 }
 
-async fn win_run(app: &AppHandle, host: &State<'_, Host>, id: &str, cmd: &'static str, args: Value) -> R<Value> {
+/// WM-6: does this OS open windows of its own (`native`)? A phone opens them as a slot view.
+const OS_WINDOWS: bool = cfg!(not(any(target_os = "android", target_os = "ios")));
+
+async fn win_run(app: &AppHandle, host: &Host, id: &str, cmd: &'static str, args: Value) -> R<Value> {
+    use crate::native::{self, NativeWindows, Step};
     crate::access::app_label(id).map_err(|e| e.to_string())?;
     let (paths, id2) = (host.paths.clone(), id.to_string());
     let perms = blocking(move || crate::host::permissions_of(&paths, &id2)).await??;
-    let done = crate::win_calls::call(&host.windows, id, &perms, cmd, &args, win_surface(app)).await?;
+    let engine = crate::native_tauri::TauriNative(app.clone());
+    // A native window lives on a monitor, not in the OS window: its surface is that monitor's work area (the saved one while it is
+    // attached, else the primary), so a window whose monitor is gone is clamped back on screen.
+    let mut surface = win_surface(app);
+    let mut monitor = None;
+    let mut args = args;
+    if cmd == crate::win_calls::OPEN && OS_WINDOWS {
+        let key = args.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+        let saved = host.windows.saved(id).await.ok().and_then(|m| m.get(&key).cloned());
+        let asked = args.get("kind").and_then(Value::as_str);
+        if asked == Some("native") || (asked.is_none() && saved.as_ref().is_some_and(|s| s.kind == crate::windows::Kind::Native)) {
+            let monitors = engine.monitors();
+            if let Some(m) = native::pick_monitor(saved.as_ref(), &monitors) {
+                surface = m.work;
+                if args.get("bounds").is_none_or(Value::is_null) {
+                    args["bounds"] = serde_json::to_value(native::default_bounds(&m.work)).map_err(|e| e.to_string())?;
+                }
+                monitor = Some(m.name.clone());
+            }
+        }
+    }
+    let before = match args.get("wid").and_then(Value::as_str) {
+        Some(wid) => host.windows.list(Some(id)).await.map_err(|e| e.to_string())?.into_iter().find(|w| w.wid == wid),
+        None => None,
+    };
+    let done = crate::win_calls::call_on(&host.windows, id, &perms, cmd, &args, surface, OS_WINDOWS).await?;
+    match native::step(cmd, &args, &done.result, before.as_ref()) {
+        Some(Step::Create { wid }) => open_native(&engine, host, id, &wid, monitor).await?,
+        Some(Step::Close(n)) => engine.close(&n),
+        Some(Step::State(n, s)) => engine.set_state(&n, s),
+        Some(Step::Badge(n, b)) => engine.set_badge(&n, b.as_deref()),
+        None => {}
+    }
     if let Some(ev) = done.event {
         emit_win(app, id, ev);
     }
     Ok(done.result)
+}
+
+/// WM-6: put native window `wid` (already in the table) on screen: the OS host page with one frame of the app at its route, in the
+/// app's own webview data directory (the same one `open_app_window` uses). A window that cannot be made leaves the table again.
+async fn open_native(engine: &crate::native_tauri::TauriNative, host: &Host, id: &str, wid: &str, monitor: Option<String>) -> R<()> {
+    use crate::native::{self, NativeWindows};
+    let w = host.windows.list(Some(id)).await.map_err(|e| e.to_string())?.into_iter().find(|w| w.wid == wid).ok_or_else(|| format!("no window {wid}"))?;
+    let label = native::label_of(wid).ok_or_else(|| format!("no window {wid}"))?;
+    let made: R<native::NativeId> = async {
+        let (paths, sup, pages, id2) = (host.paths.clone(), host.sup.clone(), host.pages.clone(), id.to_string());
+        let page = blocking(move || crate::host::page_of(&paths, &sup, &pages, &id2)).await??;
+        let data_dir = host.paths.webview_dir(id).map_err(|e| e.0)?;
+        let route = w.route.clone().unwrap_or_else(|| "/".into());
+        let script = native::host_script(id, wid, &w.title, &page.origin, &route);
+        let title = if w.title.is_empty() { id.to_string() } else { w.title.clone() };
+        let spec = native::NativeSpec { id: label, app: id.into(), wid: wid.into(), title, script, bounds: w.bounds, state: w.state, data_dir };
+        engine.create(&spec)
+    }
+    .await;
+    match made {
+        Ok(_) => {
+            if monitor.is_some() {
+                let _ = host.windows.update(id, wid, crate::windows::Patch { monitor, ..Default::default() }).await;
+            }
+            Ok(())
+        }
+        Err(e) => {
+            let _ = host.windows.close(id, wid).await;
+            Err(format!("the window could not be opened: {e}"))
+        }
+    }
+}
+
+/// WM-6: app `id` stopped: its native windows close (their geometry stays saved) and its frames hear `closed` for each.
+async fn close_native_of(app: &AppHandle, host: &Host, id: &str) {
+    use crate::native::NativeWindows;
+    let engine = crate::native_tauri::TauriNative(app.clone());
+    for w in host.windows.app_stopped(id).await.unwrap_or_default() {
+        if let Some(n) = crate::native::label_of(&w.wid) {
+            engine.close(&n);
+        }
+        emit_win(app, id, json!({"wid": w.wid, "change": "closed"}));
+    }
+}
+
+/// WM-6 `bos.windows.restoreOnStart`: app `id` started; reopen the native windows it had (route and geometry are saved).
+async fn restore_native_of(app: &AppHandle, host: &Host, id: &str) {
+    if !OS_WINDOWS || !crate::windows::WindowSettings::load(&host.paths).restore_on_start {
+        return;
+    }
+    let saved = host.windows.saved(id).await.unwrap_or_default();
+    for (key, s) in saved.into_iter().filter(|(_, s)| s.kind == crate::windows::Kind::Native && s.route.is_some()) {
+        let args = json!({"key": key, "kind": "native", "title": s.title, "route": s.route});
+        if let Err(e) = Box::pin(win_run(app, host, id, crate::win_calls::OPEN, args)).await {
+            eprintln!("restore window {key} of {id}: {e}");
+        }
+    }
 }
 
 /// Open a window of the calling app (`key` already open: focus it). `{wid, kind, state, bounds, restored}`.
