@@ -25,7 +25,9 @@ export interface InstalledApp {
 }
 /** UPDATE-LIVE-1: what `os_update_app` answers when the running app did not get ready in time (the new version stays staged). */
 export interface NotReady { notReady: true; version: string; reason: string; etaMs?: number | null }
-export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null; unavailable?: string | null }
+export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null; unavailable?: string | null; /** LOCAL-REPO-1: from a local repo on this machine. */ fromLocalRepo?: boolean; label?: string | null }
+/** LOCAL-REPO-1: a private local app repo (`os_local_repos`). `registered` = listed in os.json, managed there. */
+export interface LocalRepo { name: string; path: string; registered: boolean }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
 /** AND-3b: where the page's files are, when the host serves them itself by request interception (Android; absent on the desktop). */
 export interface PageFiles { root: string; pageDir: string; csp: string }
@@ -52,6 +54,11 @@ export interface Os {
   window: OsWindow;
   listApps(): Promise<InstalledApp[]>;
   catalog(): Promise<Catalog>;
+  /** LOCAL-REPO-1: the local repos and their add / rename / remove. Optional: a host without them shows no Local repos tab. */
+  localRepos?(): Promise<LocalRepo[]>;
+  addLocalRepo?(name: string): Promise<void>;
+  renameLocalRepo?(name: string, newName: string): Promise<void>;
+  removeLocalRepo?(name: string): Promise<void>;
   install(id: string, channel?: string): Promise<void>;
   /** Resolves with [NotReady] when the app did not get ready in time; `now` = "Update now". */
   update(id: string, now?: boolean): Promise<NotReady | void>;
@@ -156,6 +163,10 @@ export const hostOs: Os = {
   },
   listApps: () => call("os_list_apps"),
   catalog: async () => normalizeCatalog(await call<Catalog>("os_catalog")),
+  localRepos: async () => (await call<{ repos: LocalRepo[] }>("os_local_repos")).repos,
+  addLocalRepo: async (name) => void (await call("os_local_repo_add", { name })),
+  renameLocalRepo: async (name, newName) => void (await call("os_local_repo_rename", { name, newName })),
+  removeLocalRepo: async (name) => void (await call("os_local_repo_remove", { name })),
   install: async (id, channel) => void (await call("os_install_app", { id, channel })),
   update: async (id, now) => {
     const r = await call<Record<string, unknown>>("os_update_app", { id, now: now ?? false });

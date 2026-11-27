@@ -13,6 +13,8 @@ pub struct CatalogEntry {
     pub source: String,
     /// The app's contract range includes the contract this OS speaks.
     pub compatible: bool,
+    /// LOCAL-REPO-1: from a local repo on this machine (signed with this device's local key).
+    pub from_local_repo: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -74,10 +76,13 @@ impl Armory {
                     continue;
                 }
                 let compatible = app.contract.min <= CONTRACT && CONTRACT <= app.contract.max;
-                out.apps.push(CatalogEntry { app, source: src.clone(), compatible });
+                out.apps.push(CatalogEntry { app, source: src.clone(), compatible, from_local_repo: false });
             }
         }
-        if !self.settings.sources.is_empty() && !any {
+        // LOCAL-REPO-1: local repos after the remote sources (a remote id wins), read from disk, never cached.
+        let before = out.apps.len();
+        self.local_catalog(&mut out, &mut seen);
+        if !self.settings.sources.is_empty() && !any && out.apps.len() == before {
             let why = out.source_errors.first().map(|(_, e)| e.clone()).unwrap_or_default();
             return Err(ArmoryError::Offline(why));
         }

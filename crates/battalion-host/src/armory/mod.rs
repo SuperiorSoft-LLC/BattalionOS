@@ -25,6 +25,7 @@ pub mod catalog;
 pub mod exit;
 pub mod info;
 pub mod install;
+pub mod localrepo;
 pub mod osupdate;
 pub mod package;
 pub mod progress;
@@ -34,6 +35,7 @@ pub mod update;
 
 pub use catalog::{CatalogEntry, Listing};
 pub use info::Offer;
+pub use localrepo::{LocalRepo, LocalRepoSetting, LOCAL_LABEL};
 pub use install::{Installed, InstalledApp};
 pub use progress::{Progress, ProgressSink};
 pub use recover::Recovered;
@@ -82,6 +84,8 @@ pub struct Settings {
     /// AND-2, developer setting (off by default, every platform): also fetch `http:` urls whose host is
     /// loopback (`127.0.0.1`, `[::1]`, `localhost`), for a test catalog or feed. Never on by default.
     pub dev_allow_loopback_http: bool,
+    /// LOCAL-REPO-1: extra local repos kept outside `<home>/local-repos/` (`[{"name","path"}]`). Read only.
+    pub local_repos: Vec<LocalRepoSetting>,
 }
 
 impl Default for Settings {
@@ -103,6 +107,7 @@ impl Default for Settings {
             http_timeout_ms: 30_000,
             pages_only: cfg!(target_os = "android"),
             dev_allow_loopback_http: false,
+            local_repos: Vec::new(),
         }
     }
 }
@@ -147,6 +152,8 @@ pub enum ArmoryError {
     Manifest(String),
     /// The package root holds another kind of manifest (`module.json`) instead of `app.json`.
     NotAnApp(String),
+    /// LOCAL-REPO-1: a local repo operation was refused.
+    LocalRepo(String),
     IdMismatch { expected: String, got: String },
     VersionMismatch { expected: String, got: String },
     AlreadyInstalled(String),
@@ -197,6 +204,7 @@ impl std::fmt::Display for ArmoryError {
             Zip(m) => write!(f, "package is not a valid zip: {m}"),
             Manifest(m) => write!(f, "package manifest: {m}"),
             NotAnApp(m) => write!(f, "this package is not an app: {m}"),
+            LocalRepo(m) => write!(f, "local repo: {m}"),
             IdMismatch { expected, got } => write!(f, "package is app '{got}', expected '{expected}'"),
             VersionMismatch { expected, got } => write!(f, "package is version {got}, the feed says {expected}"),
             AlreadyInstalled(i) => write!(f, "app '{i}' is already installed"),
