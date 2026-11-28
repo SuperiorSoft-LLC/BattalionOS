@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../kit";
 import { winTokens } from "../kit/lib/win-tokens";
-import { answer, eventFor, themeEvents, winEventFor, type FrameBackend, type FrameEntry } from "./frames";
+import { answer, eventFor, fsEventFor, themeEvents, winEventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
@@ -151,6 +151,8 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     // WM-2: the window calls are served by the desktop host's window manager (not on a phone yet).
     // WM-3: after a page's window call (open and set send no event) the shell reads that app's windows again for the taskbar.
     win: (id, cmd, args) => (phone ? notOnDesktop() : os.frameWin(id, cmd, args).then((r) => { if (cmd !== "os_win_list") winChanged?.(id); return r; })),
+    // FS-API-1: the file calls under the OS root (desktop; a phone has none yet).
+    fs: phone ? undefined : (id, cmd, args) => os.frameFs(id, cmd, args),
     // On a phone the host words the refusal of a call a page may not make (process.spawn: never on a phone).
     refusal: slots ? (id, cmd) => os.framePhoneCall(id, cmd).then(() => undefined) : undefined,
   };
@@ -283,6 +285,17 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
       os.onFrameNotifyClick((e) => {
         const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
         const r = eventFor(frames, e.id, "os_notify_click", { tag: e.tag ?? null, route: e.route ?? null });
+        if (r) (r.to as Window).postMessage(r.message, r.origin);
+      }),
+    [os],
+  );
+
+  // FS-API-1: a watched path under the OS root changed: told to THAT app's frame only.
+  useEffect(
+    () =>
+      os.onFrameFsChanged((payload) => {
+        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
+        const r = fsEventFor(frames, payload);
         if (r) (r.to as Window).postMessage(r.message, r.origin);
       }),
     [os],

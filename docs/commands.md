@@ -256,6 +256,45 @@ own slot, which runs it with Android and answers through the hub:
 
 `process.spawn` is never granted on a phone, even when `app.json` declares it: any call that would start a program is refused
 ("starting a program is never allowed on a phone"). The sign-in window calls are not served on a phone yet.
+### File calls of a page in a frame (FS-API-1)
+
+BattalionOS has ONE root folder: the setting `fs.root` (os.json `{"fs": {"root": "D:\\Data"}}`), by default `BattalionOS` in the
+user's home folder (`%USERPROFILE%\BattalionOS`, `$HOME/BattalionOS`), created when missing and shown in Settings (Start menu).
+An app with `files.read` in its installed `app.json` may reach anything under it, nothing outside it. Same message form and identity
+rule as BOS-25. `files.user` (the pickers) is unchanged and does not grant these calls. The write side is FS-API-2.
+
+Every `path` is RELATIVE to the root, `/`-separated; `""` (or no `path`) is the root itself. It is resolved once, in
+`battalion-host::fs`. Refused (`bad_path`): absolute paths, a drive or a stream (`:`), `\`, `.` or `..` segments in any position,
+empty segments, control characters, `< > " | ? *`, a name ending in a dot or a space, device names (`CON`, `PRN`, `AUX`, `NUL`,
+`COM0`-`COM9`, `LPT0`-`LPT9`, `CONIN$`, `CONOUT$`, with any extension or case), and a path longer than `fs.maxPathChars`. Then the
+file is opened and the open handle's real path (links and junctions followed) must still be under the root, checked at the open so a
+link swapped in after a check cannot win (`leaves_root`). A link or junction inside the root to a place inside it is followed; one
+pointing out is listed (`kind: "link"`) but never followed. The OS's own home is out of reach even when it lies under the root.
+
+| Page message `cmd` | Args | Permission | Result |
+|---|---|---|---|
+| `os_fs_list` | `path?`, `cursor?`, `limit?` | `files.read` | `{entries: [{name, kind: "file"\|"dir"\|"link", size, modified}], cursor}` sorted by name; `cursor` is null on the last page, else passed back for the next; at most `fs.listMax` a page |
+| `os_fs_stat` | `path?` | `files.read` | `{name, kind, target: "file"\|"dir", size, modified, created, readonly, display}`; `display` is a path for a person to read, never to be passed back |
+| `os_fs_read` | `path`, `offset?`, `length?`, `as?: "text"\|"base64"` | `files.read` | `{data, size, offset, length, eof}`; at most `fs.readMaxBytes` an answer (read on from `offset + length`). `text` (the default) needs UTF-8 (`not_text` otherwise) and ends a chunk on a character boundary |
+| `os_fs_watch` | `path?` | `files.read` | `{watch}`; the path itself and, for a folder, its direct entries are watched (every `fs.watchPollMs`). Changes come to that app's frame only as `{bos: 1, event: "os_fs_changed", watch, path, change: "created"\|"changed"\|"removed"}`. At most `fs.watchMax` an app |
+| `os_fs_unwatch` | `watch` | `files.read` | nothing; another app's watch id is `no_such_watch` |
+
+An error is a string ending in its code in brackets, e.g. `path leaves the OS root [leaves_root]`: `bad_path`, `leaves_root`,
+`not_found`, `not_a_folder`, `not_a_file`, `not_text`, `too_many_watches`, `no_such_watch`, `bad_args`, `no_root`, `io`. No error
+names an OS path.
+
+Settings (os.json `fs`, each with a default): `root` (`<home>/BattalionOS`), `readMaxBytes` (4194304), `listMax` (1000),
+`watchMax` (32), `watchPollMs` (1000), `maxPathChars` (1024).
+
+The shell serves them with these main-only commands:
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_frame_fs` | `id`, `cmd` (one of the `os_fs_*` above), `args?` | main | the call's result; the host checks `files.read` in the installed manifest of app `id`. Desktop only for now |
+| `os_fs_info` | | main | `{root}`: the OS root folder's real path (created when missing), for Settings |
+
+Event to the shell: `os://frame-fs-changed` `{id, watch, path, change}`; the shell sends it on to that app's frame only (above).
+
 ## Events (emitted to all windows)
 
 | Event | Payload |

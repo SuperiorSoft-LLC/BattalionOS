@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-//! BOS-NOTIFY-1: a Windows toast on behalf of an app (`os_notify` on the desktop). WinRT's toast (the approach of Infantry AI's
+//! BOS-NOTIFY-1: a Windows toast on behalf of an app (`os_notify` on the desktop). WinRT's toast (the approach of the first app's
 //! `os_notice.rs`), called directly so a toast can carry a tag: a repeat with the same tag replaces the shown one instead of
 //! stacking. Showing never takes the focus; a click runs `on_click` (the caller brings the app forward).
 

@@ -90,6 +90,8 @@ fn main() {
             os_frame_login_open,
             os_frame_login_close,
             os_frame_notify,
+            os_frame_fs,
+            os_fs_info,
             os_take_open_request,
             os_update_state,
             os_update_check,

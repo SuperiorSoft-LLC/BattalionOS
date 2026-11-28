@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 import { describe, expect, it } from "vitest";
-import { answer, eventFor, FRAME_COMMANDS, winEventFor, type FrameBackend, type FrameEntry } from "../src/frames";
+import { answer, eventFor, FRAME_COMMANDS, fsEventFor, winEventFor, type FrameBackend, type FrameEntry } from "../src/frames";
 
 const winA = { name: "frame-a" };
 const winB = { name: "frame-b" };
@@ -77,7 +77,7 @@ describe("identity: the app is the frame that sent the message", () => {
 
 describe("only today's app commands", () => {
   it("lists exactly the six app commands", () => {
-    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_login_window_close", "os_login_window_open", "os_notify", "os_open_external", "os_pick_file", "os_pick_folder", "os_scan_code", "os_show_desktop", "os_win_close", "os_win_focus", "os_win_list", "os_win_maximize", "os_win_minimize", "os_win_open", "os_win_restore", "os_win_set", "os_win_snap", "os_window_info"]);
+    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_fs_list", "os_fs_read", "os_fs_stat", "os_fs_unwatch", "os_fs_watch", "os_login_window_close", "os_login_window_open", "os_notify", "os_open_external", "os_pick_file", "os_pick_folder", "os_scan_code", "os_show_desktop", "os_win_close", "os_win_focus", "os_win_list", "os_win_maximize", "os_win_minimize", "os_win_open", "os_win_restore", "os_win_set", "os_win_snap", "os_window_info"]);
   });
   for (const cmd of ["os_frame_win_open", "os_win_exit", "os_list_apps", "os_start_app", "os_stop_app", "os_install_app", "os_remove_app", "os_update_app", "os_rollback_app", "os_open_app_window", "os_exit", "os_catalog", "os_open_login", "os_app_page", "os_frame_badge", "core:window:close", "__proto__", ""]) {
     it(`refuses ${JSON.stringify(cmd)}`, async () => {
@@ -225,5 +225,30 @@ describe("window calls (WM-2)", () => {
     expect(calls).toEqual(["notify app-a T B tag=ticket:7 route=board"]);
     const ev = eventFor(frames, "app-a", "os_notify_click", { tag: "ticket:7", route: "board" });
     expect(ev).toMatchObject({ to: winA, origin: "http://127.0.0.1:5001", message: { bos: 1, event: "os_notify_click", tag: "ticket:7", route: "board" } });
+  });
+});
+
+describe("FS-API-1 file calls", () => {
+  it("go to the backend for the frame's own app, args as sent", async () => {
+    const { be, calls } = backend();
+    const seen: unknown[] = [];
+    be.fs = async (id, cmd, args) => { seen.push([id, cmd, args]); return { entries: [] }; };
+    const r = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_fs_list", { path: "docs" })), be);
+    expect(r?.message).toMatchObject({ ok: true, result: { entries: [] } });
+    expect(seen).toEqual([["app-a", "os_fs_list", { path: "docs" }]]);
+    expect(calls).toEqual([]);
+  });
+  it("are refused plainly where the device has none", async () => {
+    const { be } = backend();
+    delete be.fs;
+    const r = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_fs_read", { path: "a" })), be);
+    expect(r?.message).toMatchObject({ ok: false, error: expect.stringContaining("not available") });
+  });
+  it("a change event goes to that app's frame only, without the app id", () => {
+    const e = fsEventFor(frames, { id: "app-b", watch: "w-1", path: "x/y", change: "created" });
+    expect(e?.to).toBe(winB);
+    expect(e?.message).toEqual({ bos: 1, event: "os_fs_changed", watch: "w-1", path: "x/y", change: "created" });
+    expect(fsEventFor(frames, { id: "nobody", watch: "w-1" })).toBeNull();
+    expect(fsEventFor(frames, null)).toBeNull();
   });
 });

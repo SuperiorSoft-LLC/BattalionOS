@@ -149,6 +149,12 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   // AND-6: phone Settings ("Apps open at once"); the host owns the value and reports it with the slots.
   const [settings, setSettings] = useState(false);
   const [slotLimit, setSlotLimit] = useState<{ inUse: number; max: number } | null>(null);
+  // FS-API-1: desktop Settings show the OS root folder (read from the host when opened).
+  const [filesRoot, setFilesRoot] = useState<string | null>(null);
+  const openDesktopSettings = useCallback(() => {
+    setSettings(true);
+    os.fsInfo().then((r) => setFilesRoot(r.root), (e) => setFilesRoot(`not available: ${errText(e)}`));
+  }, [os]);
   const setInUse = useCallback((n: number) => { const c = slotChannel(); if (c) send(c, { op: "config", inUse: n }); }, []);
   const retry = useCallback(
     async (id: string) => {
@@ -285,8 +291,8 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} repos={os.localRepos ? { list: () => os.localRepos!(), add: (n) => os.addLocalRepo!(n), rename: (n, to) => os.renameLocalRepo!(n, to), remove: (n) => os.removeLocalRepo!(n), changed: () => void loadCatalog() } : undefined} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), updateNow, later, rollback: (id) => op(id, "rollback"), setChannel, remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
-      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone && slotChannel() ? () => setSettings(true) : undefined} onWin={winOp} />
-      {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} />}
+      <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone ? (slotChannel() ? () => setSettings(true) : undefined) : openDesktopSettings} onWin={winOp} />
+      {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} phone={phone} filesRoot={phone ? undefined : filesRoot} />}
     </div>
   );
 }

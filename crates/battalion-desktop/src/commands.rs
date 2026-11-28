@@ -285,6 +285,86 @@ pub async fn os_frame_notify(window: WebviewWindow, app: AppHandle, host: State<
     }
 }
 
+/// FS-API-1: every app's file watches; one poller thread looks at them every `fs.watchPollMs` while any exist.
+#[cfg(not(target_os = "android"))]
+static FS_WATCHES: std::sync::Mutex<Option<battalion_host::fs::Watches>> = std::sync::Mutex::new(None);
+#[cfg(not(target_os = "android"))]
+static FS_POLLER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(target_os = "android"))]
+fn fs_poller(app: AppHandle, paths: battalion_host::Paths) {
+    if FS_POLLER.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || loop {
+        let fs = battalion_host::fs::Fs::open(&paths);
+        let wait = fs.as_ref().map(|f| f.settings.watch_poll_ms).unwrap_or(1000).max(50);
+        std::thread::sleep(std::time::Duration::from_millis(wait));
+        let Ok(fs) = fs else { continue };
+        let changes = FS_WATCHES.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).poll(&fs);
+        for (id, watch, c) in changes {
+            let _ = app.emit(crate::events::FRAME_FS_CHANGED, json!({"id": id, "watch": watch, "path": c["path"], "change": c["change"]}));
+        }
+    });
+}
+
+/// FS-API-1: a file call of an app's page in a frame (`os_fs_list`, `os_fs_stat`, `os_fs_read`, `os_fs_watch`, `os_fs_unwatch`),
+/// under the OS root only (`battalion-host::fs` resolves and checks every path). Needs `files.read` in the installed manifest. A
+/// watch's changes go to the shell as `os://frame-fs-changed` `{id, watch, path, change}`, for that app's frame only. Main only.
+#[tauri::command]
+pub async fn os_frame_fs(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, cmd: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_fs").map_err(|e| e.to_string())?;
+    let cmd = battalion_host::fs::COMMANDS.iter().find(|c| **c == cmd).copied().ok_or_else(|| format!("'{cmd}' is not a file call"))?;
+    allowed(&host, &id, cmd).await?;
+    let paths = host.paths.clone();
+    let args = args.unwrap_or(Value::Null);
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, paths, args);
+        Err("file calls are not on a phone yet".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let out = blocking(move || -> R<Value> {
+            use battalion_host::fs::{Fs, UNWATCH, WATCH};
+            let err = |e: battalion_host::fs::FsError| format!("{e} [{}]", e.code());
+            let fs = Fs::open(&paths).map_err(err)?;
+            let mut ws = FS_WATCHES.lock().unwrap_or_else(|p| p.into_inner());
+            let ws = ws.get_or_insert_with(Default::default);
+            match cmd {
+                WATCH => {
+                    let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+                    let w = ws.add(&fs, &id, path).map_err(err)?;
+                    Ok(json!({"watch": w}))
+                }
+                UNWATCH => {
+                    let w = args.get("watch").and_then(Value::as_str).ok_or("os_fs_unwatch needs a watch")?;
+                    ws.remove(&id, w).map_err(err)?;
+                    Ok(Value::Null)
+                }
+                _ => fs.call(cmd, &args).map_err(err),
+            }
+        })
+        .await??;
+        if cmd == battalion_host::fs::WATCH {
+            fs_poller(app, host.paths.clone());
+        }
+        Ok(out)
+    }
+}
+
+/// FS-API-1: the OS root folder for the OS settings (`{root}`: its real path, created when missing). Main only.
+#[tauri::command]
+pub async fn os_fs_info(window: WebviewWindow, host: State<'_, Host>) -> R<Value> {
+    authorize_shell(window.label(), "os_fs_info").map_err(|e| e.to_string())?;
+    let paths = host.paths.clone();
+    blocking(move || {
+        let fs = battalion_host::fs::Fs::open(&paths).map_err(|e| e.to_string())?;
+        Ok(json!({"root": battalion_host::fs::display(fs.root())}))
+    })
+    .await?
+}
+
 /// AND-4: a native call of an app's page on a phone (`os_pick_folder`, `os_pick_file`, `os_open_external`, `os_notify`,
 /// `os_scan_code`). The host checks the app's installed manifest and the arguments; the shell then hands `{call, args}` to the
 /// app's own slot, which runs it with Android (document picker, intent, notification channel, code scanner). Main only.

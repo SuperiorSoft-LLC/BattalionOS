@@ -163,8 +163,9 @@ impl std::fmt::Display for ManifestError {
 impl std::error::Error for ManifestError {}
 
 /// Permissions v1 knows. Unknown ones are refused: a typo must not silently grant nothing.
+/// FS-API-1 adds `files.read` (list, stat, read and watch under the OS root folder).
 /// AND-4 adds `notifications` (an app posts notices on its own channel) and `scan.code` (the OS scans a QR code for the page).
-pub const PERMISSIONS: &[&str] = &["process.spawn", "network", "files.user", "window", "login.window", "notifications", "scan.code"];
+pub const PERMISSIONS: &[&str] = &["process.spawn", "network", "files.user", "window", "login.window", "notifications", "scan.code", "files.read"];
 
 pub fn valid_id(id: &str) -> bool {
     let b = id.as_bytes();

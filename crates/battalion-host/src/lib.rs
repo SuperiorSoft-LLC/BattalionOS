@@ -6,6 +6,7 @@
 pub mod armory;
 pub mod dev;
 pub mod firstrun;
+pub mod fs;
 pub mod job;
 pub mod journal;
 pub mod lock;

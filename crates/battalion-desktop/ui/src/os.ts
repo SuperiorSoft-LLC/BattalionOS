@@ -94,6 +94,12 @@ export interface Os {
   frameNotify(id: string, args: { title: string; text?: string; tag?: string; route?: string }): Promise<void>;
   /** BOS-NOTIFY-1: the person clicked a desktop notice of app `id` (`os://frame-notify-click`); returns the unsubscribe. */
   onFrameNotifyClick(cb: (e: { id: string; tag: string | null; route: string | null }) => void): () => void;
+  /** FS-API-1: a file call of the app of a frame (`os_frame_fs`); the host checks `files.read` and the path. */
+  frameFs(id: string, cmd: string, args: Record<string, unknown>): Promise<unknown>;
+  /** FS-API-1: a watched path of app `id` changed (`os://frame-fs-changed`); returns the unsubscribe. */
+  onFrameFsChanged(cb: (e: { id: string; watch: string; path: string; change: string }) => void): () => void;
+  /** FS-API-1: the OS root folder (`os_fs_info`), shown in Settings. */
+  fsInfo(): Promise<{ root: string }>;
   /** AND-4: a page's native call on a phone, checked by the host against the app's manifest: `{call, args}` for its slot. */
   framePhoneCall(id: string, cmd: string, args?: Record<string, unknown>): Promise<{ call: string; args: unknown }>;
   /** WM-2: a window call for the app of a frame (`os_frame_win_<x>` for `os_win_<x>`); the host checks the `window` permission. */
@@ -218,6 +224,12 @@ export const hostOs: Os = {
     const sub = tauri().event.listen("os://frame-notify-click", (e) => cb(e.payload as { id: string; tag: string | null; route: string | null }));
     return () => void sub.then((off) => off());
   },
+  frameFs: (id, cmd, args) => call("os_frame_fs", { id, cmd, args }),
+  onFrameFsChanged(cb) {
+    const sub = tauri().event.listen("os://frame-fs-changed", (e) => cb(e.payload as { id: string; watch: string; path: string; change: string }));
+    return () => void sub.then((off) => off());
+  },
+  fsInfo: () => call("os_fs_info"),
   framePhoneCall: (id, cmd, args) => call("os_frame_phone_call", { id, cmd, args: args ?? {} }),
   frameWin: (id, cmd, args) => call(cmd.replace(/^os_win_/, "os_frame_win_"), { id, args }),
   shellWinBounds: (id, wid, bounds) => call("os_shell_win_bounds", { id, wid, bounds }),

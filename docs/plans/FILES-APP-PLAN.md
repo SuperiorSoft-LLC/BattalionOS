@@ -8,6 +8,14 @@ use to make their own apps (their own file manager, their own editor). Nothing i
 Files app is the first consumer: it uses the same public messages, the same client library and the same Armory path as a
 stranger's app would. If the Files app needs something a stranger cannot have, the plan is wrong.
 
+> **Changed 2026-11-28 (owner decision, FS-API-1):** "How it would work is the OS has a root. Anything under it can have access."
+> The scope is now ONE BattalionOS root folder (the `fs.root` setting, by default `BattalionOS` in the user's home folder), not
+> per-pick grants. An app with `files.read` reaches anything under the root; calls take a `path` relative to the root (no `root`
+> grant handle); `os_fs_grant`, `os_fs_grants`, `os_fs_revoke` and the grant store are dropped. The path rules, the TOCTOU check at
+> the open, the `fs.*` settings and the rest of this plan stand. The read side (`os_fs_list`, `os_fs_stat`, `os_fs_read`,
+> `os_fs_watch`, `os_fs_unwatch`) is built in FS-API-1 and documented in [commands.md](../commands.md#file-calls-of-a-page-in-a-frame-fs-api-1);
+> the write side (with `files.write`) is FS-API-2. Where the sections below say "grant", read "the OS root".
+
 ## 0. What exists today (verified 2026-11-28 on `battalion-os` acea670)
 
 | Piece | Where | State |
