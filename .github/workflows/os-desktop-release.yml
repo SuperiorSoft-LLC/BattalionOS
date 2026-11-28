@@ -60,6 +60,7 @@ jobs:
           if (gh release view "v$v" --json tagName 2>$null) { throw "release v$v already exists" }
           "version=$v" >> $env:GITHUB_OUTPUT
           Set-Content -Path (Join-Path $env:RUNNER_TEMP 'notes.txt') -Value $notes -Encoding utf8
+          exit 0
       - uses: pnpm/action-setup@v4
         with: { version: 10 }
       - uses: actions/setup-node@v4
