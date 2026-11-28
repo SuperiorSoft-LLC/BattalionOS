@@ -90,6 +90,10 @@ export interface Os {
   frameOpenExternal(id: string, url: string): Promise<void>;
   frameLoginOpen(id: string, url: string): Promise<void>;
   frameLoginClose(id: string): Promise<void>;
+  /** BOS-NOTIFY-1: a desktop notice of the app of a frame (`os_frame_notify`; `notifications`, rate-limited per app). */
+  frameNotify(id: string, args: { title: string; text?: string; tag?: string; route?: string }): Promise<void>;
+  /** BOS-NOTIFY-1: the person clicked a desktop notice of app `id` (`os://frame-notify-click`); returns the unsubscribe. */
+  onFrameNotifyClick(cb: (e: { id: string; tag: string | null; route: string | null }) => void): () => void;
   /** AND-4: a page's native call on a phone, checked by the host against the app's manifest: `{call, args}` for its slot. */
   framePhoneCall(id: string, cmd: string, args?: Record<string, unknown>): Promise<{ call: string; args: unknown }>;
   /** WM-2: a window call for the app of a frame (`os_frame_win_<x>` for `os_win_<x>`); the host checks the `window` permission. */
@@ -209,6 +213,11 @@ export const hostOs: Os = {
   frameOpenExternal: async (id, url) => void (await call("os_frame_open_external", { id, url })),
   frameLoginOpen: async (id, url) => void (await call("os_frame_login_open", { id, url })),
   frameLoginClose: async (id) => void (await call("os_frame_login_close", { id })),
+  frameNotify: async (id, args) => void (await call("os_frame_notify", { id, args })),
+  onFrameNotifyClick(cb) {
+    const sub = tauri().event.listen("os://frame-notify-click", (e) => cb(e.payload as { id: string; tag: string | null; route: string | null }));
+    return () => void sub.then((off) => off());
+  },
   framePhoneCall: (id, cmd, args) => call("os_frame_phone_call", { id, cmd, args: args ?? {} }),
   frameWin: (id, cmd, args) => call(cmd.replace(/^os_win_/, "os_frame_win_"), { id, args }),
   shellWinBounds: (id, wid, bounds) => call("os_shell_win_bounds", { id, wid, bounds }),

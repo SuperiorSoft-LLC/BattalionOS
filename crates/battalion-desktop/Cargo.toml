@@ -12,7 +12,7 @@ default = ["gui"]
 test-update = []
 # BOS-31 developer mode (compile time; never in a release build): an app from a folder, live reload, its own identity.
 dev = ["battalion-host/dev"]
-gui = ["dep:webview2-com", "dep:windows-core", "dep:tauri", "dep:tauri-plugin-single-instance", "dep:tauri-build", "dep:rfd", "dep:open"]
+gui = ["dep:windows", "dep:webview2-com", "dep:windows-core", "dep:tauri", "dep:tauri-plugin-single-instance", "dep:tauri-build", "dep:rfd", "dep:open"]
 
 [dependencies]
 battalion-app-api.workspace = true
@@ -33,6 +33,8 @@ windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "W
 # WM-7: WebView2 MemoryUsageTargetLevel and process infos (the versions Tauri/wry already use).
 webview2-com = { version = "0.39.1", optional = true }
 windows-core = { version = "0.62", optional = true }
+# BOS-NOTIFY-1: the WinRT toast of os_notify (the version Tauri already uses).
+windows = { version = "0.62", optional = true, features = ["Data_Xml_Dom", "UI_Notifications", "Foundation"] }
 
 [build-dependencies]
 tauri-build = { version = "2", optional = true }

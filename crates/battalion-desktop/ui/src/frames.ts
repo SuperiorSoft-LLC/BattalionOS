@@ -36,7 +36,8 @@ export interface FrameBackend {
   loginOpen(id: string, url: string): Promise<void>;
   loginClose(id: string): Promise<void>;
   /** AND-4: a notice on the app's own channel (`notifications`) and a QR code scanned by the OS (`scan.code`). */
-  notify(id: string, title: string, text: string | undefined): Promise<void>;
+  //  BOS-NOTIFY-1: on the desktop a Windows toast; `tag` (a repeat replaces it) and `route` (given back on a click, `os_notify_click`).
+  notify(id: string, title: string, text: string | undefined, extra?: { tag?: string; route?: string }): Promise<void>;
   scanCode(id: string): Promise<string | null>;
   /** WM-2: a window call for the app of the frame (`os_frame_win_*`); `args` are the page's. */
   win(id: string, cmd: WinCommand, args: Record<string, unknown>): Promise<unknown>;
@@ -101,7 +102,10 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
         return reply({ ok: true, result: null });
       case "os_notify":
         if (typeof args.title !== "string") return reply({ ok: false, error: "os_notify needs a title" });
-        await be.notify(frame.id, args.title, typeof args.text === "string" ? args.text : undefined);
+        await be.notify(frame.id, args.title, typeof args.text === "string" ? args.text : typeof args.body === "string" ? args.body : undefined, {
+          ...(typeof args.tag === "string" ? { tag: args.tag } : {}),
+          ...(typeof args.route === "string" ? { route: args.route } : {}),
+        });
         return reply({ ok: true, result: null });
       case "os_scan_code":
         return reply({ ok: true, result: await be.scanCode(frame.id) });
@@ -122,7 +126,7 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
 }
 
 /** BOS-25: an event for ONE app's frame (the sign-in window of that app reached an address, or ended). Sent to that frame only, at its origin. */
-export function eventFor(frames: readonly FrameEntry[], appId: string, event: "os_login_url" | "os_login_closed", data?: { url: string }): { to: unknown; origin: string; message: Record<string, unknown> } | null {
+export function eventFor(frames: readonly FrameEntry[], appId: string, event: "os_login_url" | "os_login_closed" | "os_notify_click", data?: { url: string } | { tag: string | null; route: string | null }): { to: unknown; origin: string; message: Record<string, unknown> } | null {
   const frame = frames.find((f) => f.id === appId && f.window != null);
   return frame ? { to: frame.window, origin: frame.origin, message: { bos: 1, event, ...(data ?? {}) } } : null;
 }

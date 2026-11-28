@@ -145,7 +145,8 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     // AND-6: on a phone the sign-in window is a sign-in view over the app's own slot (same permission, same events).
     loginOpen: (id, url) => (phone ? phone(id, "os_login_window_open", { url }).then(() => undefined) : os.frameLoginOpen(id, url)),
     loginClose: (id) => (phone ? phone(id, "os_login_window_close", {}).then(() => undefined) : os.frameLoginClose(id)),
-    notify: (id, title, text) => (phone ? phone(id, "os_notify", { title, text }).then(() => undefined) : notOnDesktop()),
+    // BOS-NOTIFY-1: on the desktop the host shows a Windows toast for the app.
+    notify: (id, title, text, extra) => (phone ? phone(id, "os_notify", { title, text }).then(() => undefined) : os.frameNotify(id, { title, ...(text !== undefined ? { text } : {}), ...extra })),
     scanCode: (id) => (phone ? (phone(id, "os_scan_code", {}) as Promise<string | null>) : notOnDesktop()),
     // WM-2: the window calls are served by the desktop host's window manager (not on a phone yet).
     // WM-3: after a page's window call (open and set send no event) the shell reads that app's windows again for the taskbar.
@@ -274,6 +275,17 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
         else if (r) (r.to as Window).postMessage(r.message, r.origin);
       }),
     [os, slots],
+  );
+
+  // BOS-NOTIFY-1: a click on a desktop notice of an app (the host already brought the app forward): told to THAT app's frame only.
+  useEffect(
+    () =>
+      os.onFrameNotifyClick((e) => {
+        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
+        const r = eventFor(frames, e.id, "os_notify_click", { tag: e.tag ?? null, route: e.route ?? null });
+        if (r) (r.to as Window).postMessage(r.message, r.origin);
+      }),
+    [os],
   );
 
   // WM-2: a window of an app changed (state, closed, focus): told to THAT app's frame only.

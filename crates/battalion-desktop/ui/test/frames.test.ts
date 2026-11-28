@@ -26,7 +26,7 @@ function backend() {
     },
     loginOpen: async (id, url) => void calls.push(`loginOpen ${id} ${url}`),
     loginClose: async (id) => void calls.push(`loginClose ${id}`),
-    notify: async (id, title, text) => void calls.push(`notify ${id} ${title} ${text ?? "-"}`),
+    notify: async (id, title, text, extra) => void calls.push(`notify ${id} ${title} ${text ?? "-"}${extra?.tag ? ` tag=${extra.tag}` : ""}${extra?.route ? ` route=${extra.route}` : ""}`),
     scanCode: async (id) => (calls.push(`scan ${id}`), "bos-pair:abc"),
     win: async (id, cmd, args) => (calls.push(`win ${id} ${cmd} ${JSON.stringify(args)}`), cmd === "os_win_open" ? { wid: `w-${id}-1`, restored: false } : undefined),
   };
@@ -217,5 +217,13 @@ describe("window calls (WM-2)", () => {
     expect(winEventFor(frames, { bos: 1, event: "os_win", id: "nobody", wid: "w-nobody-1", change: "closed" })).toBeNull();
     expect(winEventFor(frames, { bos: 1, event: "os_login_url", id: "app-a", wid: "x" })).toBeNull();
     expect(winEventFor(frames, null)).toBeNull();
+  });
+  it("BOS-NOTIFY-1: os_notify carries tag and route, and a click is told to that app's frame only", async () => {
+    const { be, calls } = backend();
+    const n = await answer(frames, from(winA, "http://127.0.0.1:5001", msg("os_notify", { title: "T", body: "B", tag: "ticket:7", route: "board" })), be);
+    expect(n?.message).toMatchObject({ ok: true });
+    expect(calls).toEqual(["notify app-a T B tag=ticket:7 route=board"]);
+    const ev = eventFor(frames, "app-a", "os_notify_click", { tag: "ticket:7", route: "board" });
+    expect(ev).toMatchObject({ to: winA, origin: "http://127.0.0.1:5001", message: { bos: 1, event: "os_notify_click", tag: "ticket:7", route: "board" } });
   });
 });

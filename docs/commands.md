@@ -221,7 +221,7 @@ the permission's name. Nothing else is added: files and the clipboard are the fr
 | `os_open_external` | `url` | `network` | nothing; opens the system browser. Only `http`, `https` and `mailto` (no spaces or control characters, up to 2048 bytes); any other is refused |
 | `os_login_window_open` | `url` | `login.window` | nothing; the OS opens a window (no capability, its own data folder `webview/<id>-login`) showing `url` (`http`/`https` only). A second call replaces it |
 | `os_login_window_close` | | `login.window` | nothing; closes it (none open is not an error) |
-| `os_notify` | `title`, `text?` | `notifications` | nothing; a notice on the app's own channel (AND-4, phone only; the desktop refuses it as not available yet). `title` up to 80 characters, `text` up to 400 |
+| `os_notify` | `title`, `text?` (or `body?`), `tag?`, `route?` | `notifications` | nothing; a notice for the app. Phone: on the app's own channel (AND-4). Desktop (BOS-NOTIFY-1): a Windows toast naming the app, shown without taking the focus; a repeat with the same `tag` replaces the shown one; at most 10 a minute per app. A click restores BattalionOS, brings the app forward and sends its frame `{bos: 1, event: "os_notify_click", tag, route}`. `title` up to 80 characters, `text` up to 400, `tag` up to 64 of `A-Za-z0-9_.:-`, `route` up to 512 |
 | `os_scan_code` | | `scan.code` | the text of the QR code the OS scanned, or null when cancelled (AND-4, phone only); the page never gets the camera |
 
 The shell serves them with these main-only commands (the app id is the frame's):
@@ -233,10 +233,13 @@ The shell serves them with these main-only commands (the app id is the frame's):
 | `os_frame_open_external` | `id`, `url` | main | nothing |
 | `os_frame_login_open` | `id`, `url` | main | nothing |
 | `os_frame_login_close` | `id` | main | nothing |
+| `os_frame_notify` | `id`, `args` (the page's `os_notify` args) | main | nothing; the desktop toast (BOS-NOTIFY-1). A click emits `os://app-open` and `os://frame-notify-click` |
 | `os_frame_phone_call` | `id`, `cmd`, `args?` | main | `{call, args}` checked for the app's slot (AND-4) |
 
 Events to the shell: `os://frame-login-url` `{id, url}` (the sign-in window reached a web address) and `os://frame-login-closed` `{id}`.
 The shell sends them on to that app's frame only, as `{bos: 1, event: "os_login_url", url}` and `{bos: 1, event: "os_login_closed"}`.
+`os://frame-notify-click` `{id, tag, route}` (BOS-NOTIFY-1, a desktop notice was clicked) goes to that app's frame only as
+`{bos: 1, event: "os_notify_click", tag, route}`.
 
 #### On a phone (AND-4)
 

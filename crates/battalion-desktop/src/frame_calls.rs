@@ -143,6 +143,54 @@ pub fn phone_call(id: &str, permissions: &[String], cmd: &str, args: &serde_json
     Ok(json!({"call": call, "args": args}))
 }
 
+/// BOS-NOTIFY-1: the notices one app may show on the desktop in a minute; more are refused (a page cannot flood the person).
+pub const NOTIFY_PER_MINUTE: usize = 10;
+
+/// BOS-NOTIFY-1: a desktop notice of an app, made safe: `title` (up to 80), `text` (up to 400), `tag` (a repeat with the same tag
+/// replaces the shown one; up to 64 of `A-Za-z0-9_.:-`) and `route` (handed back to the page on a click; up to 512).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    pub title: String,
+    pub text: String,
+    pub tag: Option<String>,
+    pub route: Option<String>,
+}
+
+/// The checked notice of `os_notify` (`title`, `text?` or `body?`, `tag?`, `route?`).
+pub fn notice(args: &serde_json::Value) -> Result<Notice, String> {
+    let title = short(args.get("title"), 80);
+    if title.is_empty() {
+        return Err("os_notify needs a title".into());
+    }
+    let text = short(args.get("text").or_else(|| args.get("body")), 400);
+    let tag = match args.get("tag").and_then(|t| t.as_str()) {
+        None | Some("") => None,
+        Some(t) if t.len() <= 64 && t.chars().all(|c| c.is_ascii_alphanumeric() || "_.:-".contains(c)) => Some(t.to_string()),
+        Some(_) => return Err("os_notify tag: up to 64 letters, digits or _.:-".into()),
+    };
+    let route = Some(short(args.get("route"), 512)).filter(|r| !r.is_empty());
+    Ok(Notice { title, text, tag, route })
+}
+
+/// BOS-NOTIFY-1: the per-app rate of desktop notices (`NOTIFY_PER_MINUTE` in any 60 s).
+#[derive(Default)]
+pub struct NoticeRate(std::collections::HashMap<String, std::collections::VecDeque<std::time::Instant>>);
+
+impl NoticeRate {
+    /// Counts one notice of app `id` at `now`, or refuses it when the app already showed its minute's share.
+    pub fn take(&mut self, id: &str, now: std::time::Instant) -> Result<(), String> {
+        let q = self.0.entry(id.to_string()).or_default();
+        while q.front().is_some_and(|t| now.duration_since(*t) >= std::time::Duration::from_secs(60)) {
+            q.pop_front();
+        }
+        if q.len() >= NOTIFY_PER_MINUTE {
+            return Err(format!("app '{id}' showed {NOTIFY_PER_MINUTE} notices in the last minute; try again later"));
+        }
+        q.push_back(now);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +209,32 @@ mod tests {
         assert!(e.contains("files.user"), "{e}");
         assert!(require("aa", &perms(&["files.user", "network", "login.window"]), "os_exit").is_err());
         assert!(require("aa", &[], OPEN_EXTERNAL).is_err());
+    }
+    #[test]
+    fn a_desktop_notice_is_cleaned_and_tagged() {
+        use serde_json::json;
+        let n = notice(&json!({"title": "A
+B", "body": "x".repeat(900), "tag": "ticket:7", "route": "board"})).unwrap();
+        assert_eq!(n.title, "AB");
+        assert_eq!(n.text.len(), 400);
+        assert_eq!(n.tag.as_deref(), Some("ticket:7"));
+        assert_eq!(n.route.as_deref(), Some("board"));
+        let n = notice(&json!({"title": "t", "text": "hi"})).unwrap();
+        assert_eq!((n.text.as_str(), n.tag, n.route), ("hi", None, None));
+        assert!(notice(&json!({"title": " "})).is_err());
+        assert!(notice(&json!({"title": "t", "tag": "a b"})).is_err());
+        assert!(notice(&json!({"title": "t", "tag": "x".repeat(65)})).is_err());
+    }
+    #[test]
+    fn notices_are_rate_limited_per_app() {
+        let mut r = NoticeRate::default();
+        let t0 = std::time::Instant::now();
+        for _ in 0..NOTIFY_PER_MINUTE {
+            r.take("aa", t0).unwrap();
+        }
+        assert!(r.take("aa", t0).unwrap_err().contains("last minute"));
+        assert!(r.take("bb", t0).is_ok(), "another app has its own share");
+        assert!(r.take("aa", t0 + std::time::Duration::from_secs(60)).is_ok());
     }
     #[test]
     fn links_open_only_as_web_or_mail() {

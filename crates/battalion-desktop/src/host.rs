@@ -171,6 +171,17 @@ pub fn permissions_of(paths: &Paths, id: &str) -> Result<Vec<String>, String> {
     Ok(m.permissions.clone())
 }
 
+/// BOS-NOTIFY-1: the installed manifest's permissions and name of app `id` (a desktop notice names the app it is for).
+pub fn permissions_and_name(paths: &Paths, id: &str) -> Result<(Vec<String>, String), String> {
+    let cur = battalion_host::Current::load(&paths.current_json(id).map_err(|e| e.0)?)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("app '{id}' is not installed"))?;
+    let vdir = paths.content_dir(id, &cur.version).map_err(|e| e.0)?;
+    let text = std::fs::read_to_string(vdir.join("app.json")).map_err(|e| e.to_string())?;
+    let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))?;
+    Ok((m.permissions.clone(), m.name.clone()))
+}
+
 /// The app's own url while it runs, asked at every request of the page server: an app that restarts listens on a new port, and the
 /// page it serves must be allowed to load from where the app is now (a read of the app's small status record, no probe).
 fn app_url_of(sup: &Supervisor, id: &str) -> crate::serve::AppUrl {

@@ -33,6 +33,7 @@ const COMMANDS: &[&str] = &[
     "os_frame_open_external",
     "os_frame_login_open",
     "os_frame_login_close",
+    "os_frame_notify",
     "os_take_open_request",
     "os_update_state",
     "os_update_check",

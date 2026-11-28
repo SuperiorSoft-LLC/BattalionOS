@@ -27,3 +27,5 @@ pub mod devmode;
 pub mod front;
 #[cfg(feature = "gui")]
 pub mod host;
+#[cfg(all(feature = "gui", not(target_os = "android")))]
+pub mod toast;

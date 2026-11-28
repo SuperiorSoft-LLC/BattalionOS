@@ -247,6 +247,44 @@ pub async fn os_frame_open_external(window: WebviewWindow, host: State<'_, Host>
     blocking(move || open::that_detached(url).map_err(|e| e.to_string())).await?
 }
 
+/// BOS-NOTIFY-1: the per-app rate of desktop notices.
+#[cfg(not(target_os = "android"))]
+static NOTICE_RATE: std::sync::Mutex<Option<crate::frame_calls::NoticeRate>> = std::sync::Mutex::new(None);
+
+/// Show a desktop notice for the app of the frame (`os_notify` on the desktop): a Windows toast naming the app, shown without
+/// taking the focus. `args` is the page's (`title`, `text?`, `tag?`, `route?`; a repeat with the same tag replaces the shown one).
+/// A click restores BattalionOS, opens the app (`os://app-open`) and emits `os://frame-notify-click` `{id, tag, route}`. Needs
+/// `notifications`; at most `NOTIFY_PER_MINUTE` a minute per app.
+#[tauri::command]
+pub async fn os_frame_notify(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<()> {
+    authorize_shell(window.label(), "os_frame_notify").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let (paths, id2) = (host.paths.clone(), id.clone());
+    let (perms, name) = blocking(move || crate::host::permissions_and_name(&paths, &id2)).await??;
+    crate::frame_calls::require(&id, &perms, crate::frame_calls::NOTIFY)?;
+    let n = crate::frame_calls::notice(&args.unwrap_or(Value::Null))?;
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, name, n);
+        Err("a phone notice is the app slot's own (os_frame_phone_call)".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        NOTICE_RATE.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).take(&id, std::time::Instant::now())?;
+        let app_id = if tauri::is_dev() { crate::toast::POWERSHELL_APP_ID.to_string() } else { app.config().identifier.clone() };
+        let (handle, click) = (app.clone(), json!({"id": id, "tag": n.tag, "route": n.route}));
+        let group = format!("app-{id}");
+        blocking(move || {
+            crate::toast::show(&app_id, &group, &name, &n.title, &n.text, n.tag.as_deref(), move || {
+                crate::front::bring_main_to_front(&handle);
+                let _ = handle.emit(crate::events::APP_OPEN, click["id"].as_str().unwrap_or_default());
+                let _ = handle.emit(crate::events::FRAME_NOTIFY_CLICK, click.clone());
+            })
+        })
+        .await?
+    }
+}
+
 /// AND-4: a native call of an app's page on a phone (`os_pick_folder`, `os_pick_file`, `os_open_external`, `os_notify`,
 /// `os_scan_code`). The host checks the app's installed manifest and the arguments; the shell then hands `{call, args}` to the
 /// app's own slot, which runs it with Android (document picker, intent, notification channel, code scanner). Main only.
