@@ -111,8 +111,9 @@ mod dev_only {
         let dir = PathBuf::from(dir.to_string_lossy().trim_start_matches(r"\\?\"));
         let text = std::fs::read_to_string(dir.join("app.json")).map_err(|e| format!("no app.json in {}: {e}", dir.display()))?;
         let m = Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("app.json: {e:?}"))?;
-        if m.process_for(&platform_key()).is_none() {
-            return Err(format!("app.json has no process part for {}", platform_key()));
+        // A page-only app (a page, no process part) runs as its page, like an installed one; it has no library to watch.
+        if m.process_for(&platform_key()).is_none() && m.ui.is_none() {
+            return Err(format!("app.json has no process part for {} and no page", platform_key()));
         }
         let url = match dev_url {
             Some(u) => {

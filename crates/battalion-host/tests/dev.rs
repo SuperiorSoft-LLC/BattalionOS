@@ -168,4 +168,31 @@ mod dev {
         sup.start("dev-url").unwrap();
         sup.stop("dev-url").unwrap();
     }
+
+    /// LOCAL-TRY-1: a page-only folder app (a page, no process part) registers, runs as its page from the folder, and stops;
+    /// a folder with neither a process part nor a page is refused.
+    #[test]
+    fn a_page_only_folder_app_runs_as_its_page() {
+        let paths = home("page-only");
+        let src = paths.root().join("src");
+        let write = |id: &str, ui: bool| {
+            let dir = src.join(id);
+            std::fs::create_dir_all(dir.join("ui")).unwrap();
+            std::fs::write(dir.join("ui/index.html"), "<p>page</p>").unwrap();
+            let mut m = serde_json::json!({ "manifest": 1, "id": id, "name": id, "version": "0.0.1", "contract": { "min": 1, "max": 1 } });
+            if ui {
+                m["ui"] = serde_json::json!({ "entry": "ui/index.html" });
+            }
+            std::fs::write(dir.join("app.json"), m.to_string()).unwrap();
+            dir
+        };
+        let id = dev::register(&paths, &write("dev-page", true), Some("http://127.0.0.1:5173"), &Default::default()).unwrap();
+        assert_eq!(paths.content_dir(&id, "0.0.1").unwrap(), src.join("dev-page").canonicalize().map(|p| PathBuf::from(p.to_string_lossy().trim_start_matches(r"\\?\"))).unwrap());
+        assert!(dev::apps(&paths).is_empty(), "a page-only app has no library to watch");
+        let sup = supervisor(&paths);
+        let st = sup.start(&id).unwrap();
+        assert_eq!((st.state.as_str(), st.pid), ("running", None));
+        assert_eq!(sup.stop(&id).unwrap().state, "stopped");
+        assert!(dev::register(&paths, &write("dev-bare", false), None, &Default::default()).is_err());
+    }
 }
