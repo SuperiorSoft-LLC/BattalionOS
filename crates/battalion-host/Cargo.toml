@@ -29,5 +29,5 @@ tempfile = "3"
 blake2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
-# FS-API-1: the final path of an open handle (GetFinalPathNameByHandleW), the TOCTOU-safe root check.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+# FS-API-1: the final path (FS-API-2: + the recycle bin, SHFileOperationW) of an open handle (GetFinalPathNameByHandleW), the TOCTOU-safe root check.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell"] }

@@ -295,6 +295,30 @@ The shell serves them with these main-only commands:
 
 Event to the shell: `os://frame-fs-changed` `{id, watch, path, change}`; the shell sends it on to that app's frame only (above).
 
+### File calls, write side (FS-API-2)
+
+Same root, path rules, message form and `os_frame_fs` route as FS-API-1; these need `files.write` (which `files.read` does not
+grant, nor the other way round). The parent of every target is opened and checked like a read (TOCTOU), and the last name is acted
+on WITHOUT following it: a link or junction there is renamed or deleted as the link, its target is untouched. Both ends of a rename
+or copy must be under the root. The root itself (`""`) and the OS's own home are never written over, renamed, trashed or deleted.
+
+| Page message `cmd` | Args | Permission | Result |
+|---|---|---|---|
+| `os_fs_write` | `path`, `data`, `as?: "text"\|"base64"`, `overwrite?` (default true) | `files.write` | `{size}`; atomic: written to a hidden temp beside the file, flushed, then renamed over it, so a reader sees the old file or the new one, never a part. At most `fs.writeMaxBytes` (`too_large`). `overwrite: false` refuses an existing name (`exists`) |
+| `os_fs_mkdir` | `path` | `files.write` | nothing; one folder, its parent must exist; `exists` if taken |
+| `os_fs_rename` | `from`, `to` | `files.write` | nothing; moves or renames; never over an existing name (`exists`), never a folder into itself |
+| `os_fs_copy` | `from`, `to` | `files.write` | `{entries}`; a file or a whole folder to a new `to`. Every source is checked before anything is written (a link out anywhere inside fails the copy, `leaves_root`); built in a temp beside `to` and renamed into place, so a failed copy leaves nothing. At most `fs.copyMaxEntries` |
+| `os_fs_trash` | `path` | `files.write` | nothing; to the OS recycle bin (Windows). A link is refused (delete it). Elsewhere `io` until a bin is wired |
+| `os_fs_delete` | `path`, `recursive?` | `files.write` | nothing; a file, an empty folder, a folder with `recursive: true` (`not_empty` otherwise), or a link/junction, which is removed as the link. A recursive delete never goes through a link inside |
+
+More error codes: `is_root`, `exists`, `too_large`, `not_empty`. More settings: `writeMaxBytes` (16777216), `copyMaxEntries` (10000).
+
+When the shell closes an app's frame it calls `os_frame_fs_close` and the app's watches end; stopping the app drops them too.
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_frame_fs_close` | `id` | main | nothing; drops every file watch of app `id` |
+
 ## Events (emitted to all windows)
 
 | Event | Payload |

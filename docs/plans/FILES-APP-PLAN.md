@@ -15,6 +15,12 @@ stranger's app would. If the Files app needs something a stranger cannot have, t
 > the open, the `fs.*` settings and the rest of this plan stand. The read side (`os_fs_list`, `os_fs_stat`, `os_fs_read`,
 > `os_fs_watch`, `os_fs_unwatch`) is built in FS-API-1 and documented in [commands.md](../commands.md#file-calls-of-a-page-in-a-frame-fs-api-1);
 > the write side (with `files.write`) is FS-API-2. Where the sections below say "grant", read "the OS root".
+>
+> **FS-API-2 (2026-11-28):** the write side is built: `os_fs_write` (atomic), `os_fs_mkdir`, `os_fs_rename`, `os_fs_copy`,
+> `os_fs_trash`, `os_fs_delete`, permission `files.write`, args `path` / `from`, `to` relative to the root (no `root`/`toRoot`).
+> Copy needs only `files.write` and gives `{entries}` (no progress events yet); links are acted on as links, never followed by a
+> delete; the root can't be removed. A closed frame's watches are dropped (`os_frame_fs_close`). See
+> [commands.md](../commands.md#file-calls-write-side-fs-api-2).
 
 ## 0. What exists today (verified 2026-11-28 on `battalion-os` acea670)
 

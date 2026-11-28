@@ -12,8 +12,11 @@ import { osThemeEvent, type OsThemeEvent, type WinTokens } from "../kit/lib/win-
 export const WIN_COMMANDS = ["os_win_open", "os_win_close", "os_win_minimize", "os_win_restore", "os_win_maximize", "os_win_focus", "os_win_snap", "os_win_set", "os_win_list"] as const;
 export type WinCommand = (typeof WIN_COMMANDS)[number];
 
+/** FS-API-2: the write side; the host checks `files.write` and every path (both ends of a rename or copy). */
+export const FS_WRITE_COMMANDS = ["os_fs_write", "os_fs_mkdir", "os_fs_rename", "os_fs_copy", "os_fs_trash", "os_fs_delete"] as const;
+
 /** FS-API-1: the file calls (read side) under the OS root. The host checks `files.read` and every path. */
-export const FS_COMMANDS = ["os_fs_list", "os_fs_stat", "os_fs_read", "os_fs_watch", "os_fs_unwatch"] as const;
+export const FS_COMMANDS = ["os_fs_list", "os_fs_stat", "os_fs_read", "os_fs_watch", "os_fs_unwatch", ...FS_WRITE_COMMANDS] as const;
 export type FsCommand = (typeof FS_COMMANDS)[number];
 
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
@@ -130,6 +133,12 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
       case "os_fs_read":
       case "os_fs_watch":
       case "os_fs_unwatch":
+      case "os_fs_write":
+      case "os_fs_mkdir":
+      case "os_fs_rename":
+      case "os_fs_copy":
+      case "os_fs_trash":
+      case "os_fs_delete":
         if (!be.fs) return reply({ ok: false, error: "file calls are not available on this device yet" });
         return reply({ ok: true, result: (await be.fs(frame.id, d.cmd as FsCommand, args)) ?? null });
     }
@@ -142,6 +151,12 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
 export function eventFor(frames: readonly FrameEntry[], appId: string, event: "os_login_url" | "os_login_closed" | "os_notify_click", data?: { url: string } | { tag: string | null; route: string | null }): { to: unknown; origin: string; message: Record<string, unknown> } | null {
   const frame = frames.find((f) => f.id === appId && f.window != null);
   return frame ? { to: frame.window, origin: frame.origin, message: { bos: 1, event, ...(data ?? {}) } } : null;
+}
+
+/** FS-API-2: the apps whose frame was in `before` and is gone in `after` (their file watches are dropped). */
+export function closedFrames(before: readonly string[], after: readonly string[]): string[] {
+  const now = new Set(after);
+  return before.filter((id) => !now.has(id));
 }
 
 /** FS-API-1: the host's `os://frame-fs-changed` event (`{id, watch, path, change}`) for the frame of app `id` only, without `id`. */

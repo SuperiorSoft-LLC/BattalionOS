@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../kit";
 import { winTokens } from "../kit/lib/win-tokens";
-import { answer, eventFor, fsEventFor, themeEvents, winEventFor, type FrameBackend, type FrameEntry } from "./frames";
+import { answer, closedFrames, eventFor, fsEventFor, themeEvents, winEventFor, type FrameBackend, type FrameEntry } from "./frames";
 import type { AppPage, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
@@ -159,6 +159,13 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
   const backendRef = useRef(backend);
   backendRef.current = backend;
   const pagesRef = useRef(pages);
+  // FS-API-2: a frame that closed loses its file watches on the host.
+  const openIds = useRef<string[]>([]);
+  useEffect(() => {
+    const ids = Object.keys(pages);
+    for (const id of closedFrames(openIds.current, ids)) void os.frameFsClose?.(id).catch(() => undefined);
+    openIds.current = ids;
+  }, [pages, os]);
   pagesRef.current = pages;
   const mRef = useRef(m);
   mRef.current = m;

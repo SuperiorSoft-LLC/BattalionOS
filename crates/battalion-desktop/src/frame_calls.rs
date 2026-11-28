@@ -23,8 +23,8 @@ pub fn permission_for(cmd: &str) -> Option<&'static str> {
         SCAN_CODE => Some("scan.code"),
         // WM-2 (OS-WINDOW-1 2.7): every window call needs `window`.
         c if crate::win_calls::COMMANDS.contains(&c) => Some("window"),
-        // FS-API-1: list, stat, read and watch under the OS root need `files.read`.
-        c if battalion_host::fs::COMMANDS.contains(&c) => Some(battalion_host::fs::PERMISSION),
+        // FS-API-1: list, stat, read and watch under the OS root need `files.read`; FS-API-2: the write side needs `files.write`.
+        c if battalion_host::fs::permission_for(c).is_some() => battalion_host::fs::permission_for(c),
         _ => None,
     }
 }
@@ -293,6 +293,16 @@ B", "body": "x".repeat(900), "tag": "ticket:7", "route": "board"})).unwrap();
         }
         // files.read does not open the old pickers either.
         assert!(require("aa", &perms(&["files.read"]), PICK_FILE).is_err());
+    }
+    #[test]
+    fn write_calls_need_files_write_and_files_read_does_not_grant_them() {
+        for cmd in battalion_host::fs::WRITE_COMMANDS {
+            assert!(require("aa", &perms(&["files.write"]), cmd).is_ok(), "{cmd}");
+            let e = require("aa", &perms(&["files.read", "files.user", "network", "window"]), cmd).unwrap_err();
+            assert!(e.contains("files.write"), "{e}");
+        }
+        // files.write alone does not open the read side.
+        assert!(require("aa", &perms(&["files.write"]), battalion_host::fs::READ).is_err());
     }
     #[test]
     fn phone_calls_are_checked_against_the_manifest() {

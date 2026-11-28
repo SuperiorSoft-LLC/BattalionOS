@@ -29,6 +29,28 @@ pub const COMMANDS: &[&str] = &[LIST, STAT, READ, WATCH, UNWATCH];
 /// The manifest permission every read-side call needs.
 pub const PERMISSION: &str = "files.read";
 
+/// FS-API-2: the write side (docs/commands.md, "Added by FS-API-2").
+pub const WRITE: &str = "os_fs_write";
+pub const MKDIR: &str = "os_fs_mkdir";
+pub const RENAME: &str = "os_fs_rename";
+pub const COPY: &str = "os_fs_copy";
+pub const TRASH: &str = "os_fs_trash";
+pub const DELETE: &str = "os_fs_delete";
+pub const WRITE_COMMANDS: &[&str] = &[WRITE, MKDIR, RENAME, COPY, TRASH, DELETE];
+/// The manifest permission every write-side call needs (`files.read` does not grant it, nor it `files.read`).
+pub const WRITE_PERMISSION: &str = "files.write";
+
+/// The permission a file call needs, or `None` when `cmd` is not a file call.
+pub fn permission_for(cmd: &str) -> Option<&'static str> {
+    if COMMANDS.contains(&cmd) {
+        Some(PERMISSION)
+    } else if WRITE_COMMANDS.contains(&cmd) {
+        Some(WRITE_PERMISSION)
+    } else {
+        None
+    }
+}
+
 /// The folder name of the default root, under the user's home folder.
 pub const DEFAULT_ROOT_NAME: &str = "BattalionOS";
 
@@ -48,11 +70,15 @@ pub struct Settings {
     pub watch_poll_ms: u64,
     /// The longest relative path an app may pass, in characters.
     pub max_path_chars: usize,
+    /// FS-API-2: the most bytes one `os_fs_write` takes.
+    pub write_max_bytes: u64,
+    /// FS-API-2: the most files and folders one `os_fs_copy` of a folder copies.
+    pub copy_max_entries: usize,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { root: None, read_max_bytes: 4 * 1024 * 1024, list_max: 1000, watch_max: 32, watch_poll_ms: 1000, max_path_chars: 1024 }
+        Settings { root: None, read_max_bytes: 4 * 1024 * 1024, list_max: 1000, watch_max: 32, watch_poll_ms: 1000, max_path_chars: 1024, write_max_bytes: 16 * 1024 * 1024, copy_max_entries: 10_000 }
     }
 }
 
@@ -101,6 +127,14 @@ pub enum FsError {
     NoSuchWatch,
     BadArgs(String),
     Io(String),
+    /// FS-API-2: the OS root itself cannot be written over, renamed, copied away, trashed or deleted.
+    IsRoot,
+    /// FS-API-2: the target already exists.
+    Exists,
+    /// FS-API-2: more than `fs.writeMaxBytes` / `fs.copyMaxEntries`.
+    TooLarge(String),
+    /// FS-API-2: a folder that is not empty, deleted without `recursive`.
+    NotEmpty,
 }
 
 impl FsError {
@@ -118,6 +152,10 @@ impl FsError {
             FsError::NoSuchWatch => "no_such_watch",
             FsError::BadArgs(_) => "bad_args",
             FsError::Io(_) => "io",
+            FsError::IsRoot => "is_root",
+            FsError::Exists => "exists",
+            FsError::TooLarge(_) => "too_large",
+            FsError::NotEmpty => "not_empty",
         }
     }
 }
@@ -136,6 +174,10 @@ impl std::fmt::Display for FsError {
             FsError::NoSuchWatch => write!(f, "no such watch"),
             FsError::BadArgs(r) => write!(f, "{r}"),
             FsError::Io(r) => write!(f, "{r}"),
+            FsError::IsRoot => write!(f, "the OS root folder itself cannot be changed"),
+            FsError::Exists => write!(f, "something with that name already exists"),
+            FsError::TooLarge(r) => write!(f, "too large: {r}"),
+            FsError::NotEmpty => write!(f, "the folder is not empty; pass recursive: true"),
         }
     }
 }
@@ -144,6 +186,8 @@ impl std::error::Error for FsError {}
 fn io_err(e: io::Error) -> FsError {
     match e.kind() {
         io::ErrorKind::NotFound => FsError::NotFound,
+        io::ErrorKind::AlreadyExists => FsError::Exists,
+        io::ErrorKind::DirectoryNotEmpty => FsError::NotEmpty,
         // Never the OS path in the message: only the kind.
         k => FsError::Io(format!("file system error ({k:?})")),
     }
@@ -497,9 +541,305 @@ impl Fs {
                 };
                 self.read(path, num("offset")?.unwrap_or(0), num("length")?, as_text)
             }
+            WRITE | MKDIR | RENAME | COPY | TRASH | DELETE => self.call_write(cmd, args),
             other => Err(FsError::BadArgs(format!("'{other}' is not a file call"))),
         }
     }
+
+    // ---- FS-API-2: the write side ----
+
+    /// The target of a change at `rel`: its parent is OPENED and checked (TOCTOU-safe, like a read), the last name joined to
+    /// the parent's real path. The target itself is not followed: a link there is acted on as the link. `""` (the root) is refused.
+    fn target_checked(&self, rel: &str) -> Result<PathBuf, FsError> {
+        let segs = check_rel(rel, self.settings.max_path_chars)?;
+        let Some((name, parent)) = segs.split_last() else { return Err(FsError::IsRoot) };
+        let o = self.open_checked(&parent.join("/"))?;
+        if !o.meta.is_dir() {
+            return Err(FsError::NotAFolder);
+        }
+        let target = o.real.join(name);
+        if !self.allowed(&target) {
+            return Err(FsError::LeavesRoot);
+        }
+        Ok(target)
+    }
+
+    /// A fresh hidden name beside `target` for a temp file or folder.
+    fn temp_beside(target: &Path) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let name = target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let nanos = std::time::SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        target.with_file_name(format!(".{name}.bos-{}-{nanos}-{}.tmp", std::process::id(), N.fetch_add(1, Ordering::Relaxed)))
+    }
+
+    /// Put the finished temp `tmp` at `target`: replacing a file (one rename) or, with `overwrite` false, only when nothing is
+    /// there (a hard link fails on an existing name, so the check and the create are one step). The temp is gone either way.
+    fn publish(tmp: &Path, target: &Path, overwrite: bool, is_dir: bool) -> Result<(), FsError> {
+        let r = if overwrite || is_dir {
+            std::fs::rename(tmp, target)
+        } else {
+            std::fs::hard_link(tmp, target).and_then(|_| std::fs::remove_file(tmp))
+        };
+        if r.is_err() {
+            let _ = if is_dir { std::fs::remove_dir_all(tmp) } else { std::fs::remove_file(tmp) };
+        }
+        r.map_err(io_err)
+    }
+
+    /// `os_fs_write`: create or overwrite a file with `data`, atomically: the bytes go to a temp file beside it, flushed, then
+    /// renamed over the target, so a reader sees the old file or the new one, never a part. At most `fs.writeMaxBytes`.
+    pub fn write(&self, rel: &str, data: &[u8], overwrite: bool) -> Result<Value, FsError> {
+        if data.len() as u64 > self.settings.write_max_bytes {
+            return Err(FsError::TooLarge(format!("more than {} bytes (fs.writeMaxBytes)", self.settings.write_max_bytes)));
+        }
+        let target = self.target_checked(rel)?;
+        match std::fs::symlink_metadata(&target) {
+            Ok(m) if m.is_dir() || is_link(&m) && link_is_dir(&m) => return Err(FsError::NotAFile),
+            Ok(_) if !overwrite => return Err(FsError::Exists),
+            _ => {}
+        }
+        let tmp = Fs::temp_beside(&target);
+        let wrote = (|| -> io::Result<()> {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+            f.write_all(data)?;
+            f.sync_all()
+        })();
+        if let Err(e) = wrote {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(io_err(e));
+        }
+        Fs::publish(&tmp, &target, overwrite, false)?;
+        Ok(json!({"size": data.len()}))
+    }
+
+    /// `os_fs_mkdir`: one new folder (its parent must exist).
+    pub fn mkdir(&self, rel: &str) -> Result<Value, FsError> {
+        let target = self.target_checked(rel)?;
+        std::fs::create_dir(&target).map_err(io_err)?;
+        Ok(Value::Null)
+    }
+
+    /// `os_fs_rename`: move or rename `from` to `to`, both under the root. A link moves as the link. Never over an existing name,
+    /// never the root, never a folder into itself.
+    pub fn rename(&self, from: &str, to: &str) -> Result<Value, FsError> {
+        let src = self.target_checked(from)?;
+        std::fs::symlink_metadata(&src).map_err(io_err)?;
+        let dst = self.target_checked(to)?;
+        if under(&dst, &src) {
+            return Err(FsError::BadArgs("cannot move a folder into itself".into()));
+        }
+        if std::fs::symlink_metadata(&dst).is_ok() {
+            return Err(FsError::Exists);
+        }
+        std::fs::rename(&src, &dst).map_err(io_err)?;
+        Ok(Value::Null)
+    }
+
+    /// `os_fs_copy`: copy a file or a whole folder from `from` to a new `to`. Every source is opened and checked first (a link
+    /// inside the root is followed; one that leads out fails the copy before anything is written), then the copy is built in a
+    /// temp beside `to` and renamed into place, so a failed copy leaves nothing behind. At most `fs.copyMaxEntries` entries.
+    pub fn copy(&self, from: &str, to: &str) -> Result<Value, FsError> {
+        let src = self.open_checked(from)?;
+        let dst = self.target_checked(to)?;
+        if under(&dst, &src.real) {
+            return Err(FsError::BadArgs("cannot copy a folder into itself".into()));
+        }
+        if std::fs::symlink_metadata(&dst).is_ok() {
+            return Err(FsError::Exists);
+        }
+        // The plan: (relative path below the source, is a folder), every source checked now.
+        let mut plan: Vec<(String, bool)> = Vec::new();
+        if src.meta.is_dir() {
+            let mut stack = vec![String::new()];
+            while let Some(sub) = stack.pop() {
+                let here = if sub.is_empty() { from.to_string() } else if from.is_empty() { sub.clone() } else { format!("{from}/{sub}") };
+                let o = self.open_checked(&here)?;
+                let mut names: Vec<String> = std::fs::read_dir(&o.real).map_err(io_err)?.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+                names.sort();
+                for name in names {
+                    let child = if sub.is_empty() { name } else { format!("{sub}/{name}") };
+                    let child_rel = if from.is_empty() { child.clone() } else { format!("{from}/{child}") };
+                    let c = self.open_checked(&child_rel)?;
+                    plan.push((child.clone(), c.meta.is_dir()));
+                    if plan.len() > self.settings.copy_max_entries {
+                        return Err(FsError::TooLarge(format!("more than {} entries (fs.copyMaxEntries)", self.settings.copy_max_entries)));
+                    }
+                    if c.meta.is_dir() {
+                        stack.push(child);
+                    }
+                }
+            }
+        }
+        let tmp = Fs::temp_beside(&dst);
+        let built = (|| -> Result<(), FsError> {
+            if !src.meta.is_dir() {
+                return copy_file(&src.real, &tmp);
+            }
+            std::fs::create_dir(&tmp).map_err(io_err)?;
+            for (sub, is_dir) in &plan {
+                let out = sub.split('/').fold(tmp.clone(), |p, s| p.join(s));
+                if *is_dir {
+                    std::fs::create_dir(&out).map_err(io_err)?;
+                } else {
+                    let rel = if from.is_empty() { sub.clone() } else { format!("{from}/{sub}") };
+                    // Opened again at the copy: a link swapped in since the plan is still caught.
+                    let o = self.open_checked(&rel)?;
+                    copy_file(&o.real, &out)?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(e) = built {
+            let _ = if src.meta.is_dir() { std::fs::remove_dir_all(&tmp) } else { std::fs::remove_file(&tmp) };
+            return Err(e);
+        }
+        Fs::publish(&tmp, &dst, false, src.meta.is_dir())?;
+        Ok(json!({"entries": plan.len() + 1}))
+    }
+
+    /// `os_fs_trash`: move a file or folder to the OS recycle bin. A link is refused (delete it with `os_fs_delete`): the bin
+    /// must never be handed a link it might follow.
+    pub fn trash(&self, rel: &str) -> Result<Value, FsError> {
+        let target = self.target_checked(rel)?;
+        let m = std::fs::symlink_metadata(&target).map_err(io_err)?;
+        if is_link(&m) {
+            return Err(FsError::BadArgs("a link is not put in the recycle bin; remove it with os_fs_delete".into()));
+        }
+        recycle(&target)?;
+        Ok(Value::Null)
+    }
+
+    /// `os_fs_delete`: remove a file, a folder (`recursive` for one that is not empty) or a link. Links are never followed: a
+    /// link or junction is removed as the link, its target stays; a recursive delete does not go through links inside either.
+    pub fn delete(&self, rel: &str, recursive: bool) -> Result<Value, FsError> {
+        let target = self.target_checked(rel)?;
+        let m = std::fs::symlink_metadata(&target).map_err(io_err)?;
+        let r = if is_link(&m) {
+            if link_is_dir(&m) {
+                std::fs::remove_dir(&target)
+            } else {
+                std::fs::remove_file(&target)
+            }
+        } else if m.is_dir() {
+            if recursive {
+                // std's remove_dir_all removes links inside as links (it never follows them).
+                std::fs::remove_dir_all(&target)
+            } else {
+                std::fs::remove_dir(&target)
+            }
+        } else {
+            std::fs::remove_file(&target)
+        };
+        r.map_err(|e| match io_err(e) {
+            // Windows answers a non-empty folder with a generic code on some versions.
+            FsError::Io(_) if !recursive && m.is_dir() && std::fs::read_dir(&target).map(|mut d| d.next().is_some()).unwrap_or(false) => FsError::NotEmpty,
+            other => other,
+        })?;
+        Ok(Value::Null)
+    }
+
+    fn call_write(&self, cmd: &str, args: &Value) -> Result<Value, FsError> {
+        let s = |k: &str| -> Result<&str, FsError> {
+            match args.get(k) {
+                Some(Value::String(s)) => Ok(s.as_str()),
+                _ => Err(FsError::BadArgs(format!("{k} must be a string"))),
+            }
+        };
+        let flag = |k: &str, d: bool| -> Result<bool, FsError> {
+            match args.get(k) {
+                None | Some(Value::Null) => Ok(d),
+                Some(Value::Bool(b)) => Ok(*b),
+                Some(_) => Err(FsError::BadArgs(format!("{k} must be true or false"))),
+            }
+        };
+        match cmd {
+            WRITE => {
+                let data = s("data")?;
+                let bytes = match args.get("as").and_then(Value::as_str) {
+                    None | Some("text") => data.as_bytes().to_vec(),
+                    Some("base64") => {
+                        use base64::Engine;
+                        base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| FsError::BadArgs("data is not base64".into()))?
+                    }
+                    Some(o) => return Err(FsError::BadArgs(format!("as must be \"text\" or \"base64\", not '{o}'"))),
+                };
+                self.write(s("path")?, &bytes, flag("overwrite", true)?)
+            }
+            MKDIR => self.mkdir(s("path")?),
+            RENAME => self.rename(s("from")?, s("to")?),
+            COPY => self.copy(s("from")?, s("to")?),
+            TRASH => self.trash(s("path")?),
+            DELETE => self.delete(s("path")?, flag("recursive", false)?),
+            other => Err(FsError::BadArgs(format!("'{other}' is not a file call"))),
+        }
+    }
+}
+
+/// A link or junction (any name-surrogate reparse point on Windows), not followed.
+fn is_link(m: &Metadata) -> bool {
+    if m.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// A link that is removed like a folder (a junction or a folder symlink on Windows); elsewhere a link is a file.
+fn link_is_dir(m: &Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+        m.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = m;
+        false
+    }
+}
+
+/// Copy one file's bytes to a new `to` (never over an existing one), flushed.
+fn copy_file(from: &Path, to: &Path) -> Result<(), FsError> {
+    let mut i = open_any(from).map_err(io_err)?;
+    let mut o = std::fs::OpenOptions::new().write(true).create_new(true).open(to).map_err(io_err)?;
+    io::copy(&mut i, &mut o).map_err(io_err)?;
+    o.sync_all().map_err(io_err)
+}
+
+/// The OS recycle bin: `SHFileOperationW` with undo on Windows.
+#[cfg(windows)]
+fn recycle(p: &Path) -> Result<(), FsError> {
+    use windows_sys::Win32::UI::Shell::{SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE, SHFILEOPSTRUCTW};
+    // The shell takes no `\\?\` path; the list ends with two NULs.
+    let mut from: Vec<u16> = display(p).encode_utf16().collect();
+    from.extend([0, 0]);
+    // SAFETY: a zeroed struct is a valid empty SHFILEOPSTRUCTW; `from` outlives the call.
+    let mut op: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
+    op.wFunc = FO_DELETE;
+    op.pFrom = from.as_ptr();
+    op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as _;
+    // SAFETY: `op` is filled as the API wants; no window handle, so no UI.
+    let r = unsafe { SHFileOperationW(&mut op) };
+    if r != 0 || op.fAnyOperationsAborted != 0 {
+        return Err(FsError::Io(format!("the recycle bin refused it (code {r})")));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn recycle(_p: &Path) -> Result<(), FsError> {
+    Err(FsError::Io("this device has no recycle bin the OS can use yet; use os_fs_delete".into()))
 }
 
 /// One watched path and what it looked like last time.

@@ -137,6 +137,8 @@ pub async fn os_stop_app(window: WebviewWindow, app: AppHandle, host: State<'_, 
         paint_badge(&app, &id2, None);
     }
     close_native_of(&app, &host, &id2).await;
+    // FS-API-2: a stopped app keeps no file watches.
+    drop_fs_watches(&id2);
     Ok(status_json(&s))
 }
 
@@ -308,13 +310,14 @@ fn fs_poller(app: AppHandle, paths: battalion_host::Paths) {
     });
 }
 
-/// FS-API-1: a file call of an app's page in a frame (`os_fs_list`, `os_fs_stat`, `os_fs_read`, `os_fs_watch`, `os_fs_unwatch`),
+/// FS-API-1: a file call of an app's page in a frame (`os_fs_list`, `os_fs_stat`, `os_fs_read`, `os_fs_watch`, `os_fs_unwatch`;
+/// FS-API-2 adds `os_fs_write`, `os_fs_mkdir`, `os_fs_rename`, `os_fs_copy`, `os_fs_trash`, `os_fs_delete`, needing `files.write`),
 /// under the OS root only (`battalion-host::fs` resolves and checks every path). Needs `files.read` in the installed manifest. A
 /// watch's changes go to the shell as `os://frame-fs-changed` `{id, watch, path, change}`, for that app's frame only. Main only.
 #[tauri::command]
 pub async fn os_frame_fs(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, cmd: String, args: Option<Value>) -> R<Value> {
     authorize_shell(window.label(), "os_frame_fs").map_err(|e| e.to_string())?;
-    let cmd = battalion_host::fs::COMMANDS.iter().find(|c| **c == cmd).copied().ok_or_else(|| format!("'{cmd}' is not a file call"))?;
+    let cmd = battalion_host::fs::COMMANDS.iter().chain(battalion_host::fs::WRITE_COMMANDS).find(|c| **c == cmd).copied().ok_or_else(|| format!("'{cmd}' is not a file call"))?;
     allowed(&host, &id, cmd).await?;
     let paths = host.paths.clone();
     let args = args.unwrap_or(Value::Null);
@@ -351,6 +354,24 @@ pub async fn os_frame_fs(window: WebviewWindow, app: AppHandle, host: State<'_, 
         }
         Ok(out)
     }
+}
+
+/// FS-API-2: drop every file watch of app `id` (its frame closed or the app stopped). No-op without watches.
+fn drop_fs_watches(id: &str) {
+    #[cfg(not(target_os = "android"))]
+    if let Some(ws) = FS_WATCHES.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+        ws.clear_app(id);
+    }
+    #[cfg(target_os = "android")]
+    let _ = id;
+}
+
+/// FS-API-2: the shell closed app `id`'s frame: its file watches end (the poller stops telling a frame that is gone). Main only.
+#[tauri::command]
+pub async fn os_frame_fs_close(window: WebviewWindow, id: String) -> R<()> {
+    authorize_shell(window.label(), "os_frame_fs_close").map_err(|e| e.to_string())?;
+    drop_fs_watches(&id);
+    Ok(())
 }
 
 /// FS-API-1: the OS root folder for the OS settings (`{root}`: its real path, created when missing). Main only.

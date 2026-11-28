@@ -36,6 +36,7 @@ const COMMANDS: &[&str] = &[
     "os_frame_notify",
     "os_frame_fs",
     "os_fs_info",
+    "os_frame_fs_close",
     "os_take_open_request",
     "os_update_state",
     "os_update_check",
