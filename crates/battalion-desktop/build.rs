@@ -18,6 +18,7 @@ const COMMANDS: &[&str] = &[
     "os_login_done",
     "os_update_app",
     "os_update_later",
+    "os_set_app_channel",
     "os_rollback_app",
     "os_remove_app",
     "os_exit",
@@ -54,6 +55,10 @@ const COMMANDS: &[&str] = &[
     "os_frame_win_snap",
     "os_frame_win_set",
     "os_frame_win_list",
+    "os_local_repos",
+    "os_local_repo_add",
+    "os_local_repo_rename",
+    "os_local_repo_remove",
 ];
 
 fn main() {

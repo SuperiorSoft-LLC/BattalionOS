@@ -170,6 +170,14 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
       ),
     [os],
   );
+  const setChannel = useCallback(
+    (id: string, channel: string) =>
+      void os.setChannel(id, channel).then(
+        async () => dispatch({ type: "installed-loaded", apps: await os.listApps() }),
+        (e) => dispatch({ type: "op-failed", id, op: "update", error: errText(e) }),
+      ),
+    [os],
+  );
   const exit = useCallback(() => void os.exit().catch((e) => setNotice(`Could not exit: ${errText(e)}`)), [os]);
 
   // BOS-34: X hides the window; the first time it says so first, with Exit beside it.
@@ -257,7 +265,7 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
         <AppFrames m={m} os={os} winChanged={loadWins} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
         {!ready && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
-        {armory && <Armory m={m} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), updateNow, later, rollback: (id) => op(id, "rollback"), remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
+        {armory && <Armory m={m} repos={os.localRepos ? { list: () => os.localRepos!(), add: (n) => os.addLocalRepo!(n), rename: (n, to) => os.renameLocalRepo!(n, to), remove: (n) => os.removeLocalRepo!(n), changed: () => void loadCatalog() } : undefined} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), updateNow, later, rollback: (id) => op(id, "rollback"), setChannel, remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
       <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone && slotChannel() ? () => setSettings(true) : undefined} onWin={winOp} />
       {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} />}
