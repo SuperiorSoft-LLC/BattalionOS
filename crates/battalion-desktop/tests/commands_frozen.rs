@@ -54,7 +54,7 @@ fn every_command_checks_the_calling_window() {
     for chunk in src.split("#[tauri::command]").skip(1) {
         let name = chunk.split("fn ").nth(1).unwrap().split('(').next().unwrap();
         assert!(chunk.contains("window: WebviewWindow"), "{name} takes no calling window");
-        let body_checked = chunk.contains("authorize_app(") || chunk.contains("authorize_shell(") || chunk.contains("authorize_self(") || chunk.contains("caller_of(") || chunk.contains("authorize_win_caller(") || chunk.contains("crate::access::LOGIN");
+        let body_checked = chunk.contains("authorize_app(") || chunk.contains("authorize_shell(") || chunk.contains("authorize_self(") || chunk.contains("caller_of(") || chunk.contains("authorize_win_caller(") || chunk.contains("authorize_app_read(") || chunk.contains("crate::access::LOGIN");
         assert!(body_checked, "{name} does not check who is calling");
     }
 }

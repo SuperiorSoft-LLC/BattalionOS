@@ -102,7 +102,7 @@ pub fn authorize_win_caller(label: &str, command: &str) -> Result<String, Denied
 pub fn authorize_app_read(label: &str, target: &str) -> Result<(), Denied> {
     if label.starts_with(WIN_PREFIX) {
         let own = authorize_win_caller(label, "os_app_status")?;
-        return if valid_id(target) && own == target { Ok(()) } else { Err(Denied::NotYours { caller: label.to_string(), target: target.to_string() }) };
+        return if valid_id(target) && target != crate::osupdate::OS_ROW && own == target { Ok(()) } else { Err(Denied::NotYours { caller: label.to_string(), target: target.to_string() }) };
     }
     authorize_app(label, target)
 }
@@ -194,6 +194,9 @@ mod tests {
         assert!(authorize_app_read("win-my-app", "my-app").is_err());
         assert_eq!(authorize_app_read("app-aa", "aa"), Ok(()));
         assert!(authorize_app_read("login", "aa").is_err());
+        assert!(authorize_app_read("main", "battalionos").is_err());
+        assert!(authorize_app_read("win-battalionos-1", "battalionos").is_err());
+        assert_eq!(authorize_app_read("main", "aa"), Ok(()));
     }
     #[test]
     fn labels_must_be_well_formed() {
