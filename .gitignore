@@ -5,6 +5,8 @@ node_modules/
 .env.*
 *.pem
 *.key
+# Throwaway PUBLIC key of the template-package test fixture (the base64 line of a .pub, never a secret key).
+!fixtures/template-package/public.key
 .DS_Store
 Thumbs.db
 crates/battalion-desktop/gen/
