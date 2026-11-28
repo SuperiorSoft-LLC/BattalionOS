@@ -110,7 +110,9 @@ fn main() {
             os_frame_win_focus,
             os_frame_win_snap,
             os_frame_win_set,
-            os_frame_win_list
+            os_frame_win_list,
+            os_shell_win_bounds,
+            os_shell_win_pop_out
         ])
         .setup(move |app| {
             #[cfg(feature = "dev")]

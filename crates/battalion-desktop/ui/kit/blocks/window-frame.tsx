@@ -27,6 +27,8 @@ export interface WindowFrameProps {
   maximized?: boolean;
   /** Where the window would snap to, while a drag is over a snap zone; null hides the preview. */
   snapPreview?: FrameRect | null;
+  /** WM-8: extra title-bar buttons before Minimize (the OS shell's "Pop out to its own window"). */
+  actions?: ReactNode;
   onMinimize?: () => void;
   onMaximize?: () => void;
   onClose?: () => void;
@@ -52,7 +54,7 @@ export const FRAME_STRIPS: { edge: WindowEdge; style: CSSProperties; cursor: str
   { edge: "SouthEast", style: { bottom: 0, right: 0, width: CORNER, height: CORNER }, cursor: "nwse-resize" },
 ];
 
-function ChromeButton({ label, danger, onClick, children }: { label: string; danger?: boolean; onClick?: () => void; children: ReactNode }) {
+export function ChromeButton({ label, danger, onClick, children }: { label: string; danger?: boolean; onClick?: () => void; children: ReactNode }) {
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
   return (
@@ -86,7 +88,7 @@ function ChromeButton({ label, danger, onClick, children }: { label: string; dan
   );
 }
 
-export function WindowFrame({ title, icon, badge, children, active = true, maximized = false, snapPreview, onMinimize, onMaximize, onClose, onFocus, onDragStart, onResizeStart }: WindowFrameProps) {
+export function WindowFrame({ title, icon, badge, children, active = true, maximized = false, snapPreview, actions, onMinimize, onMaximize, onClose, onFocus, onDragStart, onResizeStart }: WindowFrameProps) {
   const start = (e: ReactMouseEvent) => {
     if (e.button === 0) onDragStart?.(e);
   };
@@ -145,6 +147,11 @@ export function WindowFrame({ title, icon, badge, children, active = true, maxim
         )}
         <div data-win-part="drag" style={{ flex: 1, minWidth: 16, height: "100%" }} />
         <div style={{ display: "flex", height: "100%", alignItems: "stretch" }}>
+          {actions != null && (
+            <div data-win-part="actions" onMouseDown={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "stretch" }}>
+              {actions}
+            </div>
+          )}
           <ChromeButton label="Minimize" onClick={onMinimize}>
             <Minus size={16} />
           </ChromeButton>

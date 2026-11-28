@@ -94,6 +94,10 @@ export interface Os {
   framePhoneCall(id: string, cmd: string, args?: Record<string, unknown>): Promise<{ call: string; args: unknown }>;
   /** WM-2: a window call for the app of a frame (`os_frame_win_<x>` for `os_win_<x>`); the host checks the `window` permission. */
   frameWin(id: string, cmd: string, args: Record<string, unknown>): Promise<unknown>;
+  /** WM-8: the OS moved or resized float `wid` of app `id` (`os_shell_win_bounds`). */
+  shellWinBounds?(id: string, wid: string, bounds: { x: number; y: number; w: number; h: number }): Promise<unknown>;
+  /** WM-8: "Pop out to its own window": float `wid` becomes a native window, same key and route (`os_shell_win_pop_out`). */
+  shellWinPopOut?(id: string, wid: string): Promise<unknown>;
   /** WM-2: `os://win` (the payload as the host sent it, `{bos:1, event:"os_win", id, wid, change, ...}`); returns the unsubscribe. */
   onWin(cb: (payload: unknown) => void): () => void;
   /** The sign-in window of an app reached an address (`os://frame-login-url`) or ended (`os://frame-login-closed`); returns the unsubscribe. */
@@ -207,6 +211,8 @@ export const hostOs: Os = {
   frameLoginClose: async (id) => void (await call("os_frame_login_close", { id })),
   framePhoneCall: (id, cmd, args) => call("os_frame_phone_call", { id, cmd, args: args ?? {} }),
   frameWin: (id, cmd, args) => call(cmd.replace(/^os_win_/, "os_frame_win_"), { id, args }),
+  shellWinBounds: (id, wid, bounds) => call("os_shell_win_bounds", { id, wid, bounds }),
+  shellWinPopOut: (id, wid) => call("os_shell_win_pop_out", { id, wid }),
   onWin(cb) {
     const sub = tauri().event.listen("os://win", (e) => cb(e.payload));
     return () => void sub.then((off) => off());

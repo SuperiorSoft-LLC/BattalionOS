@@ -916,8 +916,11 @@ async fn close_native_of(app: &AppHandle, host: &Host, id: &str) {
     use crate::native::NativeWindows;
     let engine = crate::native_tauri::TauriNative(app.clone());
     for w in host.windows.app_stopped(id).await.unwrap_or_default() {
-        if let Some(n) = crate::native::label_of(&w.wid) {
-            engine.close(&n);
+        // WM-8: a float lives in the shell, which drops it on `closed`; a native one is closed on screen here.
+        if w.kind == crate::windows::Kind::Native {
+            if let Some(n) = crate::native::label_of(&w.wid) {
+                engine.close(&n);
+            }
         }
         emit_win(app, id, json!({"wid": w.wid, "change": "closed"}));
     }
@@ -1062,6 +1065,35 @@ pub async fn os_frame_win_set(window: WebviewWindow, app: AppHandle, host: State
 pub async fn os_frame_win_list(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
     authorize_shell(window.label(), "os_frame_win_list").map_err(|e| e.to_string())?;
     frame_win(&app, &host, crate::win_calls::LIST, &id, args).await
+}
+
+/// WM-8: the shell moved or resized float window `wid` of app `id` (drag, resize, snap-off). Main only: the OS draws floats, an app
+/// never moves one itself. `{state, bounds}`; the app's frames hear `os_win` `state`.
+#[tauri::command]
+pub async fn os_shell_win_bounds(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, wid: String, bounds: battalion_app_api::geometry::Rect) -> R<Value> {
+    authorize_shell(window.label(), "os_shell_win_bounds").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let done = crate::win_calls::shell_bounds(&host.windows, &id, &wid, bounds, win_surface(&app)).await?;
+    if let Some(ev) = done.event {
+        emit_win(&app, &id, ev);
+    }
+    Ok(done.result)
+}
+
+/// WM-8 (owner 11-28): "Pop out to its own window" on a float's title bar: the float closes and a native window of the same key,
+/// route and size opens (the WM-6 kind). Main only. Answers the native window's `os_win_open` result.
+#[tauri::command]
+pub async fn os_shell_win_pop_out(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, wid: String) -> R<Value> {
+    authorize_shell(window.label(), "os_shell_win_pop_out").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    if !OS_WINDOWS {
+        return Err("this device has no windows of its own".into());
+    }
+    let (args, done) = crate::win_calls::pop_out(&host.windows, &id, &wid).await?;
+    if let Some(ev) = done.event {
+        emit_win(&app, &id, ev);
+    }
+    win_run(&app, &host, &id, crate::win_calls::OPEN, args).await
 }
 
 /// `stable` when the app has it, else its first channel.

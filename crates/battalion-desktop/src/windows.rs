@@ -269,8 +269,8 @@ impl Windows {
     pub async fn app_removed(&self, app: &str) -> Result<(), WinError> {
         self.ask(|reply| Cmd::AppRemoved { app: app.into(), reply }).await
     }
-    /// WM-6: the app stopped. Its native windows leave the table (their geometry stays saved) and are returned, so the caller
-    /// closes them on screen. Inline and float windows live in the app's view and go with it.
+    /// WM-6/WM-8: the app stopped. Its native and float windows leave the table (their geometry stays saved) and are returned, so the caller
+    /// closes them (a float is dropped by the shell on `closed`). Inline windows live in the app's view and go with it.
     pub async fn app_stopped(&self, app: &str) -> Result<Vec<Window>, WinError> {
         self.ask(|reply| Cmd::AppStopped { app: app.into(), reply }).await
     }
@@ -362,7 +362,7 @@ impl WindowManager {
                 let _ = reply.send(());
             }
             Cmd::AppStopped { app, reply } => {
-                let gone: Vec<String> = self.table.values().filter(|w| w.app == app && w.kind == Kind::Native).map(|w| w.wid.clone()).collect();
+                let gone: Vec<String> = self.table.values().filter(|w| w.app == app && w.kind != Kind::Inline).map(|w| w.wid.clone()).collect();
                 let v = gone.iter().filter_map(|wid| self.table.remove(wid)).collect();
                 let _ = reply.send(v);
             }

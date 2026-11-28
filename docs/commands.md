@@ -92,6 +92,19 @@ The shell serves a frame's calls with main-only commands, one per call, the app 
 `os_frame_win_close`, `os_frame_win_minimize`, `os_frame_win_restore`, `os_frame_win_maximize`, `os_frame_win_focus`,
 `os_frame_win_snap`, `os_frame_win_set`, `os_frame_win_list`, each with `id` and `args` (the page's arguments; an `id` in them is dropped).
 
+WM-8, the `float` kind: the shell draws a float with `WindowFrame` over the work area of the OS window (above app views, never under
+the taskbar), with a frame of the app at `route` on the app's own origin (the same renderer as its view). The OS owns drag, resize,
+snap, z-order, maximize (the work area), close and minimize (the window stays alive, hidden, listed under its app's taskbar button;
+restore keeps its bounds). Floats close when their app stops. The frame in a float may call the window calls, `os_window_info`,
+`os_app_status` and `os_app_health` for its own app only. Two main-only commands serve the chrome:
+
+| Command | Args | Result |
+|---|---|---|
+| `os_shell_win_bounds` | `id`, `wid`, `bounds` | `{state, bounds}`: the OS moved or resized float `wid` (clamped to the work area, state `normal`). Refused for any other kind. |
+| `os_shell_win_pop_out` | `id`, `wid` | The `os_win_open` answer of a native window with the float's key, route, title and size; the float closes first. |
+
+A native window is a real OS window: it shows in the Windows taskbar and minimizes there; the BOS taskbar does not list it as minimized.
+
 Event `os://win`, emitted only to the owning app's windows (the shell, `app-<id>`, `win-<id>-<n>`): `{bos: 1, event: "os_win", id, wid,
 change, ...}` with `change` `state` (`state`, `bounds`: minimize, restore, maximize, snap, moved bounds), `closed`, or `focus` (`z`,
 `state`). The shell forwards it to that app's frames only, without `id`.

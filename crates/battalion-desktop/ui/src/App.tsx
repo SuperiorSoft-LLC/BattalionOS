@@ -16,6 +16,7 @@ import { backStep, layoutFor, useBackGesture, type Layout } from "./phone";
 import { armoryHasUpdate, osReadyText, runOsUpdate, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf, initial, labelOf, reduce, runInstall, runOp, showFirstRun, type Win } from "./store";
 import { Taskbar, type WinOp } from "./Taskbar";
+import { FloatWindows } from "./FloatWindows";
 import { appAt, takeEarlyTap } from "./earlyTaps";
 import { ResizeEdges, TitleBar } from "./TitleBar";
 import { cleanInset, NO_INSET, SHELL_CLASS, shellStyle } from "./shellLayout";
@@ -279,6 +280,7 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
       </div>
       <Desktop ids={icons} view={view} label={label} icon={icon} tapOpens={phone} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
         <AppFrames m={m} os={os} winChanged={loadWins} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
+        {!phone && <FloatWindows m={m} os={os} changed={loadWins} notify={setNotice} />}
         {!ready && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} repos={os.localRepos ? { list: () => os.localRepos!(), add: (n) => os.addLocalRepo!(n), rename: (n, to) => os.renameLocalRepo!(n, to), remove: (n) => os.removeLocalRepo!(n), changed: () => void loadCatalog() } : undefined} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), updateNow, later, rollback: (id) => op(id, "rollback"), setChannel, remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}

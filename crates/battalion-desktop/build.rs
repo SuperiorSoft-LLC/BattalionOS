@@ -56,6 +56,8 @@ const COMMANDS: &[&str] = &[
     "os_frame_win_snap",
     "os_frame_win_set",
     "os_frame_win_list",
+    "os_shell_win_bounds",
+    "os_shell_win_pop_out",
     "os_local_repos",
     "os_local_repo_add",
     "os_local_repo_rename",

@@ -94,6 +94,7 @@ impl NativeWindows for TauriNative {
         let w = WebviewWindowBuilder::new(&self.0, &s.id.0, WebviewUrl::App(crate::native::HOST_PAGE.into()))
             .title(&s.title)
             .decorations(false)
+            .skip_taskbar(crate::native::SKIP_TASKBAR)
             .inner_size(s.bounds.w, s.bounds.h)
             .position(s.bounds.x, s.bounds.y)
             .data_directory(s.data_dir.clone())

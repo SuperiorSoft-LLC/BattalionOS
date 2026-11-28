@@ -173,6 +173,37 @@ pub async fn call_on(wm: &Windows, app: &str, permissions: &[String], cmd: &str,
     }
 }
 
+/// WM-8: the OS (the shell, never an app) moves or resizes a `float` window it draws: drag, resize edge, snap-off. The bounds are
+/// clamped to `surface` (the work area of the main window) and the window goes back to `normal`. Any other kind is refused.
+pub async fn shell_bounds(wm: &Windows, app: &str, wid: &str, bounds: Rect, surface: Surface) -> Result<Done, String> {
+    crate::access::authorize_wid(app, wid).map_err(|e| e.to_string())?;
+    let w = find(wm, app, wid).await?.ok_or_else(|| format!("no window {wid}"))?;
+    if w.kind != Kind::Float {
+        return Err(format!("window {wid} is not a float window (the OS moves only those here)"));
+    }
+    let b = battalion_app_api::geometry::clamp_box(bounds, surface);
+    let w = wm.update(app, wid, Patch { state: Some(WinState::Normal), bounds: Some(b), ..Default::default() }).await.map_err(|e| e.to_string())?;
+    Ok(Done { result: json!({"state": w.state, "bounds": w.bounds}), event: Some(state_event(&w)) })
+}
+
+/// WM-8 (owner 11-28): "Pop out to its own window": the `os_win_open` arguments that turn float `w` into a native window with the
+/// same key, route, title and icon (the size it had is kept through the saved `(app, key)` geometry). Only a float pops out.
+pub fn pop_out_args(w: &Window) -> Result<Value, String> {
+    if w.kind != Kind::Float {
+        return Err(format!("window {} is not a float window", w.wid));
+    }
+    Ok(json!({"key": w.key, "kind": "native", "title": w.title, "icon": w.icon, "route": w.route.clone().unwrap_or_else(|| "/".into())}))
+}
+
+/// WM-8: close float `wid` of `app` and return what to open as its native window (see `pop_out_args`) and the `closed` event.
+pub async fn pop_out(wm: &Windows, app: &str, wid: &str) -> Result<(Value, Done), String> {
+    crate::access::authorize_wid(app, wid).map_err(|e| e.to_string())?;
+    let w = find(wm, app, wid).await?.ok_or_else(|| format!("no window {wid}"))?;
+    let args = pop_out_args(&w)?;
+    wm.close(app, wid).await.map_err(|e| e.to_string())?;
+    Ok((args, Done { result: Value::Null, event: Some(json!({"wid": wid, "change": "closed"})) }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +328,88 @@ mod tests {
         assert!(err.contains("only for an inline"), "{err}");
         assert!(call(&wm, "aa", &win(), SET, &json!({"wid": n["wid"], "title": "T", "badge": {"count": 2}}), BIG).await.unwrap().event.is_none());
         assert!(call(&wm, "aa", &win(), OPEN, &json!({"key": " "}), BIG).await.is_err());
+    }
+
+    async fn float(wm: &Windows, app: &str, key: &str) -> String {
+        let r = call(wm, app, &win(), OPEN, &json!({"key": key, "kind": "float", "route": "/s/1", "title": "S", "bounds": {"x": 100, "y": 80, "w": 600, "h": 400}}), BIG).await.unwrap().result;
+        assert_eq!(r["kind"], "float");
+        r["wid"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn a_float_opens_once_and_the_same_key_focuses_it() {
+        let d = tempfile::tempdir().unwrap();
+        let wm = start(&Paths::new(d.path()));
+        let a = float(&wm, "aa", "session.1").await;
+        let again = call(&wm, "aa", &win(), OPEN, &json!({"key": "session.1", "kind": "float", "route": "/s/1"}), BIG).await.unwrap().result;
+        assert_eq!(again["wid"].as_str(), Some(a.as_str()));
+        assert_eq!(again["restored"], false);
+        assert_eq!(wm.list(Some("aa")).await.unwrap().len(), 1);
+        // A phone opens it as a slot view.
+        let p = call_on(&wm, "aa", &win(), OPEN, &json!({"key": "f2", "kind": "float", "route": "/s"}), BIG, false).await.unwrap().result;
+        assert_eq!(p["kind"], "inline");
+    }
+
+    #[tokio::test]
+    async fn a_minimized_float_restores_at_the_same_bounds() {
+        let d = tempfile::tempdir().unwrap();
+        let wm = start(&Paths::new(d.path()));
+        let wid = float(&wm, "aa", "k").await;
+        let moved = shell_bounds(&wm, "aa", &wid, Rect { x: 220.0, y: 140.0, w: 700.0, h: 450.0 }, BIG).await.unwrap();
+        assert_eq!(moved.event.unwrap()["change"], "state");
+        call(&wm, "aa", &win(), MINIMIZE, &json!({"wid": wid}), BIG).await.unwrap();
+        let w = &wm.list(Some("aa")).await.unwrap()[0];
+        assert_eq!(w.state, WinState::Minimized, "kept alive in the table, listed for the taskbar");
+        let f = call(&wm, "aa", &win(), FOCUS, &json!({"wid": wid}), BIG).await.unwrap();
+        assert_eq!(f.result, json!({"state": "normal"}));
+        let w = &wm.list(Some("aa")).await.unwrap()[0];
+        assert_eq!(w.bounds, Rect { x: 220.0, y: 140.0, w: 700.0, h: 450.0 });
+    }
+
+    #[tokio::test]
+    async fn the_os_moves_only_floats_and_only_the_named_apps() {
+        let d = tempfile::tempdir().unwrap();
+        let wm = start(&Paths::new(d.path()));
+        let small = Rect { x: 0.0, y: 0.0, w: 400.0, h: 300.0 };
+        let theirs = float(&wm, "bb", "k").await;
+        assert!(shell_bounds(&wm, "aa", &theirs, small, BIG).await.unwrap_err().contains("may not act"));
+        assert!(pop_out(&wm, "aa", &theirs).await.unwrap_err().contains("may not act"));
+        let n = call(&wm, "aa", &win(), OPEN, &json!({"key": "n", "kind": "native", "route": "/n"}), BIG).await.unwrap().result;
+        let nw = n["wid"].as_str().unwrap();
+        assert!(shell_bounds(&wm, "aa", nw, small, BIG).await.is_err());
+        assert!(pop_out(&wm, "aa", nw).await.is_err());
+        // An app still may not set a float's bounds itself: the OS moves it.
+        let mine = float(&wm, "aa", "f").await;
+        assert!(call(&wm, "aa", &win(), SET, &json!({"wid": mine, "bounds": {"x": 0, "y": 0, "w": 400, "h": 300}}), BIG).await.is_err());
+        // Off-surface bounds are clamped back onto the work area.
+        let b = shell_bounds(&wm, "aa", &mine, Rect { x: 5000.0, y: 5000.0, w: 9000.0, h: 9000.0 }, BIG).await.unwrap().result;
+        assert!(b["bounds"]["w"].as_f64().unwrap() <= 2000.0 && b["bounds"]["y"].as_f64().unwrap() < 1200.0, "{b}");
+    }
+
+    #[tokio::test]
+    async fn pop_out_closes_the_float_and_asks_for_a_native_window_with_the_same_key_and_route() {
+        let d = tempfile::tempdir().unwrap();
+        let wm = start(&Paths::new(d.path()));
+        let wid = float(&wm, "aa", "session.7").await;
+        let (args, done) = pop_out(&wm, "aa", &wid).await.unwrap();
+        assert_eq!(done.event, Some(json!({"wid": wid, "change": "closed"})));
+        assert!(wm.list(Some("aa")).await.unwrap().is_empty());
+        let n = call(&wm, "aa", &win(), OPEN, &args, BIG).await.unwrap().result;
+        assert_eq!(n["kind"], "native");
+        assert_eq!(n["restored"], true);
+        assert_eq!(n["bounds"]["w"], 600.0, "the size the float had");
+        let w = &wm.list(Some("aa")).await.unwrap()[0];
+        assert_eq!((w.key.as_str(), w.route.as_deref()), ("session.7", Some("/s/1")));
+    }
+
+    #[tokio::test]
+    async fn floats_close_when_their_app_stops() {
+        let d = tempfile::tempdir().unwrap();
+        let wm = start(&Paths::new(d.path()));
+        let f = float(&wm, "aa", "k").await;
+        float(&wm, "bb", "k").await;
+        let gone: Vec<String> = wm.app_stopped("aa").await.unwrap().into_iter().map(|w| w.wid).collect();
+        assert_eq!(gone, vec![f]);
+        assert_eq!(wm.list(None).await.unwrap().len(), 1);
     }
 }

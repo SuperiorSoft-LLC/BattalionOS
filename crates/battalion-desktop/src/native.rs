@@ -129,6 +129,9 @@ pub fn default_bounds(m: &Surface) -> Rect {
 
 /// The OS host page every native window loads (bundled with the shell, `ui/window.html`).
 pub const HOST_PAGE: &str = "window.html";
+/// WM-8 (owner 11-28): a native window is a real OS window: it shows in the Windows taskbar and minimizes with the OS's own minimize
+/// (the BOS taskbar does not list it as minimized; only a float minimizes into the BOS taskbar).
+pub const SKIP_TASKBAR: bool = false;
 
 /// The script the host page finds before it runs (`window.__BOS_WIN`): the app, the wid and the frame it shows. `src` is the app's
 /// origin joined with the window's route (a path on that origin, checked by `win_calls::route`). Run in the top frame only.
@@ -270,5 +273,10 @@ mod tests {
         wm.flush().await.unwrap();
         let saved = wm.saved("demo-app").await.unwrap();
         assert_eq!(saved["session.1"].route.as_deref(), Some("/s"));
+    }
+
+    #[test]
+    fn a_native_window_shows_in_the_os_taskbar() {
+        assert!(!SKIP_TASKBAR);
     }
 }
