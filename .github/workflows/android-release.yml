@@ -80,7 +80,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: '17' }
+        # ANDROID-CI-CACHE-1: cache ~/.gradle so Maven Central 429s stop failing releases.
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            crates/battalion-android/gen/android/**/*.gradle.kts
+            crates/battalion-android/gen/android/gradle/wrapper/gradle-wrapper.properties
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: aarch64-linux-android }
       - uses: Swatinem/rust-cache@v2
@@ -105,7 +112,19 @@ jobs:
           sed -i 's/val executable = """pnpm"""/val executable = """cargo"""/' gen/android/buildSrc/src/main/java/org/battalionos/os/kotlin/BuildTask.kt
           grep -q 'val executable = """cargo"""' gen/android/buildSrc/src/main/java/org/battalionos/os/kotlin/BuildTask.kt
           cfg="{\"version\":\"$VERSION\",\"bundle\":{\"android\":{\"versionCode\":$VERSION_CODE}}}"
-          cargo tauri android build --apk --target aarch64 --config "$cfg"
+          # ANDROID-CI-CACHE-1: up to 3 tries, 60 s apart, retried ONLY when the log shows a Maven 429.
+          for try in 1 2 3; do
+            set +e
+            cargo tauri android build --apk --target aarch64 --config "$cfg" 2>&1 | tee "$RUNNER_TEMP/apk-build.log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            [ "$rc" -eq 0 ] && break
+            if [ "$try" -lt 3 ] && grep -Eq "status code 429|429 Too Many Requests" "$RUNNER_TEMP/apk-build.log"; then
+              echo "::warning::APK build try $try hit HTTP 429; retrying in 60 s"; sleep 60
+            else
+              exit "$rc"
+            fi
+          done
       - name: Check the release APK keeps what ML Kit loads by reflection (BOS-SCAN-CRASH-1)
         run: |
           set -euo pipefail
