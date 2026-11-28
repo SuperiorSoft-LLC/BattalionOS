@@ -740,7 +740,14 @@ pub async fn os_update_install(window: WebviewWindow, app: AppHandle, host: Stat
     };
     // Every app is stopped. Hand over: a hidden helper outlives this process, waits for it to end, runs the installer and
     // starts the OS again. When it cannot even start, the apps start again here and the OS goes on as it was.
-    if let Err(e) = spawn_installer(&msi) {
+    // BOS-UPDATE-1: the OS ends only once the helper has said it runs; otherwise the apps start again and the error is shown.
+    let logs = host.armory.paths().logs();
+    let started = match blocking(move || spawn_installer(&msi, &logs)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(e) => Err(e),
+    };
+    if let Err(e) = started {
         let a = host.armory.clone();
         let _ = blocking(move || a.os_resume_apps()).await;
         finish_err(&host);
@@ -752,22 +759,42 @@ pub async fn os_update_install(window: WebviewWindow, app: AppHandle, host: Stat
 }
 
 #[cfg(windows)]
-fn spawn_installer(msi: &std::path::Path) -> std::io::Result<()> {
+fn spawn_installer(msi: &std::path::Path, logs: &std::path::Path) -> std::io::Result<()> {
+    use crate::osupdate::{helper_flags, HELPER_START_TIMEOUT_SECS};
     use std::os::windows::process::CommandExt;
     let exe = std::env::current_exe()?;
-    // CREATE_NO_WINDOW | DETACHED_PROCESS: no console, and it outlives this process.
-    std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &crate::osupdate::installer_script()])
+    let _ = std::fs::create_dir_all(logs);
+    let ready = logs.join("os-update-helper.ready");
+    let _ = std::fs::remove_file(&ready);
+    let mut c = std::process::Command::new("powershell.exe");
+    c.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &crate::osupdate::installer_script()])
         .env("BOS_UPD_PID", std::process::id().to_string())
         .env("BOS_UPD_MSI", msi)
         .env("BOS_UPD_EXE", exe)
-        .creation_flags(0x0800_0000 | 0x0000_0008)
-        .spawn()
-        .map(|_| ())
+        .env("BOS_UPD_READY", &ready)
+        .env("BOS_UPD_LOG", logs.join("os-update.log"));
+    // A hidden console, its own group, out of any job; a job that forbids breakaway refuses the first try.
+    let mut child = match c.creation_flags(helper_flags(true)).spawn() {
+        Ok(ch) => ch,
+        Err(_) => c.creation_flags(helper_flags(false)).spawn()?,
+    };
+    let t = std::time::Instant::now();
+    while t.elapsed().as_secs() < HELPER_START_TIMEOUT_SECS {
+        if ready.is_file() {
+            let _ = std::fs::remove_file(&ready);
+            return Ok(());
+        }
+        if let Ok(Some(st)) = child.try_wait() {
+            return Err(std::io::Error::other(format!("the installer helper ended before it ran ({st})")));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = child.kill();
+    Err(std::io::Error::other(format!("the installer helper did not start within {HELPER_START_TIMEOUT_SECS} s")))
 }
 
 #[cfg(not(windows))]
-fn spawn_installer(_msi: &std::path::Path) -> std::io::Result<()> {
+fn spawn_installer(_msi: &std::path::Path, _logs: &std::path::Path) -> std::io::Result<()> {
     Err(std::io::Error::other("updating BattalionOS in place is only done on Windows for now"))
 }
 

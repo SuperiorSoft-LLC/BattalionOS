@@ -166,3 +166,19 @@ fn a_bad_signature_is_refused_before_any_app_stops_and_leaves_no_file() {
     assert_eq!(a.supervisor().status("alpha").unwrap().pid, Some(pid));
     a.exit_os();
 }
+
+/// BOS-UPDATE-1: the download reports the size it knows from the start, so the bar shows a percent (0.1.0 only ever sent 0, so
+/// the bar had nothing to show until the very end).
+#[test]
+fn the_download_reports_its_total_so_the_bar_has_a_percent() {
+    let w = World::new("total");
+    let a = w.armory();
+    let feed = w.publish("0.2.0", 7, false);
+    let upd = a.os_check(&feed, "0.1.0").unwrap().unwrap();
+    let size = std::fs::metadata(w.root.join("BattalionOS.msi")).unwrap().len();
+    let mut seen = Vec::new();
+    a.os_stage(&feed, &upd, &mut |got, total| seen.push((got, total))).unwrap();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|(_, t)| *t == size), "every report names the full size: {seen:?}");
+    a.exit_os();
+}

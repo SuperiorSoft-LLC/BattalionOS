@@ -118,7 +118,7 @@ impl Armory {
 
     /// Stream `url` into `dest` (capped at `MAX_OS_PACKAGE`); returns the sha256 (hex) of what was written.
     fn os_fetch_to(&self, fetcher: &dyn Fetcher, url: &str, dest: &Path, what: &'static str, on_bytes: &mut dyn FnMut(u64, u64)) -> Result<String> {
-        let mut rd = fetcher.open(url).map_err(|e| ArmoryError::Fetch { url: url.to_string(), reason: e.to_string() })?;
+        let (mut rd, total) = fetcher.open_sized(url).map_err(|e| ArmoryError::Fetch { url: url.to_string(), reason: e.to_string() })?;
         let mut out = std::fs::File::create(dest)?;
         let (mut buf, mut got) = (vec![0u8; 64 * 1024], 0u64);
         let mut hash = Sha256::new();
@@ -134,8 +134,9 @@ impl Armory {
             }
             out.write_all(&buf[..n])?;
             hash.update(&buf[..n]);
-            if pace.tick(got, 0).is_some() {
-                on_bytes(got, 0);
+            // BOS-UPDATE-1: the announced size gives the bar a percent (0 = unknown, the bar stays indeterminate).
+            if pace.tick(got, total).is_some() {
+                on_bytes(got, total);
             }
         }
         out.sync_all()?;

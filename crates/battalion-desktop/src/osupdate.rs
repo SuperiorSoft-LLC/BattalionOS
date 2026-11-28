@@ -50,13 +50,33 @@ pub struct OsUpdateState {
     pub installing: bool,
 }
 
-/// The one-line script a hidden PowerShell runs after the OS has exited: wait for the OS to end, run the installer (per user, no
-/// admin, with its own progress and Cancel), then start BattalionOS again whatever the installer did, so a cancelled or failed
-/// installer leaves the old version running. Paths come from the environment (`BOS_UPD_*`), never from the command line.
-pub const INSTALLER_SCRIPT: &str = "Wait-Process -Id ([int]$env:BOS_UPD_PID) -Timeout 120 -ErrorAction SilentlyContinue; \
-$p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $env:BOS_UPD_MSI, '/passive', '/norestart') -Wait -PassThru; \
-Remove-Item Env:BOS_UPD_PID, Env:BOS_UPD_MSI, Env:BOS_UPD_EXE -ErrorAction SilentlyContinue; \
+/// How long the OS waits for the installer helper to say it is running before it gives up, starts its apps again and shows the
+/// error instead of exiting (BOS-UPDATE-1).
+pub const HELPER_START_TIMEOUT_SECS: u64 = 20;
+
+/// The one-line script a hidden PowerShell runs after the OS has exited: say it is running (the `BOS_UPD_READY` file: the OS
+/// exits only after it sees it), wait for the OS to end, run the installer (per user, no admin, with its own progress and
+/// Cancel), note the installer's exit code in `BOS_UPD_LOG`, then start BattalionOS again whatever the installer did, so a
+/// cancelled or failed installer leaves the old version running. Paths come from the environment (`BOS_UPD_*`), never from the
+/// command line. The MSI path is quoted for msiexec (a profile path can hold a space).
+pub const INSTALLER_SCRIPT: &str = "Set-Content -LiteralPath $env:BOS_UPD_READY -Value $PID; \
+Wait-Process -Id ([int]$env:BOS_UPD_PID) -Timeout 120 -ErrorAction SilentlyContinue; \
+$p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', ('\"' + $env:BOS_UPD_MSI + '\"'), '/passive', '/norestart') -Wait -PassThru; \
+Add-Content -LiteralPath $env:BOS_UPD_LOG -Value ('{0:o} msiexec exit {1}' -f (Get-Date), $p.ExitCode) -ErrorAction SilentlyContinue; \
+Remove-Item Env:BOS_UPD_PID, Env:BOS_UPD_MSI, Env:BOS_UPD_EXE, Env:BOS_UPD_READY, Env:BOS_UPD_LOG -ErrorAction SilentlyContinue; \
 Start-Process -FilePath $exe";
+
+/// BOS-UPDATE-1: how the helper is started. Never DETACHED_PROCESS: `powershell.exe -WindowStyle Hidden` with no console at all
+/// ends before it runs a line (0.1.0 to 0.2.x exited with no installer run). CREATE_NO_WINDOW gives it a hidden console;
+/// CREATE_NEW_PROCESS_GROUP keeps the OS's console signals off it; CREATE_BREAKAWAY_FROM_JOB lets it outlive the OS when the OS
+/// was started inside a kill-on-close job (tried first, then without it when the job does not allow breakaway).
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+pub const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+pub const DETACHED_PROCESS: u32 = 0x0000_0008;
+pub fn helper_flags(breakaway: bool) -> u32 {
+    CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | if breakaway { CREATE_BREAKAWAY_FROM_JOB } else { 0 }
+}
 
 /// `INSTALLER_SCRIPT` with the exe read before the variables are dropped.
 pub fn installer_script() -> String {
@@ -93,6 +113,52 @@ mod tests {
         assert!(s.contains("$env:BOS_UPD_MSI") && s.contains("$env:BOS_UPD_EXE") && s.contains("$env:BOS_UPD_PID"));
         assert!(s.contains("/passive") && !s.contains("/qn"), "the installer shows its progress and a Cancel");
         assert!(s.contains("Start-Process -FilePath $exe"), "the OS starts again whatever the installer did");
+        assert!(s.starts_with("$exe = $env:BOS_UPD_EXE; Set-Content -LiteralPath $env:BOS_UPD_READY"), "the helper says it runs before anything else");
+        assert!(s.contains("$env:BOS_UPD_LOG") && s.contains("$p.ExitCode"), "the installer's exit code is kept");
+    }
+
+    #[test]
+    fn the_helper_is_never_detached() {
+        for b in [true, false] {
+            assert_eq!(helper_flags(b) & DETACHED_PROCESS, 0, "a detached powershell runs nothing (BOS-UPDATE-1)");
+            assert_ne!(helper_flags(b) & CREATE_NO_WINDOW, 0);
+        }
+        assert_ne!(helper_flags(true) & CREATE_BREAKAWAY_FROM_JOB, 0);
+    }
+
+    /// BOS-UPDATE-1, the real thing: start the helper exactly as the OS does (same flags, same script) with msiexec swapped for a
+    /// harmless `cmd /c exit 0` and the restart dropped, and check it runs: the ready file appears and the exit code is logged.
+    #[cfg(windows)]
+    #[test]
+    fn the_helper_really_runs_on_windows() {
+        use std::os::windows::process::CommandExt;
+        let dir = std::env::temp_dir().join(format!("bos-upd-helper-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (ready, log) = (dir.join("ready"), dir.join("log.txt"));
+        let script = installer_script()
+            .replace("'msiexec.exe'", "'cmd.exe'")
+            .replace("@('/i', ('\"' + $env:BOS_UPD_MSI + '\"'), '/passive', '/norestart')", "@('/c', 'exit 0')")
+            .replace("Start-Process -FilePath $exe", "$null = $exe");
+        assert!(!script.contains("msiexec.exe") && !script.contains("/passive") && !script.contains("-FilePath $exe"), "nothing real is run");
+        let mut c = std::process::Command::new("powershell.exe");
+        c.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+            .env("BOS_UPD_PID", "0")
+            .env("BOS_UPD_MSI", dir.join("x.msi"))
+            .env("BOS_UPD_EXE", "unused")
+            .env("BOS_UPD_READY", &ready)
+            .env("BOS_UPD_LOG", &log);
+        let spawned = c.creation_flags(helper_flags(true)).spawn().or_else(|_| c.creation_flags(helper_flags(false)).spawn());
+        spawned.expect("powershell starts");
+        let t = std::time::Instant::now();
+        while !(ready.is_file() && log.is_file()) && t.elapsed().as_secs() < 60 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let ok = ready.is_file();
+        let l = std::fs::read_to_string(&log).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(ok, "the helper wrote its ready file");
+        assert!(l.contains("msiexec exit 0"), "the installer's exit code is logged: {l:?}");
     }
 
     /// A tiny base64 reader for the test (the key is base64 of a text file).

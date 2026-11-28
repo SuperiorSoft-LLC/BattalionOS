@@ -241,6 +241,10 @@ pub type Result<T> = std::result::Result<T, ArmoryError>;
 /// (a cut connection, a server that lies).
 pub trait Fetcher: Send + Sync {
     fn open(&self, url: &str) -> io::Result<Box<dyn Read + Send>>;
+    /// BOS-UPDATE-1: the reader and the size the server announced (0 when unknown), so a download can show a real percent.
+    fn open_sized(&self, url: &str) -> io::Result<(Box<dyn Read + Send>, u64)> {
+        Ok((self.open(url)?, 0))
+    }
 }
 
 pub struct DefaultFetcher {
@@ -262,8 +266,14 @@ pub fn file_url_path(url: &str) -> Option<PathBuf> {
 
 impl Fetcher for DefaultFetcher {
     fn open(&self, url: &str) -> io::Result<Box<dyn Read + Send>> {
+        self.open_sized(url).map(|(r, _)| r)
+    }
+
+    fn open_sized(&self, url: &str) -> io::Result<(Box<dyn Read + Send>, u64)> {
         if let Some(p) = file_url_path(url) {
-            return Ok(Box::new(std::fs::File::open(p)?));
+            let f = std::fs::File::open(p)?;
+            let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+            return Ok((Box::new(f), len));
         }
         let loopback = self.allow_loopback_http && is_loopback_http(url);
         if !url.starts_with("https://") && !loopback {
@@ -272,7 +282,8 @@ impl Fetcher for DefaultFetcher {
         let t = std::time::Duration::from_millis(self.timeout_ms);
         let agent = ureq::AgentBuilder::new().timeout_connect(t).timeout_read(t).build();
         let resp = agent.get(url).call().map_err(|e| io::Error::other(e.to_string()))?;
-        Ok(Box::new(resp.into_reader()))
+        let len = resp.header("Content-Length").and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(0);
+        Ok((Box::new(resp.into_reader()), len))
     }
 }
 
