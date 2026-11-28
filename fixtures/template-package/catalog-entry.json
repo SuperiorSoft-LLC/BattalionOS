@@ -1,0 +1,17 @@
+{
+  "id": "page-app",
+  "name": "Page App",
+  "publisher": "BattalionOS",
+  "publicKey": "RWRvwVEXdAwdtTgTvJXhBF8K/ijs9XRw34vHb5z7SwLqfc1nlgYAmCSK",
+  "contract": {
+    "min": 1,
+    "max": 1
+  },
+  "channels": {
+    "stable": "https://example.invalid/page-app/feed.json"
+  },
+  "platforms": [
+    "windows-x86_64",
+    "android-aarch64"
+  ]
+}

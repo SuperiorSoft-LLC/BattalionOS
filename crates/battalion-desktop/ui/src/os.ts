@@ -98,6 +98,8 @@ export interface Os {
   frameFs(id: string, cmd: string, args: Record<string, unknown>): Promise<unknown>;
   /** FS-API-2: app `id`'s frame closed: the host drops its file watches (`os_frame_fs_close`). */
   frameFsClose?(id: string): Promise<void>;
+  /** APP-API-1: a store call of app `id`'s page (`os_frame_store`): its own key/value store. */
+  frameStore?(id: string, cmd: string, args: Record<string, unknown>): Promise<unknown>;
   /** FS-API-1: a watched path of app `id` changed (`os://frame-fs-changed`); returns the unsubscribe. */
   onFrameFsChanged(cb: (e: { id: string; watch: string; path: string; change: string }) => void): () => void;
   /** FS-API-1: the OS root folder (`os_fs_info`), shown in Settings. */
@@ -228,6 +230,7 @@ export const hostOs: Os = {
   },
   frameFs: (id, cmd, args) => call("os_frame_fs", { id, cmd, args }),
   frameFsClose: async (id) => void (await call("os_frame_fs_close", { id })),
+  frameStore: (id, cmd, args) => call("os_frame_store", { id, cmd, args }),
   onFrameFsChanged(cb) {
     const sub = tauri().event.listen("os://frame-fs-changed", (e) => cb(e.payload as { id: string; watch: string; path: string; change: string }));
     return () => void sub.then((off) => off());

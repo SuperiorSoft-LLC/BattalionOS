@@ -319,6 +319,29 @@ When the shell closes an app's frame it calls `os_frame_fs_close` and the app's 
 |---|---|---|---|
 | `os_frame_fs_close` | `id` | main | nothing; drops every file watch of app `id` |
 
+### The app's own store (APP-API-1)
+
+A small key/value store for each app (settings, the last folder, recent items), kept in the app's own state folder
+`<home>/data/<app>/store.json` (`{"schema": 1, "values": {...}}`, written atomically). No permission: the store is always the
+calling frame's app's own, the app is never an argument, so an app can never read or change another app's store. It survives
+updates and is kept on remove like the rest of the state folder. Same message form as the file calls; the client package is
+[`@battalionos/app-api`](apps/app-api.md). Schema: `crates/battalion-app-api/schemas/store.schema.json`.
+
+| Page message `cmd` | Args | Permission | Result |
+|---|---|---|---|
+| `os_store_get` | `key` | none | the value, or `null` when the key is not set |
+| `os_store_set` | `key`, `value` (any JSON) | none | nothing; `value: null` deletes the key. Refused with nothing written when the file would pass `store.maxBytes` (`too_large`) |
+| `os_store_delete` | `key` | none | `true` when the key was there, else `false` |
+| `os_store_list` | `prefix?` | none | the keys, sorted, that start with `prefix` (all without one); at most `store.listMax` |
+
+A key is 1 to `store.maxKeyChars` characters, no control characters (`bad_args`). Error codes (the `[code]` at the end of the
+message): `bad_args`, `too_large`, `bad_app`, `io`. Settings (`store` in `os.json`): `maxBytes` (1048576), `maxKeyChars` (256),
+`listMax` (10000).
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_frame_store` | `id`, `cmd` (one of the `os_store_*` above), `args?` | main | the call's result, on app `id`'s own store; `id` must be an installed app |
+
 ## Events (emitted to all windows)
 
 | Event | Payload |

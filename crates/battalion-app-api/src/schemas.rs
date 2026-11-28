@@ -7,6 +7,9 @@ pub const HEALTH_JSON: &str = include_str!("../schemas/health.schema.json");
 pub const CATALOG_JSON: &str = include_str!("../schemas/catalog.schema.json");
 pub const FEED_JSON: &str = include_str!("../schemas/feed.schema.json");
 pub const WINDOW_JSON: &str = include_str!("../schemas/window.schema.json");
+/// APP-API-1: the page file calls (FS-API-1/2) and the per-app store.
+pub const FS_JSON: &str = include_str!("../schemas/fs.schema.json");
+pub const STORE_JSON: &str = include_str!("../schemas/store.schema.json");
 
 pub const ALL: &[(&str, &str)] = &[
     ("app", APP_JSON),
@@ -15,4 +18,6 @@ pub const ALL: &[(&str, &str)] = &[
     ("catalog", CATALOG_JSON),
     ("feed", FEED_JSON),
     ("window", WINDOW_JSON),
+    ("fs", FS_JSON),
+    ("store", STORE_JSON),
 ];

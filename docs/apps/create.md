@@ -1,5 +1,7 @@
 # Create an app: app.json
 
+New here? Start with [Make your own app](make-your-own-app.md): a template, a typed client ([`@battalionos/app-api`](app-api.md)) and a packer, so you need nothing but this repo and Node.
+
 Every app has one manifest, `app.json`, at the root of its package (or of its folder while you develop it). This page
 lists every field, from `crates/battalion-app-api/src/manifest.rs` (`Manifest`), then shows how to run an app from its
 folder with live reload. What an app is: [overview.md](overview.md).

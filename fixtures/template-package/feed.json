@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "contract": 1,
+  "stateSchema": 1,
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://example.invalid/page-app/page-app-1.0.0-windows-x86_64.bosapp",
+      "signature": "untrusted comment: signature from minisign secret key\nRURvwVEXdAwdtUvog+RYDnQ7IalMbBgyJrhzKWFnzdfIcFzbRH/xyrYHNkr8PXm/qvhSOOcquLjsOx0dOp4DT7pvNVylj4Kd3g8=\ntrusted comment: timestamp:1795882095\tfile:page-app-1.0.0-windows-x86_64.bosapp\thashed\nkjjewvAqf0GLyZkIVPTeO8AfGrmlSIAWu7mlSLZMXOPv00Udt52ac4o+bzUlsDvzFBbo4x/Lkr0XWBCSpyWoDw==\n",
+      "sha256": "f9c7c9bcafc4d62f52127e263f4714da399101e64b91a78bbfabfede688d5bf3",
+      "size": 1356
+    },
+    "android-aarch64": {
+      "url": "https://example.invalid/page-app/page-app-1.0.0-android-aarch64.bosapp",
+      "signature": "untrusted comment: signature from minisign secret key\nRURvwVEXdAwdtUvog+RYDnQ7IalMbBgyJrhzKWFnzdfIcFzbRH/xyrYHNkr8PXm/qvhSOOcquLjsOx0dOp4DT7pvNVylj4Kd3g8=\ntrusted comment: timestamp:1795882095\tfile:page-app-1.0.0-android-aarch64.bosapp\thashed\nI93fdDR4SO5kK24gWRUbIWJ9OmWq6cVVMxI8U2kmKeH5U8C2zJ8s3KMY3RvvSlqxLP+8BgHiGszDLGoyI38lDQ==\n",
+      "sha256": "f9c7c9bcafc4d62f52127e263f4714da399101e64b91a78bbfabfede688d5bf3",
+      "size": 1356
+    }
+  }
+}

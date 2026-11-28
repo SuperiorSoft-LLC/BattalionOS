@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "APP-API-1 per-app key/value store calls (os_store_*); the @battalionos/app-api TS types are generated from this file",
+  "$defs": {
+    "StoreCall": { "enum": ["os_store_get", "os_store_set", "os_store_delete", "os_store_list"] },
+    "StoreErrorCode": { "enum": ["bad_args", "too_large", "bad_app", "io"] },
+    "StoreValue": { "description": "Any JSON value; null is never stored (setting null deletes the key)" },
+    "StoreKeyArgs": { "type": "object", "required": ["key"], "properties": { "key": { "type": "string" } } },
+    "StoreSetArgs": { "type": "object", "required": ["key", "value"], "properties": { "key": { "type": "string" }, "value": { "$ref": "#/$defs/StoreValue" } } },
+    "StoreListArgs": { "type": "object", "properties": { "prefix": { "type": "string" } } },
+    "StoreFile": {
+      "type": "object",
+      "required": ["schema", "values"],
+      "properties": {
+        "schema": { "const": 1 },
+        "values": { "type": "object", "additionalProperties": { "$ref": "#/$defs/StoreValue" } }
+      }
+    }
+  }
+}

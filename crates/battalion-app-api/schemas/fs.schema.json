@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FS-API-1/2 file calls of a page (os_fs_*), answers and events; the @battalionos/app-api TS types are generated from this file",
+  "$defs": {
+    "FsCall": { "enum": ["os_fs_list", "os_fs_stat", "os_fs_read", "os_fs_watch", "os_fs_unwatch", "os_fs_write", "os_fs_mkdir", "os_fs_rename", "os_fs_copy", "os_fs_trash", "os_fs_delete"] },
+    "FsErrorCode": { "enum": ["no_root", "bad_path", "leaves_root", "not_found", "not_a_folder", "not_a_file", "not_text", "too_many_watches", "no_such_watch", "bad_args", "io", "is_root", "exists", "too_large", "not_empty"] },
+    "FsKind": { "enum": ["file", "dir", "link"] },
+    "FsEncoding": { "enum": ["text", "base64"] },
+    "FsEntry": {
+      "type": "object",
+      "required": ["name", "kind", "size", "modified"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "$ref": "#/$defs/FsKind" },
+        "size": { "type": "number" },
+        "modified": { "oneOf": [{ "type": "number" }, { "type": "null" }] }
+      }
+    },
+    "FsListArgs": { "type": "object", "properties": { "path": { "type": "string" }, "cursor": { "type": "string" }, "limit": { "type": "number" } } },
+    "FsList": {
+      "type": "object",
+      "required": ["entries", "cursor"],
+      "properties": {
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/FsEntry" } },
+        "cursor": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+      }
+    },
+    "FsStat": {
+      "type": "object",
+      "required": ["name", "kind", "target", "size", "modified", "created", "readonly", "display"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "$ref": "#/$defs/FsKind" },
+        "target": { "enum": ["file", "dir"] },
+        "size": { "type": "number" },
+        "modified": { "oneOf": [{ "type": "number" }, { "type": "null" }] },
+        "created": { "oneOf": [{ "type": "number" }, { "type": "null" }] },
+        "readonly": { "type": "boolean" },
+        "display": { "type": "string" }
+      }
+    },
+    "FsReadArgs": { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" }, "offset": { "type": "number" }, "length": { "type": "number" }, "as": { "$ref": "#/$defs/FsEncoding" } } },
+    "FsRead": {
+      "type": "object",
+      "required": ["data", "size", "offset", "length", "eof"],
+      "properties": {
+        "data": { "type": "string" },
+        "size": { "type": "number" },
+        "offset": { "type": "number" },
+        "length": { "type": "number" },
+        "eof": { "type": "boolean" }
+      }
+    },
+    "FsWriteArgs": { "type": "object", "required": ["path", "data"], "properties": { "path": { "type": "string" }, "data": { "type": "string" }, "as": { "$ref": "#/$defs/FsEncoding" }, "overwrite": { "type": "boolean" } } },
+    "FsWrite": { "type": "object", "required": ["size"], "properties": { "size": { "type": "number" } } },
+    "FsCopy": { "type": "object", "required": ["entries"], "properties": { "entries": { "type": "number" } } },
+    "FsWatch": { "type": "object", "required": ["watch"], "properties": { "watch": { "type": "string" } } },
+    "FsChange": { "enum": ["created", "changed", "removed"] },
+    "FsChangedEvent": {
+      "type": "object",
+      "required": ["bos", "event", "watch", "path", "change"],
+      "properties": {
+        "bos": { "const": 1 },
+        "event": { "const": "os_fs_changed" },
+        "watch": { "type": "string" },
+        "path": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "change": { "oneOf": [{ "$ref": "#/$defs/FsChange" }, { "type": "null" }] }
+      }
+    }
+  }
+}

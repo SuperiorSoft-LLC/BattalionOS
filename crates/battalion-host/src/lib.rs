@@ -3,6 +3,7 @@
 //! write them, what was in flight when the OS died, and the one state machine per app.
 //! Knows no app by name.
 
+pub mod appstore;
 pub mod armory;
 pub mod dev;
 pub mod firstrun;

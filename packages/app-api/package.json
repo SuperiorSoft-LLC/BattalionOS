@@ -1,0 +1,25 @@
+{
+  "name": "@battalionos/app-api",
+  "version": "0.1.0",
+  "description": "The typed client for BattalionOS apps: files, the app's own store, notices, badges, windows and pickers, with a local backend for the plain browser.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^3.2.4"
+  }
+}

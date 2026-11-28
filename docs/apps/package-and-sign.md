@@ -78,8 +78,10 @@ Nothing real is touched until every step passes (everything is written under `<h
 
 ## Making a package
 
-BattalionOS has no generic packaging tool yet: an author zips the app folder, signs the zip with minisign, and writes the
-feed and a catalog entry. Any tool that produces those files works.
+For a page app, the template's packer does all of it in Node: `templates/page-app/scripts/package.mjs` (APP-API-1; see
+[Make your own app](make-your-own-app.md#4-package-and-sign)). It takes the minisign key from the environment only. Any other tool
+that produces the same files works too: an author zips the app folder, signs the zip with minisign, and writes the feed and a
+catalog entry.
 
 Example from an app: the Infantry AI repository's `scripts/bos-package.py` (branch `battalion-os`) packs Infantry AI.
 It writes `infantry-ai-<version>-<platform>.bosapp`, its `.bosapp.sig`, `feed.json`, `catalog-entry.json` and

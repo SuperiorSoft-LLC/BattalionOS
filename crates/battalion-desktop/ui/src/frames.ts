@@ -19,8 +19,12 @@ export const FS_WRITE_COMMANDS = ["os_fs_write", "os_fs_mkdir", "os_fs_rename", 
 export const FS_COMMANDS = ["os_fs_list", "os_fs_stat", "os_fs_read", "os_fs_watch", "os_fs_unwatch", ...FS_WRITE_COMMANDS] as const;
 export type FsCommand = (typeof FS_COMMANDS)[number];
 
+/** APP-API-1: the app's own key/value store. No permission; the store is always the frame's app's own. */
+export const STORE_COMMANDS = ["os_store_get", "os_store_set", "os_store_delete", "os_store_list"] as const;
+export type StoreCommand = (typeof STORE_COMMANDS)[number];
+
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
-export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code", ...WIN_COMMANDS, ...FS_COMMANDS] as const;
+export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code", ...WIN_COMMANDS, ...FS_COMMANDS, ...STORE_COMMANDS] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
 
 /** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). `wid` (WM-6):
@@ -50,6 +54,8 @@ export interface FrameBackend {
   win(id: string, cmd: WinCommand, args: Record<string, unknown>): Promise<unknown>;
   /** FS-API-1: a file call for the app of the frame (`os_frame_fs`); `args` are the page's. Absent = not on this device. */
   fs?(id: string, cmd: FsCommand, args: Record<string, unknown>): Promise<unknown>;
+  /** APP-API-1: a store call for the app of the frame (`os_frame_store`). Absent = not on this device. */
+  store?(id: string, cmd: StoreCommand, args: Record<string, unknown>): Promise<unknown>;
   /** AND-4: the reason a command outside the list is refused, when the device has its own (a phone: starting a program). */
   refusal?(id: string, cmd: string): Promise<string | undefined>;
 }
@@ -141,6 +147,12 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
       case "os_fs_delete":
         if (!be.fs) return reply({ ok: false, error: "file calls are not available on this device yet" });
         return reply({ ok: true, result: (await be.fs(frame.id, d.cmd as FsCommand, args)) ?? null });
+      case "os_store_get":
+      case "os_store_set":
+      case "os_store_delete":
+      case "os_store_list":
+        if (!be.store) return reply({ ok: false, error: "the app store is not available on this device yet" });
+        return reply({ ok: true, result: (await be.store(frame.id, d.cmd as StoreCommand, args)) ?? null });
     }
   } catch (e) {
     return reply({ ok: false, error: text(e) });

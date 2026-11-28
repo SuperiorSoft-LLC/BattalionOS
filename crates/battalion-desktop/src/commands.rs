@@ -386,6 +386,25 @@ pub async fn os_fs_info(window: WebviewWindow, host: State<'_, Host>) -> R<Value
     .await?
 }
 
+/// APP-API-1: a store call of an app's page in a frame (`os_store_get`, `os_store_set`, `os_store_delete`, `os_store_list`). The store
+/// is app `id`'s own (`<home>/data/<id>/store.json`, `battalion-host::appstore`); `id` is the frame's app, so a page never names
+/// another app's store. No manifest permission; the app must be installed. Works on a phone too (it is a file in the OS home). Main only.
+#[tauri::command]
+pub async fn os_frame_store(window: WebviewWindow, host: State<'_, Host>, id: String, cmd: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_store").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let cmd = battalion_host::appstore::COMMANDS.iter().find(|c| **c == cmd).copied().ok_or_else(|| format!("'{cmd}' is not a store call"))?;
+    let paths = host.paths.clone();
+    let args = args.unwrap_or(Value::Null);
+    blocking(move || -> R<Value> {
+        // Installed apps only: permissions_of fails for an id with no installed manifest.
+        crate::host::permissions_of(&paths, &id)?;
+        let err = |e: battalion_host::appstore::StoreError| format!("{e} [{}]", e.code());
+        battalion_host::appstore::AppStore::open(&paths, &id).map_err(err)?.call(cmd, &args).map_err(err)
+    })
+    .await?
+}
+
 /// AND-4: a native call of an app's page on a phone (`os_pick_folder`, `os_pick_file`, `os_open_external`, `os_notify`,
 /// `os_scan_code`). The host checks the app's installed manifest and the arguments; the shell then hands `{call, args}` to the
 /// app's own slot, which runs it with Android (document picker, intent, notification channel, code scanner). Main only.

@@ -35,6 +35,7 @@ const COMMANDS: &[&str] = &[
     "os_frame_login_close",
     "os_frame_notify",
     "os_frame_fs",
+    "os_frame_store",
     "os_fs_info",
     "os_frame_fs_close",
     "os_take_open_request",

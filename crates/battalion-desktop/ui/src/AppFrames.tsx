@@ -153,6 +153,7 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     win: (id, cmd, args) => (phone ? notOnDesktop() : os.frameWin(id, cmd, args).then((r) => { if (cmd !== "os_win_list") winChanged?.(id); return r; })),
     // FS-API-1: the file calls under the OS root (desktop; a phone has none yet).
     fs: phone ? undefined : (id, cmd, args) => os.frameFs(id, cmd, args),
+    store: os.frameStore ? (id, cmd, args) => os.frameStore!(id, cmd, args) : undefined,
     // On a phone the host words the refusal of a call a page may not make (process.spawn: never on a phone).
     refusal: slots ? (id, cmd) => os.framePhoneCall(id, cmd).then(() => undefined) : undefined,
   };

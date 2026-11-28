@@ -77,7 +77,7 @@ describe("identity: the app is the frame that sent the message", () => {
 
 describe("only today's app commands", () => {
   it("lists exactly the six app commands", () => {
-    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_fs_copy", "os_fs_delete", "os_fs_list", "os_fs_mkdir", "os_fs_read", "os_fs_rename", "os_fs_stat", "os_fs_trash", "os_fs_unwatch", "os_fs_watch", "os_fs_write", "os_login_window_close", "os_login_window_open", "os_notify", "os_open_external", "os_pick_file", "os_pick_folder", "os_scan_code", "os_show_desktop", "os_win_close", "os_win_focus", "os_win_list", "os_win_maximize", "os_win_minimize", "os_win_open", "os_win_restore", "os_win_set", "os_win_snap", "os_window_info"]);
+    expect([...FRAME_COMMANDS].sort()).toEqual(["os_app_health", "os_app_status", "os_badge", "os_close_app_window", "os_fs_copy", "os_fs_delete", "os_fs_list", "os_fs_mkdir", "os_fs_read", "os_fs_rename", "os_fs_stat", "os_fs_trash", "os_fs_unwatch", "os_fs_watch", "os_fs_write", "os_login_window_close", "os_login_window_open", "os_notify", "os_open_external", "os_pick_file", "os_pick_folder", "os_scan_code", "os_show_desktop", "os_store_delete", "os_store_get", "os_store_list", "os_store_set", "os_win_close", "os_win_focus", "os_win_list", "os_win_maximize", "os_win_minimize", "os_win_open", "os_win_restore", "os_win_set", "os_win_snap", "os_window_info"]);
   });
   for (const cmd of ["os_frame_win_open", "os_win_exit", "os_list_apps", "os_start_app", "os_stop_app", "os_install_app", "os_remove_app", "os_update_app", "os_rollback_app", "os_open_app_window", "os_exit", "os_catalog", "os_open_login", "os_app_page", "os_frame_badge", "core:window:close", "__proto__", ""]) {
     it(`refuses ${JSON.stringify(cmd)}`, async () => {
@@ -267,5 +267,24 @@ describe("FS-API-2 file calls, write side", () => {
   it("closedFrames names the apps whose frame went away", () => {
     expect(closedFrames(["a", "b", "c"], ["c", "d"])).toEqual(["a", "b"]);
     expect(closedFrames([], ["a"])).toEqual([]);
+  });
+});
+
+describe("APP-API-1 store calls", () => {
+  it("go to the backend for the frame's own app, never an app the page names", async () => {
+    const { be } = backend();
+    const seen: unknown[][] = [];
+    be.store = async (id, cmd, args) => { seen.push([id, cmd, args]); return cmd === "os_store_get" ? 7 : null; };
+    for (const cmd of ["os_store_get", "os_store_set", "os_store_delete", "os_store_list"]) {
+      const r = await answer(frames, from(winB, "http://127.0.0.1:5002", msg(cmd, { key: "k", app: "app-a" })), be);
+      expect(r?.message).toMatchObject({ ok: true });
+    }
+    expect(seen.map((s) => s[0])).toEqual(Array(4).fill("app-b"));
+  });
+  it("are refused when the device has no store backend", async () => {
+    const { be } = backend();
+    delete be.store;
+    const r = await answer(frames, from(winB, "http://127.0.0.1:5002", msg("os_store_get", { key: "k" })), be);
+    expect(r?.message).toMatchObject({ ok: false });
   });
 });
