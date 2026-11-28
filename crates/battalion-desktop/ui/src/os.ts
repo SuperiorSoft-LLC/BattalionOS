@@ -22,12 +22,22 @@ export interface InstalledApp {
   channels?: string[];
   /** The version the app's channel offers (cached feed, newer or not); null when the channel has no build yet. */
   channelVersion?: string | null;
+  /** ARMORY-LOCAL-2: installed from a folder on this machine (marked "Local"; "Reinstall from folder" picks `path` again). */
+  local?: { path: string; signing: Signing } | null;
 }
+/** ARMORY-LOCAL-2: how a folder package was signed. */
+export type Signing = "trusted" | "ownKey" | "unsigned";
+/** ARMORY-LOCAL-2: what `os_install_from_folder` answers. A `confirm` waits for the person; call again with `path` and the flag. */
+export type FolderResult =
+  | { ok: true; id: string; version: string; from?: string | null; signing: Signing }
+  | { cancelled: true }
+  | { confirm: "unsigned" | "replacesCatalog"; message: string; path: string };
+export interface FolderRequest { path?: string; file?: boolean; allowUnsigned?: boolean; replaceCatalog?: boolean }
 /** UPDATE-LIVE-1: what `os_update_app` answers when the running app did not get ready in time (the new version stays staged). */
 export interface NotReady { notReady: true; version: string; reason: string; etaMs?: number | null }
 export interface CatalogEntry { id: string; source: string; compatible: boolean; name?: string | null; publisher?: string | null; summary?: string | null; icon?: string | null; version?: string | null; unavailable?: string | null; /** LOCAL-REPO-1: from a local repo on this machine. */ fromLocalRepo?: boolean; label?: string | null }
 /** LOCAL-REPO-1: a private local app repo (`os_local_repos`). `registered` = listed in os.json, managed there. */
-export interface LocalRepo { name: string; path: string; registered: boolean }
+export interface LocalRepo { name: string; path: string; registered: boolean; /** ARMORY-LOCAL-2: a folder kept elsewhere; removing it removes only the link. */ linked?: boolean }
 export interface Catalog { apps: CatalogEntry[]; rejected: unknown[]; sourceErrors: string[]; fromCache: boolean }
 /** AND-3b: where the page's files are, when the host serves them itself by request interception (Android; absent on the desktop). */
 export interface PageFiles { root: string; pageDir: string; csp: string }
@@ -62,6 +72,10 @@ export interface Os {
   addLocalRepo?(name: string): Promise<void>;
   renameLocalRepo?(name: string, newName: string): Promise<void>;
   removeLocalRepo?(name: string): Promise<void>;
+  /** ARMORY-LOCAL-2: list a folder kept elsewhere (with catalog.json) as a local repo; no `path` = the folder picker. */
+  linkLocalRepo?(name: string, path?: string): Promise<void>;
+  /** ARMORY-LOCAL-2 "Install from folder…". */
+  installFromFolder?(req: FolderRequest): Promise<FolderResult>;
   install(id: string, channel?: string): Promise<void>;
   /** Resolves with [NotReady] when the app did not get ready in time; `now` = "Update now". */
   update(id: string, now?: boolean): Promise<NotReady | void>;
@@ -195,6 +209,8 @@ export const hostOs: Os = {
   addLocalRepo: async (name) => void (await call("os_local_repo_add", { name })),
   renameLocalRepo: async (name, newName) => void (await call("os_local_repo_rename", { name, newName })),
   removeLocalRepo: async (name) => void (await call("os_local_repo_remove", { name })),
+  linkLocalRepo: async (name, path) => void (await call("os_local_repo_link", { name, path })),
+  installFromFolder: (req) => call<FolderResult>("os_install_from_folder", { ...req }),
   install: async (id, channel) => void (await call("os_install_app", { id, channel })),
   update: async (id, now) => {
     const r = await call<Record<string, unknown>>("os_update_app", { id, now: now ?? false });

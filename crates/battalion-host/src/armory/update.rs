@@ -145,7 +145,7 @@ impl Armory {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn switch_and_start(&self, j: &crate::journal::Journal, tx: u64, id: &str, cur: &mut Current, cur_path: &Path, old: &str, new: &str, was_running: bool, meta: &Meta, new_schema: u32) -> Result<()> {
+    pub(crate) fn switch_and_start(&self, j: &crate::journal::Journal, tx: u64, id: &str, cur: &mut Current, cur_path: &Path, old: &str, new: &str, was_running: bool, meta: &Meta, new_schema: u32) -> Result<()> {
         let vdir_new = self.paths.version_dir(id, new)?;
         let give_up = |e: ArmoryError| {
             // Nothing switched yet: the old version is intact.

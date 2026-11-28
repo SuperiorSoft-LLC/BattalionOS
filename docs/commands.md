@@ -145,6 +145,8 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 | `os_local_repo_add` | `name` | main | `{name, path, registered}`; makes an empty repo folder |
 | `os_local_repo_rename` | `name`, `newName` | main | `{name, path, registered}`; a repo set in os.json is refused |
 | `os_local_repo_remove` | `name` | main | `{ok}`; deletes the repo folder (apps installed from it stay); a repo set in os.json is refused |
+| `os_local_repo_link` | `name`, `path`? | main | ARMORY-LOCAL-2: `{name, path, registered, linked}` or `{cancelled}`; lists a folder kept elsewhere (a local checkout with catalog.json, e.g. shaped like battalionOS-apps; channel and package urls may be relative paths) as a local repo. No `path`: the folder picker. Its entries keep their own publisher key; removing the repo removes only the link, never the folder |
+| `os_install_from_folder` | `path`?, `file`?, `allowUnsigned`?, `replaceCatalog`? | main | ARMORY-LOCAL-2 "Install from folder…": installs the app in a folder (app.json, or a .bosapp in it or its dist/) or a .bosapp file. No `path`: the picker (a file with `file`). Same package, manifest and pages-only checks as a catalog install; a present signature must verify. `{ok, id, version, from, signing}`, `{cancelled}`, or `{confirm: "unsigned"\|"replacesCatalog", message, path}`: call again with that `path` and the flag once the person agreed. `os_list_apps` entries installed this way carry `local: {path, signing}` |
 | `os_install_app` | `id`, `channel?` (default `stable`) | main | `{ok}` |
 | `os_open_login` | | main | nothing |
 | `os_login_done` | | login | nothing; closes the login window, emits `os://login-changed` |

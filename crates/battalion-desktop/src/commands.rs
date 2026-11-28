@@ -92,7 +92,7 @@ pub async fn os_list_apps(window: WebviewWindow, app: AppHandle, host: State<'_,
     };
     Ok(json!(list
         .iter()
-        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "pendingUpdate": a.pending_update, "channels": a.channels, "channelVersion": a.channel_version, "badge": badge_of(a)}))
+        .map(|a| json!({"id": a.id, "version": a.version, "state": a.state, "channel": a.channel, "name": a.name, "icon": a.icon, "available": a.available, "previous": a.previous, "pendingUpdate": a.pending_update, "channels": a.channels, "channelVersion": a.channel_version, "local": folder_of(a), "badge": badge_of(a)}))
         .collect::<Vec<_>>()))
 }
 
@@ -1289,7 +1289,7 @@ fn default_channel(app: &battalion_app_api::CatalogApp) -> &str {
 // ---- LOCAL-REPO-1: local repos -----------------------------------------------------------------
 
 fn repo_json(r: &battalion_host::armory::LocalRepo) -> Value {
-    json!({"name": r.name, "path": r.dir.display().to_string(), "registered": r.registered})
+    json!({"name": r.name, "path": r.dir.display().to_string(), "registered": r.registered, "linked": r.link.is_some()})
 }
 
 #[tauri::command]
@@ -1322,4 +1322,82 @@ pub async fn os_local_repo_remove(window: WebviewWindow, host: State<'_, Host>, 
     let a = host.armory.clone();
     blocking(move || a.remove_local_repo(&name)).await?.map_err(|e| e.to_string())?;
     Ok(json!({"ok": true}))
+}
+
+// ---- ARMORY-LOCAL-2: install from a folder, linked local repos ---------------------------------------------------
+
+/// `os_list_apps` `local`: where an app installed from a folder came from, and how it was signed.
+fn folder_of(app: &battalion_host::armory::InstalledApp) -> Value {
+    let battalion_host::armory::InstalledApp { local: from_folder, .. } = app;
+    from_folder.as_ref().map_or(Value::Null, |f| json!({"path": f.path, "signing": f.signing}))
+}
+
+/// The native folder (or file) picker of the shell window; `None` when cancelled.
+async fn shell_pick(window: &WebviewWindow, file: bool, title: &str) -> R<Option<String>> {
+    let w = window.clone();
+    let title = title.to_string();
+    #[cfg(target_os = "android")]
+    {
+        let _ = (w, title, file);
+        Err("choosing a folder is not available on this device yet".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let picked = blocking(move || {
+            let d = rfd::FileDialog::new().set_title(title).set_parent(&w);
+            if file { d.add_filter("BattalionOS app package", &["bosapp"]).pick_file() } else { d.pick_folder() }
+        })
+        .await?;
+        Ok(picked.map(|p| p.to_string_lossy().into_owned()))
+    }
+}
+
+/// "Install from folder…": `path` (else the picker: a folder, or a package file with `file`). The answer is
+/// `{ok, id, version, from, signing}`, `{cancelled}`, or `{confirm: "unsigned"|"replacesCatalog", message, path}`:
+/// call again with that `path` and `allowUnsigned` / `replaceCatalog` once the person agreed.
+#[tauri::command]
+pub async fn os_install_from_folder(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, path: Option<String>, file: Option<bool>, allow_unsigned: Option<bool>, replace_catalog: Option<bool>) -> R<Value> {
+    authorize_shell(window.label(), "os_install_from_folder").map_err(|e| e.to_string())?;
+    let path = match path {
+        Some(p) => p,
+        None => match shell_pick(&window, file.unwrap_or(false), "Install an app from a folder").await? {
+            Some(p) => p,
+            None => return Ok(json!({"cancelled": true})),
+        },
+    };
+    let a = host.armory.clone();
+    let opts = battalion_host::armory::FolderOptions { allow_unsigned: allow_unsigned.unwrap_or(false), replace_catalog: replace_catalog.unwrap_or(false) };
+    let p2 = path.clone();
+    let r = blocking(move || a.install_from_path(std::path::Path::new(&p2), &opts)).await?;
+    use battalion_host::armory::{ArmoryError, Confirm};
+    match r {
+        Ok(done) => {
+            announce(&app, &host, &done.id).await;
+            Ok(json!({"ok": true, "id": done.id, "version": done.version, "from": done.from, "signing": done.signing}))
+        }
+        Err(ArmoryError::NeedsConfirm(c)) => {
+            let kind = match &c {
+                Confirm::Unsigned { .. } => "unsigned",
+                Confirm::ReplacesCatalog { .. } => "replacesCatalog",
+            };
+            Ok(json!({"confirm": kind, "message": c.to_string(), "path": path}))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Add a folder kept elsewhere (a local checkout with catalog.json) as a local repo: `path`, else the folder picker.
+#[tauri::command]
+pub async fn os_local_repo_link(window: WebviewWindow, host: State<'_, Host>, name: String, path: Option<String>) -> R<Value> {
+    authorize_shell(window.label(), "os_local_repo_link").map_err(|e| e.to_string())?;
+    let path = match path {
+        Some(p) => p,
+        None => match shell_pick(&window, false, "Choose a local repo folder (with catalog.json)").await? {
+            Some(p) => p,
+            None => return Ok(json!({"cancelled": true})),
+        },
+    };
+    let a = host.armory.clone();
+    let r = blocking(move || a.link_local_repo(&name, std::path::Path::new(&path))).await?.map_err(|e| e.to_string())?;
+    Ok(repo_json(&r))
 }

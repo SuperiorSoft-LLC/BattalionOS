@@ -103,6 +103,53 @@ Upload the `out/` files where `--base-url` points (a GitHub release works), then
 ([armory.md](armory.md)). The OS checks size, sha256, the signature with your key, the zip and `app.json` before anything
 is installed.
 
+## 6. Install and test locally
+
+You do not need to publish anything to try your app in BattalionOS. Everything below stays on your machine.
+
+1. **Start from the template** (section 1) and write your page (section 2).
+2. **Build it:** `pnpm build` writes the unpacked app to `dist-app/`. To try the real package, also run
+   `pnpm package -- --base-url https://example.org/unused/` (the url does not matter for a local install); it writes
+   `out/` (section 4).
+3. **Install from a folder.** Open the Armory, tab **Installed**, and choose **Install from folder…**. Pick one of:
+   - your project folder: the Armory takes the `.bosapp` for this device from `out/` (or `dist/`), else `dist-app/`;
+   - the `out/` or `dist-app/` folder itself, or any folder with an `app.json`;
+   - or choose **Package file…** and pick the `.bosapp` file.
+
+   The same checks as a catalog install run: size, the signature when a `.minisig` is beside the package (a package
+   that does not match its signature is refused), the unzip limits, and `app.json` (id, version, contract, minOs). A
+   package with no signature, or signed with a key only the folder vouches for (the template's throwaway key), asks
+   first: **Unsigned local app: install it only if you built it.** Confirm, and the app installs and is marked
+   **Local** in the Armory.
+4. **Change it and install again.** Rebuild, then pick the folder again, or open the app's page in the Armory and
+   choose **Reinstall from folder**. A newer `version` in `app.json` updates the app like a catalog update (stop,
+   switch, start, rolled back if it never gets ready), and **Roll back** returns to the version before. The same
+   version replaces the files in place.
+5. **An app you installed from a catalog is never replaced silently.** Installing a local build of it asks
+   **Replace the catalog app?** first. A local app is never updated from a catalog either: remove it, then install
+   it from Browse.
+
+### A local repo: test your catalog entry
+
+To try the catalog path itself (list, install, update, roll back), use a local repo:
+
+- **Publish into one.** An agent's app publish command (`--repo <name>`) writes a private repo under
+  `<home>/local-repos/`, signed with this device's local key ([armory.md](armory.md)).
+- **Or add a folder.** In the Armory's **Local repos** tab, type a name and choose **Add folder…**, then pick a folder
+  holding `catalog.json`, for example a local checkout of `battalionOS-apps`. Channel urls in `catalog.json` and package
+  urls in the feeds may be paths relative to the file they are in:
+
+  ```
+  catalog.json                  "channels": {"stable": "feeds/my-app/stable.json"}
+  feeds/my-app/stable.json      "url": "../../packages/my-app-0.1.0-windows-x86_64.bosapp"
+  packages/my-app-0.1.0-windows-x86_64.bosapp
+  ```
+
+  Its apps list in Browse next to the public ones, marked **Local** with the repo's name, and install, update and roll
+  back through the same Armory path. Each entry keeps its own `publicKey`, pinned at install like any catalog's. An id
+  the public catalog already lists stays the public one. Removing the repo removes only the Armory's link; your folder
+  and its files stay.
+
 ## What is checked here
 
 - `packages/app-api`: `pnpm test` (client over a fake bridge, typed errors, chunked reads, the local backend, types fresh
@@ -110,4 +157,7 @@ is installed.
 - `templates/page-app`: `pnpm typecheck`, `pnpm build`, `pnpm test`.
 - `crates/battalion-host/tests/template_package.rs`: a package made by `package.mjs` (`fixtures/template-package`) installs
   through the OS's own Armory, and a changed one is refused.
+- `crates/battalion-host/tests/local_folder.rs`: install from a folder (signed, unsigned with the confirm, tampered and
+  bad-manifest refused, reinstall, rollback, a catalog app not replaced without asking) and a linked local repo
+  (relative paths; list, install, update, rollback).
 - `crates/battalion-host/tests/appstore.rs`: two apps never see each other's store.

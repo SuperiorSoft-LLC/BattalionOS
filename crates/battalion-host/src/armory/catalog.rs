@@ -115,6 +115,11 @@ impl Armory {
         let fresh = self
             .fetch_small(url, self.settings.max_feed_bytes, "feed")
             .and_then(|b| String::from_utf8(b).map_err(|e| ArmoryError::Feed(e.to_string())))
+            // ARMORY-LOCAL-2: a feed read from a file may name its packages by a path relative to itself.
+            .map(|t| match file_url_path(url).as_deref().and_then(Path::parent) {
+                Some(dir) => super::localrepo::resolve_relative(&t, dir, &["platforms", "*", "url"]),
+                None => t,
+            })
             .and_then(|t| Feed::parse(&t).map(|f| (t, f)).map_err(|e| ArmoryError::Feed(e.to_string())));
         match fresh {
             Ok((text, feed)) => {

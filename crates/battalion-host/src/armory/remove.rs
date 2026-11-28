@@ -79,6 +79,7 @@ impl Armory {
             }
         }
         let _ = std::fs::remove_file(meta_path(&self.paths, id)?);
+        let _ = std::fs::remove_file(self.paths.app_dir(id)?.join("local.json"));
         let _ = remove_tree(&self.paths.root().join("run").join(id));
         if purge && !custom {
             remove_tree(&self.paths.data_dir(id)?)?;

@@ -67,6 +67,8 @@ const COMMANDS: &[&str] = &[
     "os_local_repo_add",
     "os_local_repo_rename",
     "os_local_repo_remove",
+    "os_install_from_folder",
+    "os_local_repo_link",
 ];
 
 fn main() {

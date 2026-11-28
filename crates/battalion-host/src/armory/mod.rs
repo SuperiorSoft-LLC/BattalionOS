@@ -23,6 +23,7 @@
 
 pub mod catalog;
 pub mod exit;
+pub mod folder;
 pub mod info;
 pub mod install;
 pub mod localrepo;
@@ -34,6 +35,7 @@ pub mod remove;
 pub mod update;
 
 pub use catalog::{CatalogEntry, Listing};
+pub use folder::{Confirm, FolderInstalled, FolderOptions, LocalInstall, Signing, LOCAL_CHANNEL};
 pub use info::Offer;
 pub use localrepo::{LocalRepo, LocalRepoSetting, LOCAL_LABEL};
 pub use install::{Installed, InstalledApp};
@@ -154,6 +156,8 @@ pub enum ArmoryError {
     NotAnApp(String),
     /// LOCAL-REPO-1: a local repo operation was refused.
     LocalRepo(String),
+    /// ARMORY-LOCAL-2: an install from a folder waits for the person to agree (the text says to what).
+    NeedsConfirm(Confirm),
     IdMismatch { expected: String, got: String },
     VersionMismatch { expected: String, got: String },
     AlreadyInstalled(String),
@@ -205,6 +209,7 @@ impl std::fmt::Display for ArmoryError {
             Manifest(m) => write!(f, "package manifest: {m}"),
             NotAnApp(m) => write!(f, "this package is not an app: {m}"),
             LocalRepo(m) => write!(f, "local repo: {m}"),
+            NeedsConfirm(m) => write!(f, "{m}"),
             IdMismatch { expected, got } => write!(f, "package is app '{got}', expected '{expected}'"),
             VersionMismatch { expected, got } => write!(f, "package is version {got}, the feed says {expected}"),
             AlreadyInstalled(i) => write!(f, "app '{i}' is already installed"),

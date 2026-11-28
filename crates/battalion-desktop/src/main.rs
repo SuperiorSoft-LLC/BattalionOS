@@ -70,6 +70,8 @@ fn main() {
             os_local_repo_add,
             os_local_repo_rename,
             os_local_repo_remove,
+            os_install_from_folder,
+            os_local_repo_link,
             os_install_app,
             os_open_login,
             os_login_done,

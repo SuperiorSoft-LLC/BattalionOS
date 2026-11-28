@@ -45,6 +45,8 @@ pub struct InstalledApp {
     pub channel_version: Option<String>,
     /// ARMORY-CHANNEL-SWITCH: the channel names the app's catalog entry lists (cached catalog; empty when unknown).
     pub channels: Vec<String>,
+    /// ARMORY-LOCAL-2: installed from a folder on this machine (marked "Local"; "Reinstall from folder" picks it again).
+    pub local: Option<super::LocalInstall>,
 }
 
 impl Armory {
@@ -84,7 +86,8 @@ impl Armory {
                 let available = self.cached_newer(&id, &cur.version, channel.as_deref());
                 let channel_version = self.cached_version(&id, channel.as_deref());
                 let channels = channels_of.remove(&id).unwrap_or_default();
-                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous, pending_update, channel_version, channels });
+                let local = self.local_install(&id);
+                out.push(InstalledApp { id, version: cur.version, state: cur.state.name().into(), channel, name, icon, available, previous, pending_update, channel_version, channels, local });
             }
         }
         out.sort_by(|a, b| a.id.cmp(&b.id));
@@ -199,7 +202,7 @@ impl Armory {
 
     /// Run the manifest's init part to its end, in the app's state folder. A failing or hanging
     /// init fails the install.
-    fn run_init(&self, id: &str, m: &Manifest, vdir: &Path, exec: &str, args: &[String]) -> Result<()> {
+    pub(crate) fn run_init(&self, id: &str, m: &Manifest, vdir: &Path, exec: &str, args: &[String]) -> Result<()> {
         let state_dir = state_dir_of(m, &self.paths, id).map_err(|e| ArmoryError::Init(e.to_string()))?;
         std::fs::create_dir_all(&state_dir)?;
         let log_path = self.paths.logs().join(format!("{id}-init.log"));

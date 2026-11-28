@@ -5,7 +5,7 @@ import { ArrowLeft, Boxes, CloudOff, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button, Chip, EmptyState, Input, ListRow, ProgressLine, RefusalBanner, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger } from "../kit";
 import { AppIcon } from "./AppIcon";
-import type { ArmoryOp, LocalRepo } from "./os";
+import type { ArmoryOp, FolderRequest, FolderResult, LocalRepo } from "./os";
 import { confirmText, osRowActions, OS_ROW, type OsPhase, type OsUpdateInfo } from "./osUpdate";
 import { appView, availableOf, browseIds, channelNoteOf, channelsOf, channelText, desktopIds, iconOf, labelOf, offline, pendingOf, previousOf, progressOf, waitText, type Model } from "./store";
 
@@ -84,7 +84,92 @@ function OpError({ m, id, a }: { m: Model; id: string; a: ArmoryActions }) {
   );
 }
 
-function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; back: () => void }) {
+/** ARMORY-LOCAL-2: what "Install from folder…" can do (the host's os_install_from_folder). */
+export interface FolderActions {
+  install(req: FolderRequest): Promise<FolderResult>;
+  /** An app was installed or replaced: the lists are read again. */
+  changed(): void;
+}
+
+/** ARMORY-LOCAL-2: run one folder install, asking for each confirm the host needs, then report. */
+function useFolderInstall(f: FolderActions | undefined) {
+  const [ask, setAsk] = useState<{ req: FolderRequest; message: string; kind: "unsigned" | "replacesCatalog" } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = (req: FolderRequest) => {
+    if (!f) return;
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    f.install(req).then(
+      (r) => {
+        setBusy(false);
+        if ("confirm" in r) setAsk({ req: { ...req, path: r.path }, message: r.message, kind: r.confirm });
+        else if ("ok" in r) {
+          setAsk(null);
+          setDone(r.from ? `${r.id} ${r.version} installed from the folder (was ${r.from}).` : `${r.id} ${r.version} installed from the folder.`);
+          f.changed();
+        }
+      },
+      (e) => {
+        setBusy(false);
+        setError(String(e));
+      },
+    );
+  };
+  const agree = () => ask && run(ask.kind === "unsigned" ? { ...ask.req, allowUnsigned: true } : { ...ask.req, replaceCatalog: true });
+  const view = (
+    <>
+      {busy && <ProgressLine value={null} />}
+      {error && <RefusalBanner text={`Not installed: ${error}`} onDismiss={() => setError(null)} />}
+      {done && (
+        <div role="status" className="rounded-lg border bg-card p-2 text-xs text-muted-foreground">
+          {done}
+        </div>
+      )}
+      {ask && (
+        <div role="alertdialog" aria-label={ask.kind === "unsigned" ? "Unsigned local app" : "Replace the catalog app"} className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm">
+          <span className="font-medium">{ask.kind === "unsigned" ? "Unsigned local app" : "Replace the catalog app?"}</span>
+          <span>{ask.message}</span>
+          <span className="truncate font-mono text-xs text-muted-foreground">{ask.req.path}</span>
+          <div className="flex gap-2">
+            <Button size="sm" variant={ask.kind === "unsigned" ? "destructive" : "default"} onClick={agree}>
+              {ask.kind === "unsigned" ? "Install anyway" : "Replace it"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setAsk(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+  return { run, view, busy };
+}
+
+/** ARMORY-LOCAL-2: the "Install from folder…" bar (a folder, or a .bosapp package file). */
+function InstallFromFolder({ f }: { f: FolderActions }) {
+  const { run, view, busy } = useFolderInstall(f);
+  return (
+    <div className="flex flex-col gap-2" data-install-from-folder>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => run({})}>
+          Install from folder…
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ file: true })}>
+          Package file…
+        </Button>
+        <span className="text-xs text-muted-foreground">An app you built: its folder, its dist folder, or the .bosapp.</span>
+      </div>
+      {view}
+    </div>
+  );
+}
+
+function AppPage({ m, id, a, back, folder }: { m: Model; id: string; a: ArmoryActions; back: () => void; folder?: FolderActions }) {
+  const local = m.installed.find((x) => x.id === id)?.local;
+  const reinstall = useFolderInstall(folder);
   const v = appView(m, id);
   const op = m.ops[id];
   const entry = m.catalog?.apps.find((c) => c.id === id);
@@ -114,6 +199,8 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
         {entry && !entry.fromLocalRepo && <span>· from {entry.source}</span>}
         {entry?.fromLocalRepo && <Chip tone="blue">{entry.label ?? "Local, built on this machine"}</Chip>}
         {entry?.fromLocalRepo && <span>· {entry.source.replace(/^local:/, "")}</span>}
+        {local && <Chip tone="blue">Local</Chip>}
+        {local && <span className="truncate">· from {local.path}{local.signing === "trusted" ? "" : " (unsigned)"}</span>}
         {v.kind === "installed" && <span>· version {v.version}</span>}
         {v.kind !== "installed" && entry?.version && <span>· latest {entry.version}</span>}
         <StateChip m={m} id={id} />
@@ -122,6 +209,7 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
       {busy && <Progress m={m} id={id} fallback={op?.kind === "working" ? VERB[op.op] : v.kind === "installing" ? v.stage : "Working"} />}
       {v.kind === "failed" && !op && <RefusalBanner text={`Install failed: ${v.error}`} onDismiss={() => a.dismiss(id)} />}
       <OpError m={m} id={id} a={a} />
+      {reinstall.view}
       {confirm && !busy && (
         <div role="alertdialog" aria-label={`Remove ${labelOf(m, id)}`} className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm">
           <span>Remove {labelOf(m, id)}? Its data stays, so installing it again finds it.</span>
@@ -150,6 +238,11 @@ function AppPage({ m, id, a, back }: { m: Model; id: string; a: ArmoryActions; b
         {v.kind === "installed" && !busy && prev && (
           <Button variant="outline" onClick={() => a.rollback(id)}>
             Roll back to {prev}
+          </Button>
+        )}
+        {v.kind === "installed" && !busy && local && folder && (
+          <Button variant="outline" disabled={reinstall.busy} onClick={() => reinstall.run({ path: local.path })}>
+            Reinstall from folder
           </Button>
         )}
         {(v.kind === "installed" || v.kind === "failed") && !busy && (
@@ -248,7 +341,7 @@ function OsRow({ m, os }: { m: Model; os: OsRowProps }) {
   );
 }
 
-export function Armory({ m, a, osRow, repos }: { m: Model; a: ArmoryActions; osRow?: OsRowProps; repos?: LocalRepoActions }) {
+export function Armory({ m, a, osRow, repos, folder }: { m: Model; a: ArmoryActions; osRow?: OsRowProps; repos?: LocalRepoActions; folder?: FolderActions }) {
   const [page, setPage] = useState<string | null>(null);
   const off = offline(m);
   const browse = browseIds(m);
@@ -286,6 +379,7 @@ export function Armory({ m, a, osRow, repos }: { m: Model; a: ArmoryActions; osR
           icon={icon(id)}
           trailing={
             <span className="flex items-center gap-1">
+              {m.installed.find((x) => x.id === id)?.local && <Chip tone="neutral">Local</Chip>}
               <StateChip m={m} id={id} />
               {!busy && newer && (
                 <Button size="xs" onClick={() => a.update(id)} aria-label={`Update ${labelOf(m, id)}`}>
@@ -331,7 +425,7 @@ export function Armory({ m, a, osRow, repos }: { m: Model; a: ArmoryActions; osR
       )}
       <div className="min-h-0 flex-1 overflow-auto">
         {page ? (
-          <AppPage m={m} id={page} a={a} back={() => setPage(null)} />
+          <AppPage m={m} id={page} a={a} back={() => setPage(null)} folder={folder} />
         ) : (
           <Tabs defaultValue="browse" className="p-4">
             <TabsList>
@@ -348,6 +442,7 @@ export function Armory({ m, a, osRow, repos }: { m: Model; a: ArmoryActions; osR
               {browse.map(browseRow)}
             </TabsContent>
             <TabsContent value="installed" className="mt-3 flex flex-col gap-2">
+              {folder && <InstallFromFolder f={folder} />}
               {osRow && <OsRow m={m} os={osRow} />}
               {installedCount === 0 && <EmptyState icon={<Boxes />} title="Nothing installed yet" hint="Install an app from Browse and it appears on the desktop." />}
               {installed.map(installedRow)}
@@ -370,6 +465,8 @@ export interface LocalRepoActions {
   add(name: string): Promise<void>;
   rename(name: string, newName: string): Promise<void>;
   remove(name: string): Promise<void>;
+  /** ARMORY-LOCAL-2: list a folder kept elsewhere (a checkout with catalog.json); no path = the folder picker. */
+  link?(name: string, path?: string): Promise<void>;
   /** A repo changed: the catalog is read again. */
   changed(): void;
 }
@@ -409,6 +506,11 @@ export function LocalRepos({ r }: { r: LocalRepoActions }) {
         <Button type="submit" size="sm" disabled={!name.trim()}>
           Add repo
         </Button>
+        {r.link && (
+          <Button type="button" size="sm" variant="outline" disabled={!name.trim()} onClick={() => void run(r.link!(name.trim())).then(() => setName(""))} title="Name it, then pick a folder holding catalog.json (a local checkout of an apps repo)">
+            Add folder…
+          </Button>
+        )}
       </form>
       {repos && repos.length === 0 && <EmptyState icon={<Boxes />} title="No local repos yet" hint="The first publish makes My apps." />}
       {repos?.map((repo) => (
@@ -438,6 +540,7 @@ export function LocalRepos({ r }: { r: LocalRepoActions }) {
                   <Chip tone="neutral">Set in os.json</Chip>
                 ) : (
                   <span className="flex items-center gap-1">
+                    {repo.linked && <Chip tone="neutral">Folder</Chip>}
                     <Button size="xs" variant="outline" onClick={() => setEditing({ name: repo.name, to: repo.name })} aria-label={`Rename ${repo.name}`}>
                       Rename
                     </Button>
@@ -451,7 +554,7 @@ export function LocalRepos({ r }: { r: LocalRepoActions }) {
           )}
           {confirm === repo.name && (
             <div role="alertdialog" aria-label={`Remove ${repo.name}`} className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-sm">
-              <span>Remove {repo.name} and its packages? Apps installed from it stay installed.</span>
+              <span>{repo.linked ? `Stop listing ${repo.name}? The folder and its files stay; apps installed from it stay installed.` : `Remove ${repo.name} and its packages? Apps installed from it stay installed.`}</span>
               <div className="flex gap-2">
                 <Button
                   size="sm"
