@@ -119,6 +119,7 @@ Every command checks the label again in Rust: an `app-a` window cannot act on ap
 | Command | Args | Who | Returns |
 |---|---|---|---|
 | `os_window_info` | | any | `{label, app, dev, platform, groupWindows}` (`app` is the id or null; `platform` is the host OS, e.g. `windows`, `android`: the shell's layout; `groupWindows` is `bos.taskbar.groupWindows`, os.json `{"taskbar": {"groupWindows": false}}`, default true: the taskbar groups an app's windows under its button) |
+| `os_main_inset` | | main | `{top, right, bottom, left}` (BOS-LAYOUT-1: logical px the maximized OS window reaches past its monitor's work area: an undecorated window keeps its resize frame, so maximized it overflows the screen; the shell pads itself by this so its taskbar stays on screen above the Windows taskbar; all 0 when not maximized) |
 | `os_list_apps` | | main | `[{id, version, state, channel, name, icon, available, previous}]`: `name` from the installed manifest; `icon` its icon file as a `data:` URL (null when there is none, it is over 256 KiB or it is not a png, svg, jpg, webp, gif or ico); `available` the newer version the last feed read offered, or null (no network at this call); `previous` the version a rollback goes back to, or null |
 | `os_app_status` | `id` | main, `app-<id>` | `{id, state, pid, url, paused, restarts, lastError}` |
 | `os_app_health` | `id` | main, `app-<id>` | health, as text |

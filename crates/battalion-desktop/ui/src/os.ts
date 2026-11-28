@@ -48,7 +48,10 @@ export interface OsWindow {
   startResize(edge: ResizeEdge): Promise<void>;
   /** Calls [cb] with the maximized state now and at every change; returns the unsubscribe. */
   onMaximized(cb: (maximized: boolean) => void): () => void;
+  /** BOS-LAYOUT-1: logical px the maximized window reaches past the monitor's work area (all 0 when not maximized). Absent: none. */
+  workAreaInset?(): Promise<Inset>;
 }
+export interface Inset { top: number; right: number; bottom: number; left: number }
 
 export interface Os {
   window: OsWindow;
@@ -166,6 +169,7 @@ export const hostOs: Os = {
       const sub = w.onResized(look);
       return () => void sub.then((off) => off());
     },
+    workAreaInset: () => call<Inset>("os_main_inset"),
   },
   listApps: () => call("os_list_apps"),
   catalog: async () => normalizeCatalog(await call<Catalog>("os_catalog")),

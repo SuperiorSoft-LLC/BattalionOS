@@ -3,6 +3,7 @@
 #[cfg(feature = "gui")]
 const COMMANDS: &[&str] = &[
     "os_window_info",
+    "os_main_inset",
     "os_list_apps",
     "os_app_status",
     "os_app_health",

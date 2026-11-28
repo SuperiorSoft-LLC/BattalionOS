@@ -19,6 +19,47 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
 }
 
+/// BOS-LAYOUT-1: how far (logical px: top, right, bottom, left) a window reaches past its monitor's work area. An undecorated window
+/// on Windows keeps its resize frame, so maximized it covers the work area grown by that frame on every side (and the BOS taskbar at
+/// the bottom lands off screen or under the Windows taskbar); the shell pads itself by this. Zero when the window is inside.
+pub fn work_area_inset(win: (i32, i32, u32, u32), area: (i32, i32, u32, u32), scale: f64) -> [f64; 4] {
+    let (wx, wy, ww, wh) = (win.0 as i64, win.1 as i64, win.2 as i64, win.3 as i64);
+    let (ax, ay, aw, ah) = (area.0 as i64, area.1 as i64, area.2 as i64, area.3 as i64);
+    let s = if scale > 0.0 { scale } else { 1.0 };
+    let px = |d: i64| (d.max(0) as f64) / s;
+    [px(ay - wy), px((wx + ww) - (ax + aw)), px((wy + wh) - (ay + ah)), px(ax - wx)]
+}
+
+/// BOS-LAYOUT-1: the OS window's overflow past the work area (see `work_area_inset`); all zero while it is not maximized.
+#[tauri::command]
+pub async fn os_main_inset(window: WebviewWindow) -> R<Value> {
+    authorize_shell(window.label(), "os_main_inset").map_err(|e| e.to_string())?;
+    let zero = json!({"top": 0, "right": 0, "bottom": 0, "left": 0});
+    if !window.is_maximized().unwrap_or(false) {
+        return Ok(zero);
+    }
+    let (Ok(pos), Ok(size), Ok(Some(mon))) = (window.outer_position(), window.outer_size(), window.current_monitor()) else { return Ok(zero) };
+    let wa = mon.work_area();
+    let [t, r, b, l] = work_area_inset((pos.x, pos.y, size.width, size.height), (wa.position.x, wa.position.y, wa.size.width, wa.size.height), mon.scale_factor());
+    Ok(json!({"top": t, "right": r, "bottom": b, "left": l}))
+}
+
+#[cfg(test)]
+mod work_area_tests {
+    use super::work_area_inset;
+    #[test]
+    fn a_maximized_undecorated_window_overflows_by_its_frame() {
+        // 1920x1080 monitor, 48 px Windows taskbar, 8 px frame each side at 100 %.
+        assert_eq!(work_area_inset((-8, -8, 1936, 1048), (0, 0, 1920, 1032), 1.0), [8.0, 8.0, 8.0, 8.0]);
+        // 150 %: physical 12 px is 8 logical px.
+        assert_eq!(work_area_inset((-12, -12, 2904, 1572), (0, 0, 2880, 1548), 1.5), [8.0, 8.0, 8.0, 8.0]);
+    }
+    #[test]
+    fn a_window_inside_the_work_area_needs_none() {
+        assert_eq!(work_area_inset((100, 100, 800, 600), (0, 0, 1920, 1032), 1.0), [0.0; 4]);
+    }
+}
+
 #[tauri::command]
 pub async fn os_window_info(window: WebviewWindow, host: State<'_, Host>) -> R<Value> {
     let label = window.label().to_string();

@@ -18,6 +18,7 @@ import { appView, barItems, needsStart, desktopIds, ARMORY_ICON, iconIds, iconOf
 import { Taskbar, type WinOp } from "./Taskbar";
 import { appAt, takeEarlyTap } from "./earlyTaps";
 import { ResizeEdges, TitleBar } from "./TitleBar";
+import { cleanInset, NO_INSET, SHELL_CLASS, shellStyle } from "./shellLayout";
 
 export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => Promise<string | null> }) {
   const [m, dispatch] = useReducer(reduce, initial);
@@ -29,6 +30,21 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const [platformKnown, setPlatformKnown] = useState(false);
   useEffect(() => void platform().then((p) => { setLayout(layoutFor(p, navigator.userAgent)); setPlatformKnown(true); }), [platform]);
   const phone = layout === "phone";
+  // BOS-LAYOUT-1: maximized, the window's overflow past the work area (the shell pads itself by it so the taskbar stays on screen).
+  const [inset, setInset] = useState(NO_INSET);
+  useEffect(() => {
+    const read = os.window.workAreaInset;
+    if (phone || !read) return;
+    let live = true;
+    const off = os.window.onMaximized((max) => {
+      if (!max) return live && setInset(NO_INSET);
+      read().then((i) => live && setInset(cleanInset(i)), () => live && setInset(NO_INSET));
+    });
+    return () => {
+      live = false;
+      off();
+    };
+  }, [os, phone]);
   const [notice, setNotice] = useState<string | null>(null);
   const [firstRunIds, setFirstRunIds] = useState<string[]>([]);
   // BOS-AND-SELFUPDATE-1: the version whose "ready" notice was put off (it comes back for a newer one).
@@ -232,7 +248,7 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const icon = useCallback((id: string) => iconOf(m, id), [m]);
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground" data-layout={layout} style={phone ? PHONE_INSETS : undefined}>
+    <div className={SHELL_CLASS} data-layout={layout} data-shell style={shellStyle(phone, inset, PHONE_INSETS)}>
       {!phone && <ResizeEdges win={os.window} />}
       <TitleBar win={os.window} appName={m.active ? labelOf(m, m.active) : null} onClose={closeWindow} phone={phone} />
       {closeNotice && (
