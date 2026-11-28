@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest";
 import { answer } from "../src/frames";
 import { identity, nativeBackend } from "../src/nativeWindow";
 
-const me = { app: "infantry", wid: "w-infantry-3", title: "Chat", origin: "http://127.0.0.1:4100", src: "http://127.0.0.1:4100/session/e7" };
+const me = { app: "demo-app", wid: "w-demo-app-3", title: "Chat", origin: "http://127.0.0.1:4100", src: "http://127.0.0.1:4100/session/e7" };
 
 describe("native window host page", () => {
   it("takes only an identity the host could have made", () => {
     expect(identity(me)).toEqual(me);
     expect(identity(null)).toBeNull();
     expect(identity({ ...me, wid: "w-other-3" })).toBeNull();
-    expect(identity({ ...me, wid: "w-infantry-x" })).toBeNull();
+    expect(identity({ ...me, wid: "w-demo-app-x" })).toBeNull();
     expect(identity({ ...me, src: "https://evil.example/session" })).toBeNull();
   });
 
@@ -25,7 +25,7 @@ describe("native window host page", () => {
     const frames = [{ id: me.app, origin: me.origin, window: child, wid: me.wid }];
     const ask = (cmd: string, args?: unknown) => answer(frames, { source: child, origin: me.origin, data: { bos: 1, id: "r1", cmd, args } }, be);
 
-    expect((await ask("os_window_info"))?.message).toEqual({ bos: 1, id: "r1", ok: true, result: { label: "win-infantry-3", app: "infantry", wid: "w-infantry-3" } });
+    expect((await ask("os_window_info"))?.message).toEqual({ bos: 1, id: "r1", ok: true, result: { label: "win-demo-app-3", app: "demo-app", wid: "w-demo-app-3" } });
     await ask("os_close_app_window");
     await ask("os_badge", { count: 4 });
     await ask("os_win_snap", { wid: me.wid, zone: "left" });

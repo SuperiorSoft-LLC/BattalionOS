@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) SuperiorSoft LLC
 // OS-WINDOW-1 window geometry (pure, no DOM): the twin of battalion-app-api `geometry.rs`. clampBox, dragBox and
-// resizeBox are moved from infantry-ai app/packages/client/src/popout.ts (same rules), generalised to a surface with
+// resizeBox are moved from the first app's popout.ts (same rules), generalised to a surface with
 // an origin; snap zones are a surface's halves and quarters.
 
 export interface Box {

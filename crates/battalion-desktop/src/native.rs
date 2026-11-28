@@ -148,12 +148,12 @@ mod tests {
     use std::sync::Mutex;
 
     fn native(wid: &str) -> Window {
-        Window { wid: wid.into(), app: "infantry".into(), key: "k".into(), kind: Kind::Native, title: "T".into(), icon: None, badge: None, attention: false, state: WinState::Normal, bounds: Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }, z: 1, route: Some("/s".into()) }
+        Window { wid: wid.into(), app: "demo-app".into(), key: "k".into(), kind: Kind::Native, title: "T".into(), icon: None, badge: None, attention: false, state: WinState::Normal, bounds: Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 }, z: 1, route: Some("/s".into()) }
     }
 
     #[test]
     fn label_and_identity_round_trip() {
-        assert_eq!(label_of("w-infantry-3"), Some(NativeId("win-infantry-3".into())));
+        assert_eq!(label_of("w-demo-app-3"), Some(NativeId("win-demo-app-3".into())));
         assert_eq!(label_of("w-my-app-12"), Some(NativeId("win-my-app-12".into())));
         assert_eq!(wid_of_label("win-my-app-12"), Some(("my-app".into(), "w-my-app-12".into())));
         // The label the window carries names the same app the WM-2 access rule reads from it.
@@ -161,16 +161,16 @@ mod tests {
         for bad in ["x-1", "w-", "w-app", "w-app-", "w-app-1a"] {
             assert_eq!(label_of(bad), None, "{bad}");
         }
-        assert_eq!(wid_of_label("app-infantry"), None);
-        assert_eq!(wid_of_label("win-infantry"), None);
+        assert_eq!(wid_of_label("app-demo-app"), None);
+        assert_eq!(wid_of_label("win-demo-app"), None);
     }
 
     #[test]
     fn each_call_takes_its_step_only_for_a_native_window() {
-        let n = native("w-infantry-2");
-        let id = NativeId("win-infantry-2".into());
-        assert_eq!(step("os_win_open", &json!({}), &json!({"wid": "w-infantry-2", "kind": "native"}), None), Some(Step::Create { wid: "w-infantry-2".into() }));
-        assert_eq!(step("os_win_open", &json!({}), &json!({"wid": "w-infantry-2", "kind": "inline"}), None), None);
+        let n = native("w-demo-app-2");
+        let id = NativeId("win-demo-app-2".into());
+        assert_eq!(step("os_win_open", &json!({}), &json!({"wid": "w-demo-app-2", "kind": "native"}), None), Some(Step::Create { wid: "w-demo-app-2".into() }));
+        assert_eq!(step("os_win_open", &json!({}), &json!({"wid": "w-demo-app-2", "kind": "inline"}), None), None);
         assert_eq!(step("os_win_close", &json!({}), &json!(null), Some(&n)), Some(Step::Close(id.clone())));
         assert_eq!(step("os_win_minimize", &json!({}), &json!({}), Some(&n)), Some(Step::State(id.clone(), WinState::Minimized)));
         assert_eq!(step("os_win_focus", &json!({}), &json!({}), Some(&n)), Some(Step::State(id.clone(), WinState::Normal)));
@@ -202,9 +202,9 @@ mod tests {
 
     #[test]
     fn the_host_page_carries_the_frame_identity() {
-        let p = host_script("infantry", "w-infantry-1", "Chat \"</script>", "http://127.0.0.1:4100/", "/session/e7?x=2");
+        let p = host_script("demo-app", "w-demo-app-1", "Chat \"</script>", "http://127.0.0.1:4100/", "/session/e7?x=2");
         let v: serde_json::Value = serde_json::from_str(p.strip_prefix("window.__BOS_WIN=").unwrap().trim_end_matches(';')).unwrap();
-        assert_eq!(v, json!({"app": "infantry", "wid": "w-infantry-1", "title": "Chat \"</script>", "origin": "http://127.0.0.1:4100", "src": "http://127.0.0.1:4100/session/e7?x=2"}));
+        assert_eq!(v, json!({"app": "demo-app", "wid": "w-demo-app-1", "title": "Chat \"</script>", "origin": "http://127.0.0.1:4100", "src": "http://127.0.0.1:4100/session/e7?x=2"}));
     }
 
     /// A fake engine: records what the OS asked of it.
@@ -245,30 +245,30 @@ mod tests {
     async fn focus_instead_of_a_duplicate_by_key() {
         let d = tempfile::tempdir().unwrap();
         let wm = start(&Paths::new(d.path()));
-        let a = wm.open("infantry", spec("session.1"), BIG).await.unwrap();
-        let b = wm.open("infantry", spec("session.1"), BIG).await.unwrap();
+        let a = wm.open("demo-app", spec("session.1"), BIG).await.unwrap();
+        let b = wm.open("demo-app", spec("session.1"), BIG).await.unwrap();
         // The same wid, so the same label: the engine's create shows the open window instead of a second one.
         assert_eq!(label_of(&a.wid), label_of(&b.wid));
-        assert_eq!(wm.list(Some("infantry")).await.unwrap().len(), 1);
+        assert_eq!(wm.list(Some("demo-app")).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
     async fn native_windows_close_when_their_app_stops() {
         let d = tempfile::tempdir().unwrap();
         let wm = start(&Paths::new(d.path()));
-        let n = wm.open("infantry", spec("session.1"), BIG).await.unwrap();
-        wm.open("infantry", OpenSpec { key: "inline".into(), ..Default::default() }, BIG).await.unwrap();
+        let n = wm.open("demo-app", spec("session.1"), BIG).await.unwrap();
+        wm.open("demo-app", OpenSpec { key: "inline".into(), ..Default::default() }, BIG).await.unwrap();
         let other = wm.open("other", spec("x"), BIG).await.unwrap();
         let engine = Fake::default();
-        for w in wm.app_stopped("infantry").await.unwrap() {
+        for w in wm.app_stopped("demo-app").await.unwrap() {
             engine.close(&label_of(&w.wid).unwrap());
         }
-        assert_eq!(*engine.0.lock().unwrap(), vec![format!("close win-infantry-{}", &n.wid["w-infantry-".len()..])]);
+        assert_eq!(*engine.0.lock().unwrap(), vec![format!("close win-demo-app-{}", &n.wid["w-demo-app-".len()..])]);
         let left: Vec<String> = wm.list(None).await.unwrap().into_iter().map(|w| w.wid).collect();
         assert!(left.contains(&other.wid) && !left.contains(&n.wid) && left.len() == 2, "{left:?}");
         // Its geometry and route stay saved for the next start.
         wm.flush().await.unwrap();
-        let saved = wm.saved("infantry").await.unwrap();
+        let saved = wm.saved("demo-app").await.unwrap();
         assert_eq!(saved["session.1"].route.as_deref(), Some("/s"));
     }
 }

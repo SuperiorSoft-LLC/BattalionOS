@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! OS-WINDOW-1 window geometry: pure, shared by the OS and the SDKs (no GUI, no I/O).
 //!
-//! `clamp_box`, `drag_box` and `resize_box` are the infantry-ai `popout.ts` functions (same rules, same numbers),
+//! `clamp_box`, `drag_box` and `resize_box` are the first app's `popout.ts` functions (same rules, same numbers),
 //! generalised: the surface (an app's view, the work area or a monitor) may have an origin. Snap zones are the
 //! halves and quarters of a surface. The TypeScript twin is `crates/battalion-desktop/ui/kit/lib/geometry.ts`.
 

@@ -62,7 +62,7 @@ impl LowMem {
 mod tests {
     use super::*;
 
-    const W: &str = "win-infantry-1";
+    const W: &str = "win-demo-app-1";
 
     #[test]
     fn it_moves_to_low_after_n_seconds() {

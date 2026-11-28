@@ -515,11 +515,11 @@ mod tests {
     async fn persistence_round_trips_through_the_app_file() {
         let (_d, p) = home();
         let wm = start(&p, 10_000);
-        let w = wm.open("infantry", spec("session.e7"), BIG).await.unwrap();
-        assert_eq!(w.wid, "w-infantry-1");
+        let w = wm.open("demo-app", spec("session.e7"), BIG).await.unwrap();
+        assert_eq!(w.wid, "w-demo-app-1");
         let r = Rect { x: 100.0, y: 120.0, w: 700.0, h: 500.0 };
-        wm.update("infantry", &w.wid, Patch { bounds: Some(r), state: Some(WinState::Snap(Snap::Left)), monitor: Some("DISPLAY2".into()), ..Default::default() }).await.unwrap();
-        let file = windows_file(&p, "infantry").unwrap();
+        wm.update("demo-app", &w.wid, Patch { bounds: Some(r), state: Some(WinState::Snap(Snap::Left)), monitor: Some("DISPLAY2".into()), ..Default::default() }).await.unwrap();
+        let file = windows_file(&p, "demo-app").unwrap();
         assert!(!file.exists(), "debounced: nothing written yet");
         wm.flush().await.unwrap();
         let on_disk: BTreeMap<String, Saved> = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
@@ -527,7 +527,7 @@ mod tests {
 
         // A fresh OS run restores the geometry.
         let wm2 = start(&p, 10_000);
-        let w2 = wm2.open("infantry", OpenSpec { key: "session.e7".into(), ..Default::default() }, BIG).await.unwrap();
+        let w2 = wm2.open("demo-app", OpenSpec { key: "session.e7".into(), ..Default::default() }, BIG).await.unwrap();
         assert_eq!((w2.bounds, w2.state), (r, WinState::Snap(Snap::Left)));
     }
 
@@ -535,8 +535,8 @@ mod tests {
     async fn the_debounced_write_happens_by_itself() {
         let (_d, p) = home();
         let wm = start(&p, 20);
-        wm.open("infantry", spec("k"), BIG).await.unwrap();
-        let file = windows_file(&p, "infantry").unwrap();
+        wm.open("demo-app", spec("k"), BIG).await.unwrap();
+        let file = windows_file(&p, "demo-app").unwrap();
         for _ in 0..200 {
             if file.exists() { return; }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -548,11 +548,11 @@ mod tests {
     async fn restore_clamps_onto_a_smaller_surface() {
         let (_d, p) = home();
         let wm = start(&p, 10_000);
-        let w = wm.open("infantry", spec("k"), BIG).await.unwrap();
-        wm.update("infantry", &w.wid, Patch { bounds: Some(Rect { x: 1700.0, y: 1000.0, w: 1200.0, h: 900.0 }), ..Default::default() }).await.unwrap();
+        let w = wm.open("demo-app", spec("k"), BIG).await.unwrap();
+        wm.update("demo-app", &w.wid, Patch { bounds: Some(Rect { x: 1700.0, y: 1000.0, w: 1200.0, h: 900.0 }), ..Default::default() }).await.unwrap();
         wm.flush().await.unwrap();
         let small = Surface::sized(800.0, 600.0);
-        let b = start(&p, 10_000).open("infantry", OpenSpec { key: "k".into(), ..Default::default() }, small).await.unwrap().bounds;
+        let b = start(&p, 10_000).open("demo-app", OpenSpec { key: "k".into(), ..Default::default() }, small).await.unwrap().bounds;
         assert!(b.w <= 800.0 && b.h <= 600.0 && b.x <= 800.0 - 80.0 && b.y <= 600.0 - 36.0, "{b:?}");
     }
 
@@ -560,12 +560,12 @@ mod tests {
     async fn same_key_focuses_instead_of_a_duplicate() {
         let (_d, p) = home();
         let wm = start(&p, 10_000);
-        let a = wm.open("infantry", spec("k"), BIG).await.unwrap();
-        wm.open("infantry", spec("other"), BIG).await.unwrap();
-        let again = wm.open("infantry", spec("k"), BIG).await.unwrap();
+        let a = wm.open("demo-app", spec("k"), BIG).await.unwrap();
+        wm.open("demo-app", spec("other"), BIG).await.unwrap();
+        let again = wm.open("demo-app", spec("k"), BIG).await.unwrap();
         assert_eq!(a.wid, again.wid);
         assert!(again.z > a.z);
-        assert_eq!(wm.list(Some("infantry")).await.unwrap().len(), 2);
+        assert_eq!(wm.list(Some("demo-app")).await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -574,13 +574,13 @@ mod tests {
         let wm = start(&p, 10_000);
         let theirs = wm.open("other-app", spec("k"), BIG).await.unwrap();
         for r in [
-            wm.update("infantry", &theirs.wid, Patch::default()).await.map(|_| ()),
-            wm.focus("infantry", &theirs.wid).await.map(|_| ()),
-            wm.close("infantry", &theirs.wid).await,
+            wm.update("demo-app", &theirs.wid, Patch::default()).await.map(|_| ()),
+            wm.focus("demo-app", &theirs.wid).await.map(|_| ()),
+            wm.close("demo-app", &theirs.wid).await,
         ] {
             assert_eq!(r, Err(WinError::NotYours(theirs.wid.clone())));
         }
-        assert_eq!(wm.close("infantry", "not-a-wid").await, Err(WinError::NotYours("not-a-wid".into())));
+        assert_eq!(wm.close("demo-app", "not-a-wid").await, Err(WinError::NotYours("not-a-wid".into())));
         assert_eq!(wm.list(None).await.unwrap().len(), 1, "their window is untouched");
         assert_eq!(wid_app("w-my-app-12"), Some("my-app"));
         assert!(authorize_wid("my", "w-my-app-12").is_err());
@@ -590,15 +590,15 @@ mod tests {
     async fn removing_the_app_deletes_its_file_an_update_keeps_it() {
         let (_d, p) = home();
         let wm = start(&p, 10_000);
-        wm.open("infantry", spec("k"), BIG).await.unwrap();
+        wm.open("demo-app", spec("k"), BIG).await.unwrap();
         wm.open("keeper", spec("k"), BIG).await.unwrap();
         wm.flush().await.unwrap();
-        let (gone, kept) = (windows_file(&p, "infantry").unwrap(), windows_file(&p, "keeper").unwrap());
+        let (gone, kept) = (windows_file(&p, "demo-app").unwrap(), windows_file(&p, "keeper").unwrap());
         assert!(gone.exists() && kept.exists());
-        wm.app_removed("infantry").await.unwrap();
+        wm.app_removed("demo-app").await.unwrap();
         wm.flush().await.unwrap();
         assert!(!gone.exists() && kept.exists());
-        assert!(wm.list(Some("infantry")).await.unwrap().is_empty());
+        assert!(wm.list(Some("demo-app")).await.unwrap().is_empty());
     }
 
     #[test]
