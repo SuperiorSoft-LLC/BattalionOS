@@ -1,0 +1,90 @@
+# BattalionOS Windows desktop release, built and signed in CI (BOS-RELEASE-CI-1).
+# Does what packaging/release-os.ps1 does (it RUNS that script): builds the MSI, signs it with the Tauri updater
+# (minisign) key, writes latest.json, and publishes the three files to the GitHub release v<version> of this repo,
+# marked latest, so https://github.com/SuperiorSoft-LLC/BattalionOS/releases/latest/download/latest.json (the
+# endpoint in crates/battalion-desktop/tauri.conf.json) serves the new version.
+#
+# Started by pushing an annotated tag bos-v<major>.<minor>.<patch> (the tag message becomes the release notes),
+# or by hand (workflow_dispatch) with a version.
+#
+# Rules:
+#   1. The updater key comes from CI secrets only: BOS_UPDATER_PRIVATE_KEY (the content of the minisign private key
+#      file the Tauri signer made, whose public half is the pubkey in tauri.conf.json) and BOS_UPDATER_KEY_PASSWORD
+#      (its password; empty for a key without one). Missing key -> the run fails. No key is ever generated here:
+#      an installed OS only accepts updates signed with the key it trusts.
+#   2. The key is written to a file in RUNNER_TEMP (outside the checkout, as release-os.ps1 requires), never printed,
+#      and deleted at the end of the job.
+#   3. No Authenticode signing: release-os.ps1 does none today.
+name: os-desktop-release
+
+on:
+  push:
+    tags: ['bos-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'version, e.g. 0.2.0 (published as release v<version>)'
+        required: true
+      notes:
+        description: 'release notes (latest.json notes)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: os-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IN_VERSION: ${{ inputs.version }}
+      IN_NOTES: ${{ inputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version and notes from the tag or the inputs
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $v = $env:GITHUB_REF_NAME -replace '^bos-v', ''
+            git fetch --force origin "refs/tags/$($env:GITHUB_REF_NAME):refs/tags/$($env:GITHUB_REF_NAME)"
+            $notes = (git tag -l --format='%(contents)' $env:GITHUB_REF_NAME | Out-String).Trim()
+          } else { $v = $env:IN_VERSION; $notes = $env:IN_NOTES }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "version '$v' is not <major>.<minor>.<patch>" }
+          if (gh release view "v$v" --json tagName 2>$null) { throw "release v$v already exists" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP 'notes.txt') -Value $notes -Encoding utf8
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build, sign and write latest.json (packaging/release-os.ps1)
+        shell: pwsh
+        env:
+          BOS_UPDATER_PRIVATE_KEY: ${{ secrets.BOS_UPDATER_PRIVATE_KEY }}
+          BATTALION_UPDATER_KEY_PASSWORD: ${{ secrets.BOS_UPDATER_KEY_PASSWORD }}
+        run: |
+          if (-not $env:BOS_UPDATER_PRIVATE_KEY) { throw 'secret BOS_UPDATER_PRIVATE_KEY is missing: add the minisign private key (the Tauri signer key file content)' }
+          $key = Join-Path $env:RUNNER_TEMP 'bos-updater.key'
+          [IO.File]::WriteAllText($key, $env:BOS_UPDATER_PRIVATE_KEY)
+          $env:BATTALION_UPDATER_KEY_FILE = $key
+          try {
+            $notes = ([string](Get-Content (Join-Path $env:RUNNER_TEMP 'notes.txt') -Raw)).Trim()
+            & ./packaging/release-os.ps1 -Version '${{ steps.ver.outputs.version }}' -OutDir (Join-Path $env:RUNNER_TEMP 'out') -Notes $notes
+          } finally { Remove-Item -LiteralPath $key -Force -ErrorAction SilentlyContinue }
+      - name: Publish release v<version> (latest)
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $out = Join-Path $env:RUNNER_TEMP 'out'
+          $files = @("$out\BattalionOS_${v}_x64_en-US.msi", "$out\BattalionOS_${v}_x64_en-US.msi.sig", "$out\latest.json")
+          gh release create "v$v" @files --target $env:GITHUB_SHA --title "BattalionOS $v" --notes-file (Join-Path $env:RUNNER_TEMP 'notes.txt') --latest
+          if ($LASTEXITCODE) { throw 'gh release create failed' }
