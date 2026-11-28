@@ -26,10 +26,12 @@ describe("native window host page", () => {
     const ask = (cmd: string, args?: unknown) => answer(frames, { source: child, origin: me.origin, data: { bos: 1, id: "r1", cmd, args } }, be);
 
     expect((await ask("os_window_info"))?.message).toEqual({ bos: 1, id: "r1", ok: true, result: { label: "win-demo-app-3", app: "demo-app", wid: "w-demo-app-3" } });
+    await ask("os_app_status");
     await ask("os_close_app_window");
     await ask("os_badge", { count: 4 });
     await ask("os_win_snap", { wid: me.wid, zone: "left" });
     expect(calls).toEqual([
+      ["os_app_status", { id: "demo-app" }],
       ["os_win_close", { wid: me.wid }],
       ["os_win_set", { wid: me.wid, badge: { count: 4, text: undefined } }],
       ["os_win_snap", { wid: me.wid, zone: "left" }],

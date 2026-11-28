@@ -97,6 +97,16 @@ pub fn authorize_win_caller(label: &str, command: &str) -> Result<String, Denied
     authorize_self(label, command)
 }
 
+/// POPOUT-1: `os_app_status` / `os_app_health` from a native window (`win-<app>-<n>`) for its own app only, so the frame in it
+/// finds its daemon (the page needs the address, like the frames in `main`). Every other label: [authorize_app].
+pub fn authorize_app_read(label: &str, target: &str) -> Result<(), Denied> {
+    if label.starts_with(WIN_PREFIX) {
+        let own = authorize_win_caller(label, "os_app_status")?;
+        return if valid_id(target) && own == target { Ok(()) } else { Err(Denied::NotYours { caller: label.to_string(), target: target.to_string() }) };
+    }
+    authorize_app(label, target)
+}
+
 /// WM-2: an app may only name its own wids (`w-<app>-<n>`). A wid of another app, or not a wid at all, is refused.
 pub fn authorize_wid(app: &str, wid: &str) -> Result<(), Denied> {
     match crate::windows::wid_app(wid) {
@@ -176,6 +186,14 @@ mod tests {
         assert!(authorize_wid("aa", "w-bb-1").is_err());
         assert!(authorize_wid("aa", "w-aa-bb-1").is_err(), "w-aa-bb-1 is app aa-bb's");
         assert!(authorize_wid("aa", "aa").is_err());
+    }
+    #[test]
+    fn a_native_window_reads_only_its_own_apps_status() {
+        assert_eq!(authorize_app_read("win-my-app-3", "my-app"), Ok(()));
+        assert!(authorize_app_read("win-my-app-3", "other").is_err());
+        assert!(authorize_app_read("win-my-app", "my-app").is_err());
+        assert_eq!(authorize_app_read("app-aa", "aa"), Ok(()));
+        assert!(authorize_app_read("login", "aa").is_err());
     }
     #[test]
     fn labels_must_be_well_formed() {

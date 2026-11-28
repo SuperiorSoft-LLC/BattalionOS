@@ -57,7 +57,7 @@ pub async fn os_list_apps(window: WebviewWindow, app: AppHandle, host: State<'_,
 
 #[tauri::command]
 pub async fn os_app_status(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
-    authorize_app(window.label(), &id).map_err(|e| e.to_string())?;
+    crate::access::authorize_app_read(window.label(), &id).map_err(|e| e.to_string())?;
     let sup = host.sup.clone();
     let s = blocking(move || sup.status(&id)).await?.map_err(|e| e.to_string())?;
     Ok(status_json(&s))
@@ -65,7 +65,7 @@ pub async fn os_app_status(window: WebviewWindow, host: State<'_, Host>, id: Str
 
 #[tauri::command]
 pub async fn os_app_health(window: WebviewWindow, host: State<'_, Host>, id: String) -> R<Value> {
-    authorize_app(window.label(), &id).map_err(|e| e.to_string())?;
+    crate::access::authorize_app_read(window.label(), &id).map_err(|e| e.to_string())?;
     let sup = host.sup.clone();
     let h = blocking(move || sup.health(&id)).await?.map_err(|e| e.to_string())?;
     Ok(json!(format!("{h:?}")))

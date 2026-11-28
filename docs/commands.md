@@ -40,7 +40,7 @@ keeps it. On restore the bounds are clamped to the current surface or monitor, s
 the OS host page `window.html`: the `WindowFrame` bar (decorations off; the bar drags the window, so Windows snap works) and ONE
 frame of the app at `route`, on the app's own origin, in the app's own webview data directory (the one its `app-<id>` window uses,
 so it is not a second sign-in). The frame's bridge is the one of the frames in `main`; `os_window_info` there answers
-`{label: "win-<app>-<n>", app, wid}`. `os_win_minimize`/`maximize`/`restore`/`focus`/`snap`/`close` act on the OS window;
+`{label: "win-<app>-<n>", app, wid}`, and `os_app_status`/`os_app_health` answer for the window's own app (POPOUT-1: the page finds its daemon); the other native calls are refused there. `os_win_minimize`/`maximize`/`restore`/`focus`/`snap`/`close` act on the OS window;
 `os_win_set {badge}` paints the overlay badge on its own taskbar button. The same key focuses the open window.
 
 - Geometry is per monitor: the saved monitor while it is attached, else the primary; the bounds are clamped to its work area.

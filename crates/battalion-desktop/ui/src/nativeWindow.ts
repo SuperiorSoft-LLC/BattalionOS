@@ -27,8 +27,9 @@ const notHere = (cmd: string) => () => Promise.reject(new Error(`'${cmd}' is not
 /** The bridge backend of the frame in native window `me`. Closing or minimizing the content acts on this window. */
 export function nativeBackend(me: NativeIdentity, invoke: Invoke): FrameBackend {
   return {
-    appStatus: notHere("os_app_status"),
-    appHealth: notHere("os_app_health"),
+    // POPOUT-1: the frame finds its daemon like a frame in `main` (its own app only; the host checks the label).
+    appStatus: () => invoke("os_app_status", { id: me.app }),
+    appHealth: () => invoke("os_app_health", { id: me.app }),
     badge: async (_id, count, text) => {
       await invoke("os_win_set", { wid: me.wid, badge: count === undefined && text === undefined ? null : { count, text } });
     },
