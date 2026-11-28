@@ -54,6 +54,25 @@ Errors are typed: `PermissionError` (add the permission it names to `app.json`),
 The template's demo (`src/App.tsx`) lists a folder, opens a text file, edits and saves it, follows changes with
 `bos.fs.watch`, and remembers the last folder in `bos.store`. Its components show the loading, empty and error states.
 
+### Open files from other apps
+
+Declare the files your app opens in `app.json`, and the OS offers it in "Open with" (for example from the Files app):
+
+```json
+"fileTypes": [{ "label": "Text file", "extensions": ["txt", "md"], "mime": ["text/plain"] }]
+```
+
+```ts
+bos.onOpenFile(async (path) => {                 // each file handed to this app, also one handed over before the page loaded
+  show(path, await bos.fs.readText(path));
+});
+await bos.openWith("notes/todo.txt");            // hand a file to another app: the person chooses (or the remembered default)
+```
+
+Without `files.read` your app can still read and stat each file it is handed (a one-file grant), and nothing else: ask for
+`files.read` only if the app browses the root itself, and `files.write` to save. The template declares text files, opens one
+it is handed, and has an "Open with…" button. Details: [commands.md](../commands.md#open-with-open-with-1).
+
 ## 3. Run it while you work
 
 - **In a plain browser, no OS:** `pnpm dev` and open http://127.0.0.1:5173. `connect()` sees no OS and uses the local

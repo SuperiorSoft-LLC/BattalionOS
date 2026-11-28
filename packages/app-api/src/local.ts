@@ -19,6 +19,8 @@ export interface LocalOptions {
   readMaxBytes?: number;
   listMax?: number;
   storeMaxBytes?: number;
+  /** OPEN-WITH-1: the id `os_open_with` reports (default `"local"`). Locally the file is handed to this same page. */
+  appId?: string;
   /** Called for `os_notify` (default: nothing). */
   onNotify?: (title: string, text?: string) => void;
 }
@@ -63,6 +65,7 @@ export function localTransport(opts: LocalOptions = {}): Transport {
   const listeners = new Set<(m: Record<string, unknown>) => void>();
   const watches = new Map<string, string[]>();
   let watchN = 0;
+  const opened: string[] = [];
 
   const find = (p: string[]): Node | undefined => {
     let n: Node = root;
@@ -249,6 +252,18 @@ export function localTransport(opts: LocalOptions = {}): Transport {
         return null;
       case "os_badge":
         return null;
+      case "os_open_with": {
+        const p = segs(a.path);
+        if (must(p).kind !== "file") throw new Refusal("not a file", "not_a_file");
+        const path = p.join("/");
+        opened.push(path);
+        queueMicrotask(() => {
+          for (const l of listeners) l({ bos: 1, event: "os_open_file", path });
+        });
+        return { opened: typeof a.appId === "string" ? a.appId : (opts.appId ?? "local"), path };
+      }
+      case "os_open_file_take":
+        return opened.splice(0);
       default:
         throw new Error(`'${cmd}' is not available in the local backend (run the app under BattalionOS)`);
     }

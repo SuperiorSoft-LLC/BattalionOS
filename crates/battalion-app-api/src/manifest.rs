@@ -36,6 +36,34 @@ pub struct Manifest {
     pub cli: Vec<CliSpec>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// OPEN-WITH-1: the file types the app opens (`os_open_with` offers it for them). Empty = it opens none.
+    #[serde(default, rename = "fileTypes")]
+    pub file_types: Vec<FileType>,
+}
+
+/// OPEN-WITH-1: one kind of file an app opens: extensions (`"md"`, no dot) and/or MIME types (`"text/markdown"`, `"text/*"`),
+/// and the label a person sees in the chooser ("Markdown document").
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FileType {
+    pub label: String,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    #[serde(default)]
+    pub mime: Vec<String>,
+}
+
+/// An extension of `fileTypes`: 1 to 16 of `a-z`, `0-9`, `-`, `_`, `+` (lower case, no dot).
+pub fn valid_extension(e: &str) -> bool {
+    (1..=16).contains(&e.len()) && e.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'-' | b'_' | b'+'))
+}
+
+/// A MIME type of `fileTypes`: `type/subtype` or `type/*`, lower case, at most 127 characters.
+pub fn valid_mime(m: &str) -> bool {
+    let tok = |t: &str| !t.is_empty() && t.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'-' | b'.' | b'+' | b'_'));
+    match m.split_once('/') {
+        Some((t, s)) => m.len() <= 127 && tok(t) && (s == "*" || tok(s)),
+        None => false,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -134,6 +162,8 @@ pub enum ManifestError {
     EmptyExec(&'static str),
     BadCliName(String),
     UnknownPermission(String),
+    /// OPEN-WITH-1: a `fileTypes` entry with no label, no extension and no MIME type, or a malformed one; the reason says which.
+    BadFileType(String),
     /// No process part for this platform and no UI part either: nothing to run or show.
     NothingToRun,
 }
@@ -156,6 +186,7 @@ impl std::fmt::Display for ManifestError {
             EmptyExec(w) => write!(f, "{w} has no library (or exec)"),
             BadCliName(n) => write!(f, "cli name '{n}' is not allowed"),
             UnknownPermission(p) => write!(f, "permission '{p}' is not known"),
+            BadFileType(r) => write!(f, "fileTypes: {r}"),
             NothingToRun => write!(f, "app has neither a process part for this platform nor a UI part"),
         }
     }
@@ -272,6 +303,20 @@ impl Manifest {
         for p in &self.permissions {
             if !PERMISSIONS.contains(&p.as_str()) {
                 return Err(UnknownPermission(p.clone()));
+            }
+        }
+        for t in &self.file_types {
+            if t.label.trim().is_empty() || t.label.chars().count() > 80 || t.label.chars().any(char::is_control) {
+                return Err(BadFileType(format!("label '{}' must be 1 to 80 characters, no control characters", t.label)));
+            }
+            if t.extensions.is_empty() && t.mime.is_empty() {
+                return Err(BadFileType(format!("'{}' names no extension and no MIME type", t.label)));
+            }
+            if let Some(e) = t.extensions.iter().find(|e| !valid_extension(e)) {
+                return Err(BadFileType(format!("extension '{e}' is not allowed (lower case a-z, 0-9, '-', '_', '+', no dot, 1 to 16)")));
+            }
+            if let Some(m) = t.mime.iter().find(|m| !valid_mime(m)) {
+                return Err(BadFileType(format!("MIME type '{m}' is not type/subtype (lower case)")));
             }
         }
         if !self.process.contains_key(platform) && self.ui.is_none() {

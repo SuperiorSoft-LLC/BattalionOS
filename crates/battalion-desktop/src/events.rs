@@ -22,6 +22,8 @@ pub const FRAME_LOGIN_CLOSED: &str = "os://frame-login-closed";
 pub const FRAME_NOTIFY_CLICK: &str = "os://frame-notify-click";
 /// FS-API-1: a watched path under the OS root changed: `{id, watch, path, change}` (the shell tells that app's frame only).
 pub const FRAME_FS_CHANGED: &str = "os://frame-fs-changed";
+/// (OPEN-WITH-1) `{id, path}`: "open with" handed file `path` to app `id`; the shell tells that app's frame (`os_open_file`).
+pub const OPEN_FILE: &str = "os://open-file";
 /// (BOS-19) A start from outside asked for app `id` (`--open <id>`): the shell asks `os_take_open_request` and opens it.
 pub const OPEN_REQUEST: &str = "os://open-request";
 /// (BOS-30) `{current, available: {version, notes} | null}`: a check of the OS's own feed finished (the Armory shows it).

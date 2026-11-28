@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // The demo: list a folder of the OS root, open a text file, edit and save it. The last folder is kept in the app's own
 // store (bos.store), so the app opens where it was left. Every OS call goes through `bos` (src/bos.ts).
+// OPEN-WITH-1: app.json declares `fileTypes` (text files), so another app (Files) can hand this one a file: bos.onOpenFile
+// gets its path and the demo opens it. "Open with…" hands the open file to another app.
 import { NotFoundError, PermissionError, type BosError } from "@battalionos/app-api";
 import { useCallback, useEffect, useState } from "react";
 import { bos } from "./bos";
 import { Editor, type Doc } from "./Editor";
 import { FileList, type Listing } from "./FileList";
-import { join } from "./path";
+import { join, parent } from "./path";
 
 const LAST_DIR = "lastDir";
 
@@ -64,6 +66,27 @@ export function App() {
     }
   };
 
+  // OPEN-WITH-1: a file handed to this app by another one (or before the page loaded): go to its folder and open it.
+  useEffect(
+    () =>
+      bos.onOpenFile((path) => {
+        setDir(parent(path));
+        void openFile(path);
+        setStatus(`Opened ${path}`);
+      }),
+    [],
+  );
+
+  const openWith = async () => {
+    if (doc.state === "none") return;
+    try {
+      const r = await bos.openWith(doc.path);
+      setStatus(r.opened ? `Opened in ${r.opened}` : "Not opened");
+    } catch (e) {
+      setStatus(`Could not open it in another app: ${explain(e)}`);
+    }
+  };
+
   const save = async () => {
     if (doc.state !== "ready") return;
     setDoc({ ...doc, saving: true });
@@ -94,6 +117,7 @@ export function App() {
       <header>
         <h1>My App</h1>
         <span className="muted">{bos.backend === "local" ? "local backend (no OS)" : "BattalionOS"}</span>
+        {doc.state !== "none" && <button onClick={() => void openWith()}>Open with…</button>}
       </header>
       <div className="split">
         <FileList

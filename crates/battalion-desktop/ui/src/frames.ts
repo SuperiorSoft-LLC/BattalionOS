@@ -23,8 +23,12 @@ export type FsCommand = (typeof FS_COMMANDS)[number];
 export const STORE_COMMANDS = ["os_store_get", "os_store_set", "os_store_delete", "os_store_list"] as const;
 export type StoreCommand = (typeof STORE_COMMANDS)[number];
 
+/** OPEN-WITH-1: hand a file under the OS root to another app (no permission), and take the files handed to this app. */
+export const OPEN_COMMANDS = ["os_open_with", "os_open_file_take"] as const;
+export type OpenCommand = (typeof OPEN_COMMANDS)[number];
+
 /** The app commands a page may call from a frame (the `app-*` capability of docs/commands.md), same names and results. */
-export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code", ...WIN_COMMANDS, ...FS_COMMANDS, ...STORE_COMMANDS] as const;
+export const FRAME_COMMANDS = ["os_window_info", "os_app_status", "os_app_health", "os_close_app_window", "os_badge", "os_show_desktop", "os_pick_folder", "os_pick_file", "os_open_external", "os_login_window_open", "os_login_window_close", "os_notify", "os_scan_code", ...WIN_COMMANDS, ...FS_COMMANDS, ...STORE_COMMANDS, ...OPEN_COMMANDS] as const;
 export type FrameCommand = (typeof FRAME_COMMANDS)[number];
 
 /** A frame the shell made: the app it shows, the origin its page has, and its window (null once the frame is gone). `wid` (WM-6):
@@ -56,6 +60,10 @@ export interface FrameBackend {
   fs?(id: string, cmd: FsCommand, args: Record<string, unknown>): Promise<unknown>;
   /** APP-API-1: a store call for the app of the frame (`os_frame_store`). Absent = not on this device. */
   store?(id: string, cmd: StoreCommand, args: Record<string, unknown>): Promise<unknown>;
+  /** OPEN-WITH-1: app `id` asks to open a file (`os_open_with`); the chooser, when needed, is the shell's. Absent = not on this device. */
+  openWith?(id: string, args: Record<string, unknown>): Promise<unknown>;
+  /** OPEN-WITH-1: the files handed to app `id` (`os_open_file_take`). */
+  openFileTake?(id: string): Promise<string[]>;
   /** AND-4: the reason a command outside the list is refused, when the device has its own (a phone: starting a program). */
   refusal?(id: string, cmd: string): Promise<string | undefined>;
 }
@@ -153,6 +161,12 @@ export async function answer(frames: readonly FrameEntry[], ev: FrameEvent, be: 
       case "os_store_list":
         if (!be.store) return reply({ ok: false, error: "the app store is not available on this device yet" });
         return reply({ ok: true, result: (await be.store(frame.id, d.cmd as StoreCommand, args)) ?? null });
+      case "os_open_with":
+        if (!be.openWith) return reply({ ok: false, error: "open with is not available on this device yet" });
+        if (typeof args.path !== "string") return reply({ ok: false, error: "os_open_with needs a path [bad_args]" });
+        return reply({ ok: true, result: await be.openWith(frame.id, { path: args.path, ...(typeof args.appId === "string" ? { appId: args.appId } : {}) }) });
+      case "os_open_file_take":
+        return reply({ ok: true, result: be.openFileTake ? await be.openFileTake(frame.id) : [] });
     }
   } catch (e) {
     return reply({ ok: false, error: text(e) });
@@ -177,6 +191,14 @@ export function fsEventFor(frames: readonly FrameEntry[], payload: unknown): { t
   if (!p || typeof p !== "object" || typeof p.id !== "string" || typeof p.watch !== "string") return null;
   const frame = frames.find((f) => f.id === p.id && f.window != null);
   return frame ? { to: frame.window, origin: frame.origin, message: { bos: 1, event: "os_fs_changed", watch: p.watch, path: p.path ?? null, change: p.change ?? null } } : null;
+}
+
+/** OPEN-WITH-1: the host's `os://open-file` event (`{id, path}`) for the frame of app `id` only: `{bos:1, event:"os_open_file", path}`. */
+export function openFileEventFor(frames: readonly FrameEntry[], payload: unknown): { to: unknown; origin: string; message: Record<string, unknown> } | null {
+  const p = payload as Record<string, unknown> | null;
+  if (!p || typeof p !== "object" || typeof p.id !== "string" || typeof p.path !== "string") return null;
+  const frame = frames.find((f) => f.id === p.id && f.window != null);
+  return frame ? { to: frame.window, origin: frame.origin, message: { bos: 1, event: "os_open_file", path: p.path } } : null;
 }
 
 /** WM-2: the host's `os://win` event (`{bos:1, event:"os_win", id, wid, change, ...}`) for the frame of app `id` only, without `id`. */

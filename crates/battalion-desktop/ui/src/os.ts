@@ -50,6 +50,11 @@ export interface ArmoryProgress { id: string; op: ArmoryOp; stage: string; bytes
 
 /** BOS-27: the OS window (no Windows title bar; the shell draws it). Close hides the window; the OS and apps go on. */
 export type ResizeEdge = "North" | "South" | "East" | "West" | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest";
+/** OPEN-WITH-1: one app the chooser offers for a file. */
+export interface OpenWithCandidate { id: string; name: string; label: string }
+/** OPEN-WITH-1: what an open did: the app it went to (`opened`, null when the person cancelled), or the chooser to show. */
+export type OpenWithResult = { opened: string | null; path: string } | { choose: OpenWithCandidate[]; path: string; ext: string };
+
 export interface OsWindow {
   minimize(): Promise<void>;
   toggleMaximize(): Promise<void>;
@@ -116,6 +121,16 @@ export interface Os {
   frameStore?(id: string, cmd: string, args: Record<string, unknown>): Promise<unknown>;
   /** FS-API-1: a watched path of app `id` changed (`os://frame-fs-changed`); returns the unsubscribe. */
   onFrameFsChanged(cb: (e: { id: string; watch: string; path: string; change: string }) => void): () => void;
+  /** OPEN-WITH-1: app `id`'s page asks to open a file (`os_frame_open_with`): `{opened, path}`, or `{choose, path, ext}` for the chooser. */
+  frameOpenWith?(id: string, args: Record<string, unknown>): Promise<OpenWithResult>;
+  /** OPEN-WITH-1: the person chose `appId` for `path` (`os_open_with_pick`); `always` remembers it for the type. */
+  openWithPick?(path: string, appId: string, always: boolean): Promise<OpenWithResult>;
+  /** OPEN-WITH-1: the default app per extension (`os_open_with_defaults`); `clear` forgets one first. */
+  openWithDefaults?(clear?: string): Promise<Record<string, string>>;
+  /** OPEN-WITH-1: the files handed to app `id` since it last asked (`os_frame_open_file_take`). */
+  frameOpenFileTake?(id: string): Promise<string[]>;
+  /** OPEN-WITH-1: a file was handed to app `id` (`os://open-file`); returns the unsubscribe. */
+  onOpenFile?(cb: (e: { id: string; path: string }) => void): () => void;
   /** FS-API-1: the OS root folder (`os_fs_info`), shown in Settings. */
   fsInfo(): Promise<{ root: string }>;
   /** AND-4: a page's native call on a phone, checked by the host against the app's manifest: `{call, args}` for its slot. */
@@ -252,6 +267,14 @@ export const hostOs: Os = {
     return () => void sub.then((off) => off());
   },
   fsInfo: () => call("os_fs_info"),
+  frameOpenWith: (id, args) => call("os_frame_open_with", { id, args }),
+  openWithPick: (path, appId, always) => call("os_open_with_pick", { path, appId, always }),
+  openWithDefaults: (clear) => call("os_open_with_defaults", clear ? { clear } : {}),
+  frameOpenFileTake: (id) => call("os_frame_open_file_take", { id }),
+  onOpenFile(cb) {
+    const sub = tauri().event.listen("os://open-file", (e) => cb(e.payload as { id: string; path: string }));
+    return () => void sub.then((off) => off());
+  },
   framePhoneCall: (id, cmd, args) => call("os_frame_phone_call", { id, cmd, args: args ?? {} }),
   frameWin: (id, cmd, args) => call(cmd.replace(/^os_win_/, "os_frame_win_"), { id, args }),
   shellWinBounds: (id, wid, bounds) => call("os_shell_win_bounds", { id, wid, bounds }),

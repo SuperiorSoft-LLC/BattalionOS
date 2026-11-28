@@ -47,6 +47,19 @@
       "properties": { "dir": { "type": "object", "additionalProperties": { "type": "string" } }, "schema": { "type": "integer", "minimum": 1 } }
     },
     "cli": { "type": "array", "items": { "type": "object", "required": ["name", "exec"], "properties": { "name": { "type": "string" }, "exec": { "type": "string" } } } },
-    "permissions": { "type": "array", "items": { "enum": ["process.spawn", "network", "files.user", "window", "login.window"] } }
+    "permissions": { "type": "array", "items": { "enum": ["process.spawn", "network", "files.user", "window", "login.window"] } },
+    "fileTypes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label"],
+        "anyOf": [{ "required": ["extensions"] }, { "required": ["mime"] }],
+        "properties": {
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "extensions": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9_+-]{1,16}$" } },
+          "mime": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9.+_-]+/([a-z0-9.+_-]+|[*])$" } }
+        }
+      }
+    }
   }
 }

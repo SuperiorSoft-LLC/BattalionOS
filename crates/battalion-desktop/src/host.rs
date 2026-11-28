@@ -171,6 +171,16 @@ pub fn permissions_of(paths: &Paths, id: &str) -> Result<Vec<String>, String> {
     Ok(m.permissions.clone())
 }
 
+/// OPEN-WITH-1: the installed manifest of app `id` (its `fileTypes`, name and permissions).
+pub fn manifest_of(paths: &Paths, id: &str) -> Result<Manifest, String> {
+    let cur = battalion_host::Current::load(&paths.current_json(id).map_err(|e| e.0)?)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("app '{id}' is not installed"))?;
+    let vdir = paths.content_dir(id, &cur.version).map_err(|e| e.0)?;
+    let text = std::fs::read_to_string(vdir.join("app.json")).map_err(|e| e.to_string())?;
+    Manifest::parse(&text, &platform_key(), CONTRACT).map_err(|e| format!("manifest: {e:?}"))
+}
+
 /// BOS-NOTIFY-1: the installed manifest's permissions and name of app `id` (a desktop notice names the app it is for).
 pub fn permissions_and_name(paths: &Paths, id: &str) -> Result<(Vec<String>, String), String> {
     let cur = battalion_host::Current::load(&paths.current_json(id).map_err(|e| e.0)?)

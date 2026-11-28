@@ -11,6 +11,7 @@ pub mod fs;
 pub mod job;
 pub mod journal;
 pub mod lock;
+pub mod openwith;
 pub mod paths;
 pub mod process;
 pub mod state;

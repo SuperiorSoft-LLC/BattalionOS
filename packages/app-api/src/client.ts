@@ -3,6 +3,7 @@
 // APP-API-1: the promise client. Every method is one documented OS call (docs/commands.md); errors are typed (errors.ts).
 import { toError } from "./errors";
 import type { FsChangedEvent, FsCopy, FsEncoding, FsEntry, FsList, FsRead, FsStat, FsWatch, FsWrite } from "./fs.gen";
+import type { OpenWithResult } from "./open.gen";
 import type { Transport } from "./transport";
 import type { Opened, SnapZone, WinEvent, WindowInfo, WindowPatch, WindowSpec } from "./window.gen";
 
@@ -25,6 +26,13 @@ export interface Bos {
   pickFile(title?: string): Promise<string | null>;
   /** A link in the system browser (`network`): http, https, mailto. */
   openExternal(url: string): Promise<void>;
+  /** OPEN-WITH-1: open a file under the OS root in another app. No permission. With `appId` that app (it must declare the
+   *  type in its `fileTypes`); else the remembered default for the type, else the person chooses. `opened` is the app, or
+   *  null when the person cancelled the chooser. */
+  openWith(path: string, appId?: string): Promise<OpenWithResult>;
+  /** OPEN-WITH-1: `fn` gets each file handed to this app (a path under the OS root): the ones handed before the page loaded,
+   *  then each new one. Without `files.read` the app may read and stat that one file only. Returns the unsubscribe. */
+  onOpenFile(fn: (path: string) => void): () => void;
 }
 
 export interface FsApi {
@@ -204,5 +212,25 @@ export function createBos(transport: Transport, backend: "os" | "local" = "os"):
     pickFolder: (title) => call<string | null>("os_pick_folder", opt({ title })),
     pickFile: (title) => call<string | null>("os_pick_file", opt({ title })),
     openExternal: (url) => nothing("os_open_external", { url }),
+    openWith: (path, appId) => call<OpenWithResult>("os_open_with", opt({ path, appId })),
+    onOpenFile(fn) {
+      let live = true;
+      // The event only says "there is a file": the paths come from os_open_file_take, so each one is handed over once.
+      const take = () =>
+        call<string[]>("os_open_file_take", {}).then(
+          (paths) => {
+            if (live) for (const p of paths) fn(p);
+          },
+          () => undefined,
+        );
+      const off = transport.listen((m) => {
+        if (m.event === "os_open_file") void take();
+      });
+      void take();
+      return () => {
+        live = false;
+        off();
+      };
+    },
   };
 }

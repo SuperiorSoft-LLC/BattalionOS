@@ -5,8 +5,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../kit";
 import { winTokens } from "../kit/lib/win-tokens";
-import { answer, closedFrames, eventFor, fsEventFor, themeEvents, winEventFor, type FrameBackend, type FrameEntry } from "./frames";
-import type { AppPage, Os } from "./os";
+import { answer, closedFrames, eventFor, fsEventFor, openFileEventFor, themeEvents, winEventFor, type FrameBackend, type FrameEntry } from "./frames";
+import type { AppPage, OpenWithCandidate, Os } from "./os";
 import { errText } from "./os";
 import { areaOf, labelOf, type Model } from "./store";
 import { NativeCalls, openOp, parseSlotEvent, send, slotChannel, slotLimit, SlotWindows, type SlotChannel } from "./slots";
@@ -35,7 +35,10 @@ function Frame({ id, page, reload, active, onWindow }: { id: string; page: AppPa
   );
 }
 
-export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, notify, slots: given, winChanged }: { winChanged?: (id: string) => void; m: Model; os: Os; close: (id: string) => void; ended?: (id: string) => void; onSlotLimit?: (l: { inUse: number; max: number }) => void; minimize: (id: string) => void; retry: (id: string) => void; notify?: (text: string) => void; slots?: SlotChannel | null }) {
+/** OPEN-WITH-1: the shell's chooser: the app the person picked and whether to always use it, or null when cancelled. */
+export type ChooseOpenWith = (req: { path: string; ext: string; choose: OpenWithCandidate[] }) => Promise<{ appId: string; always: boolean } | null>;
+
+export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, notify, slots: given, winChanged, chooseOpenWith }: { chooseOpenWith?: ChooseOpenWith; winChanged?: (id: string) => void; m: Model; os: Os; close: (id: string) => void; ended?: (id: string) => void; onSlotLimit?: (l: { inUse: number; max: number }) => void; minimize: (id: string) => void; retry: (id: string) => void; notify?: (text: string) => void; slots?: SlotChannel | null }) {
   // AND-3: on Android every app's page runs in its own process slot (the host's channel); everywhere else in a frame here.
   const slots = useMemo(() => (given === undefined ? slotChannel() : given), [given]);
   const slotWin = useRef(new SlotWindows());
@@ -154,6 +157,17 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
     // FS-API-1: the file calls under the OS root (desktop; a phone has none yet).
     fs: phone ? undefined : (id, cmd, args) => os.frameFs(id, cmd, args),
     store: os.frameStore ? (id, cmd, args) => os.frameStore!(id, cmd, args) : undefined,
+    // OPEN-WITH-1: the host picks the app (named, or the remembered default); otherwise the person chooses here.
+    openWith:
+      phone || !os.frameOpenWith
+        ? undefined
+        : async (id, args) => {
+            const r = await os.frameOpenWith!(id, args);
+            if (!("choose" in r)) return r;
+            const pick = chooseOpenWith ? await chooseOpenWith(r) : null;
+            return pick ? os.openWithPick!(r.path, pick.appId, pick.always) : { opened: null, path: r.path };
+          },
+    openFileTake: os.frameOpenFileTake ? (id) => os.frameOpenFileTake!(id) : undefined,
     // On a phone the host words the refusal of a call a page may not make (process.spawn: never on a phone).
     refusal: slots ? (id, cmd) => os.framePhoneCall(id, cmd).then(() => undefined) : undefined,
   };
@@ -304,6 +318,17 @@ export function AppFrames({ m, os, close, ended, onSlotLimit, minimize, retry, n
       os.onFrameFsChanged((payload) => {
         const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
         const r = fsEventFor(frames, payload);
+        if (r) (r.to as Window).postMessage(r.message, r.origin);
+      }),
+    [os],
+  );
+
+  // OPEN-WITH-1: a file was handed to an app: told to THAT app's frame only (a frame not open yet takes it when its page loads).
+  useEffect(
+    () =>
+      os.onOpenFile?.((payload) => {
+        const frames: FrameEntry[] = Object.entries(pagesRef.current).map(([id, p]) => ({ id, origin: p.origin, window: windows.current[id] ?? null }));
+        const r = openFileEventFor(frames, payload);
         if (r) (r.to as Window).postMessage(r.message, r.origin);
       }),
     [os],

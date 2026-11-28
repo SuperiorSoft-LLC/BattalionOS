@@ -13,6 +13,7 @@ export * from "./transport";
 export { localTransport, type LocalOptions } from "./local";
 export type * from "./fs.gen";
 export type * from "./store.gen";
+export type * from "./open.gen";
 export type * from "./window.gen";
 
 export interface ConnectOptions {

@@ -212,3 +212,45 @@ describe("a custom transport", () => {
     expect(await createBos(t).store.list()).toEqual(["a"]);
   });
 });
+
+describe("OPEN-WITH-1: open with", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  it("openWith sends the path and the app, when named", async () => {
+    const s = fakeShell((cmd, a) => (cmd === "os_open_with" ? { opened: a.appId ?? "notes", path: a.path } : null));
+    const bos = createBos(frameTransport(s.parent, s.self));
+    expect(await bos.openWith("docs/a.md")).toEqual({ opened: "notes", path: "docs/a.md" });
+    expect(await bos.openWith("docs/a.md", "viewer")).toEqual({ opened: "viewer", path: "docs/a.md" });
+    expect(s.seen).toEqual([
+      { cmd: "os_open_with", args: { path: "docs/a.md" } },
+      { cmd: "os_open_with", args: { path: "docs/a.md", appId: "viewer" } },
+    ]);
+  });
+  it("onOpenFile hands over the files waiting at start, then each new one once", async () => {
+    let waiting = ["docs/a.md"];
+    const s = fakeShell((cmd) => (cmd === "os_open_file_take" ? waiting.splice(0) : null));
+    const bos = createBos(frameTransport(s.parent, s.self));
+    const got: string[] = [];
+    const off = bos.onOpenFile((p) => got.push(p));
+    await tick();
+    expect(got).toEqual(["docs/a.md"]);
+    waiting = ["b.txt"];
+    s.emit({ bos: 1, event: "os_open_file", path: "b.txt" });
+    await tick();
+    expect(got).toEqual(["docs/a.md", "b.txt"]);
+    off();
+    waiting = ["c.txt"];
+    s.emit({ bos: 1, event: "os_open_file", path: "c.txt" });
+    await tick();
+    expect(got).toEqual(["docs/a.md", "b.txt"]);
+  });
+  it("the local backend hands the file to the same page; a missing file is refused", async () => {
+    const bos = createBos(localTransport({ files: { "notes/a.md": "# hi" } }), "local");
+    const got: string[] = [];
+    bos.onOpenFile((p) => got.push(p));
+    expect(await bos.openWith("notes/a.md")).toEqual({ opened: "local", path: "notes/a.md" });
+    await tick();
+    expect(got).toEqual(["notes/a.md"]);
+    await expect(bos.openWith("gone.md")).rejects.toBeInstanceOf(NotFoundError);
+    await expect(bos.openWith("../x.md")).rejects.toBeInstanceOf(LeavesRootError);
+  });
+});

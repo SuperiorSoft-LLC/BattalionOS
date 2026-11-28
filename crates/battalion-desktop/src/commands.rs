@@ -318,9 +318,14 @@ fn fs_poller(app: AppHandle, paths: battalion_host::Paths) {
 pub async fn os_frame_fs(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, cmd: String, args: Option<Value>) -> R<Value> {
     authorize_shell(window.label(), "os_frame_fs").map_err(|e| e.to_string())?;
     let cmd = battalion_host::fs::COMMANDS.iter().chain(battalion_host::fs::WRITE_COMMANDS).find(|c| **c == cmd).copied().ok_or_else(|| format!("'{cmd}' is not a file call"))?;
-    allowed(&host, &id, cmd).await?;
-    let paths = host.paths.clone();
     let args = args.unwrap_or(Value::Null);
+    // OPEN-WITH-1: a file handed to this app by "open with" may be read and stat'ed on its one-file grant, without files.read.
+    if let Err(e) = allowed(&host, &id, cmd).await {
+        if !OPENS.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).grant_allows(&id, cmd, &args) {
+            return Err(e);
+        }
+    }
+    let paths = host.paths.clone();
     #[cfg(target_os = "android")]
     {
         let _ = (app, paths, args);
@@ -371,7 +376,125 @@ fn drop_fs_watches(id: &str) {
 pub async fn os_frame_fs_close(window: WebviewWindow, id: String) -> R<()> {
     authorize_shell(window.label(), "os_frame_fs_close").map_err(|e| e.to_string())?;
     drop_fs_watches(&id);
+    // OPEN-WITH-1: the one-file grants of "open with" end with the frame.
+    OPENS.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).close_app(&id);
     Ok(())
+}
+
+/// OPEN-WITH-1: the files "open with" handed to apps in this OS session (pending paths, one-file grants).
+static OPENS: std::sync::Mutex<Option<battalion_host::openwith::Opens>> = std::sync::Mutex::new(None);
+
+/// OPEN-WITH-1: the installed manifest of every installed app, by name (an app whose manifest no longer loads is left out).
+#[cfg(not(target_os = "android"))]
+fn installed_manifests(host: &Host) -> Vec<battalion_app_api::Manifest> {
+    let list = host.armory.installed().unwrap_or_default();
+    let mut out: Vec<_> = list.iter().filter_map(|a| crate::host::manifest_of(&host.paths, &a.id).ok()).collect();
+    out.sort_by_key(|m| m.name.to_lowercase());
+    out
+}
+
+/// OPEN-WITH-1: hand file `rel` to app `target`: queue it, grant that one file when the app lacks files.read, open the app's
+/// view (`os://app-open`) and tell its frame (`os://open-file` `{id, path}`).
+#[cfg(not(target_os = "android"))]
+fn deliver_open(app: &AppHandle, host: &Host, target: &str, rel: &str) -> R<Value> {
+    let perms = crate::host::permissions_of(&host.paths, target)?;
+    let has_read = perms.iter().any(|p| p == battalion_host::fs::PERMISSION);
+    OPENS.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).deliver(target, rel, has_read);
+    let _ = app.emit(crate::events::APP_OPEN, target);
+    let _ = app.emit(crate::events::OPEN_FILE, json!({"id": target, "path": rel}));
+    Ok(json!({"opened": target, "path": rel}))
+}
+
+/// OPEN-WITH-1: app `id`'s page asks the OS to open a file under the OS root (`os_open_with {path, appId?}`). No permission
+/// beyond the path, which must resolve to a file under the root (`battalion-host::fs`). With `appId` that app (it must declare
+/// the type) opens it; else the remembered default for the type; else `{choose: [{id, name, label}], path, ext}` and the shell
+/// asks the person, then calls `os_open_with_pick`. Main only.
+#[tauri::command]
+pub async fn os_frame_open_with(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, id: String, args: Option<Value>) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_open_with").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    let args = args.unwrap_or(Value::Null);
+    let app_id = match args.get("appId") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(_) => return Err("appId must be an app id [bad_args]".into()),
+    };
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, host, args, app_id);
+        Err("open with is not on a phone yet".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        use battalion_host::openwith::{candidates, decide, file_to_open, Decision, Defaults};
+        let paths = host.paths.clone();
+        let caller = id.clone();
+        let (rel, ext) = blocking(move || -> R<(String, String)> {
+            // The caller must be an installed app; it needs no permission beyond knowing the path.
+            crate::host::permissions_of(&paths, &caller)?;
+            let fs = battalion_host::fs::Fs::open(&paths).map_err(|e| format!("{e} [{}]", e.code()))?;
+            file_to_open(&fs, &args).map_err(|e| format!("{e} [{}]", e.code()))
+        })
+        .await??;
+        let cands = candidates(&installed_manifests(&host), &ext);
+        let default = Defaults::load(&host.paths);
+        match decide(&cands, &ext, app_id.as_deref(), default.get(&ext)).map_err(|e| format!("{e} [{}]", e.code()))? {
+            Decision::Open(target) => deliver_open(&app, &host, &target, &rel),
+            Decision::Choose(c) => Ok(json!({"choose": c, "path": rel, "ext": ext})),
+        }
+    }
+}
+
+/// OPEN-WITH-1: the person chose app `appId` in the shell's chooser for file `path`; `always` remembers it for the type. The app
+/// must still open the type. Main only.
+#[tauri::command]
+pub async fn os_open_with_pick(window: WebviewWindow, app: AppHandle, host: State<'_, Host>, path: String, app_id: String, always: Option<bool>) -> R<Value> {
+    authorize_shell(window.label(), "os_open_with_pick").map_err(|e| e.to_string())?;
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, host, path, app_id, always);
+        Err("open with is not on a phone yet".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        use battalion_host::openwith::{candidates, decide, file_to_open, Defaults};
+        let paths = host.paths.clone();
+        let (rel, ext) = blocking(move || -> R<(String, String)> {
+            let fs = battalion_host::fs::Fs::open(&paths).map_err(|e| format!("{e} [{}]", e.code()))?;
+            file_to_open(&fs, &json!({ "path": path })).map_err(|e| format!("{e} [{}]", e.code()))
+        })
+        .await??;
+        decide(&candidates(&installed_manifests(&host), &ext), &ext, Some(&app_id), None).map_err(|e| format!("{e} [{}]", e.code()))?;
+        if always == Some(true) {
+            Defaults::set(&host.paths, &ext, Some(&app_id)).map_err(|e| format!("{e} [{}]", e.code()))?;
+        }
+        deliver_open(&app, &host, &app_id, &rel)
+    }
+}
+
+/// OPEN-WITH-1: the default app per file type, for the OS settings: `{ext: appId}`; `clear` forgets the one of that extension
+/// first. Main only.
+#[tauri::command]
+pub async fn os_open_with_defaults(window: WebviewWindow, host: State<'_, Host>, clear: Option<String>) -> R<Value> {
+    authorize_shell(window.label(), "os_open_with_defaults").map_err(|e| e.to_string())?;
+    use battalion_host::openwith::Defaults;
+    let paths = host.paths.clone();
+    blocking(move || -> R<Value> {
+        if let Some(ext) = clear {
+            Defaults::set(&paths, &ext, None).map_err(|e| format!("{e} [{}]", e.code()))?;
+        }
+        Ok(Defaults::load(&paths).to_json())
+    })
+    .await?
+}
+
+/// OPEN-WITH-1: the files handed to app `id` by "open with" since it last asked (`os_open_file_take`): paths under the OS root,
+/// oldest first, each given once. Main only.
+#[tauri::command]
+pub async fn os_frame_open_file_take(window: WebviewWindow, id: String) -> R<Value> {
+    authorize_shell(window.label(), "os_frame_open_file_take").map_err(|e| e.to_string())?;
+    crate::access::app_label(&id).map_err(|e| e.to_string())?;
+    Ok(json!(OPENS.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).take(&id)))
 }
 
 /// FS-API-1: the OS root folder for the OS settings (`{root}`: its real path, created when missing). Main only.

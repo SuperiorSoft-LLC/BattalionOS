@@ -33,6 +33,8 @@ The shell answers only the frame's own app, so a page never acts for another app
 | `bos.windows.open/close/minimize/restore/maximize/focus/snap/set/list`, `onEvent` | `os_win_*`, `os_win` events | `window` |
 | `bos.pickFolder(title?)`, `bos.pickFile(title?)` | `os_pick_folder`, `os_pick_file` | `files.user` |
 | `bos.openExternal(url)` | `os_open_external` | `network` |
+| `bos.openWith(path, appId?)` | `os_open_with` (OPEN-WITH-1): another app opens the file; the person chooses unless `appId` or a default decides | none |
+| `bos.onOpenFile(fn)` -> `off()` | `os_open_file_take` at start and on each `os_open_file` event: every file handed to this app, once | none (a one-file read grant when the app lacks `files.read`) |
 | `bos.call(cmd, args)`, `bos.onEvent(fn)` | any call / every event (a newer call this client does not wrap) | |
 
 Paths are relative to the OS root folder, `/`-separated; `..`, absolute paths and links out are refused.
@@ -58,10 +60,11 @@ the client maps it:
 ## Types and schemas
 
 The types are generated from the contract's JSON schemas, `crates/battalion-app-api/schemas/fs.schema.json`,
-`store.schema.json` and `window.schema.json` (the WM-5 pattern): `FsEntry`, `FsList`, `FsStat`, `FsRead`, `FsChangedEvent`,
-`StoreFile`, `WindowSpec`, `WinEvent`, ... Other languages generate from the same files. `test/gen.test.ts` fails when a
+`store.schema.json`, `open.schema.json` and `window.schema.json` (the WM-5 pattern): `FsEntry`, `FsList`, `FsStat`, `FsRead`,
+`FsChangedEvent`, `StoreFile`, `OpenWithResult`, `OpenFileEvent`, `FileType`, `WindowSpec`, `WinEvent`, ... Other languages generate from the same files. `test/gen.test.ts` fails when a
 generated file is stale; regenerate with `UPDATE_GEN=1 pnpm vitest run test/gen.test.ts`. A Rust test
-(`crates/battalion-host/tests/appstore.rs`) checks that the schemas name exactly the calls and codes the host serves.
+(`crates/battalion-host/tests/appstore.rs`, `tests/openwith.rs`) checks that the schemas name exactly the calls and codes the host
+serves.
 
 ## The local backend
 

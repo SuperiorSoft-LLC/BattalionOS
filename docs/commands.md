@@ -344,6 +344,44 @@ message): `bad_args`, `too_large`, `bad_app`, `io`. Settings (`store` in `os.jso
 |---|---|---|---|
 | `os_frame_store` | `id`, `cmd` (one of the `os_store_*` above), `args?` | main | the call's result, on app `id`'s own store; `id` must be an installed app |
 
+### Open with (OPEN-WITH-1)
+
+An app declares the files it opens in `app.json` `fileTypes` ([create.md](apps/create.md#every-field)). Any app's page may ask
+the OS to open a file under the OS root in another app. The caller needs NO permission beyond knowing the path, but the path
+must resolve (links followed) to a file under the OS root (`battalion-host::fs`, the one place paths are checked:
+`bad_path`, `leaves_root`, `not_found`, `not_a_file`).
+
+The OS picks the receiver: the app named by `appId` (it must be installed, have a page and declare a type that covers the
+file, else `no_such_app`); else the remembered default for the file's extension, while it still covers it; else the person
+chooses in the shell's "Open with" chooser, which lists only the installed apps with a page whose `fileTypes` cover the file
+(by extension, or by the MIME type the OS looks up from the extension; `text/*` covers every text type). The chooser is shown
+even when one app matches: the person, not the OS, decides who receives a file. "Always use this app" remembers the choice
+per extension in `<home>/state/open-with.json` (`{"schema": 1, "defaults": {"md": "notes"}}`); Settings list the defaults with
+Forget. No matching app at all is `no_app`.
+
+The receiver's view is opened (`os://app-open`) and the file is queued for it. Its page takes the queued paths with
+`os_open_file_take` (at load, so a file handed over before the page ran is not lost) and is told of each new one by an
+`{bos: 1, event: "os_open_file", path}` message. **A one-file grant, not `files.read`:** when the receiver lacks `files.read`,
+the OS grants it `os_fs_read` and `os_fs_stat` of exactly that path and nothing else (not its folder, not a list, not a
+write), until its frame closes or the OS exits. Least privilege: an editor that is only ever handed files needs no reach over
+the whole root, and the opener never hands over more than the one file the person chose. Writing the file back needs
+`files.write` (a later save grant may lift that). An app with `files.read` gets no grant (it needs none).
+
+| Page message `cmd` | Args | Permission | Result |
+|---|---|---|---|
+| `os_open_with` | `path`, `appId?` | none | `{opened, path}`: the app that received it, or `opened: null` when the person cancelled the chooser |
+| `os_open_file_take` | | none | the paths handed to this app since it last asked, oldest first, each once |
+
+Error codes: `bad_args`, `no_such_app`, `no_app`, `bad_path`, `leaves_root`, `not_found`, `not_a_file`, `no_root`, `io`.
+Schema: `crates/battalion-app-api/schemas/open.schema.json`. Not on a phone yet ("not available on this device yet").
+
+| Command | Args | Who | Returns |
+|---|---|---|---|
+| `os_frame_open_with` | `id` (the calling frame's app), `args: {path, appId?}` | main | `{opened, path}`, or `{choose: [{id, name, label}], path, ext}` when the person must choose |
+| `os_open_with_pick` | `path`, `appId`, `always?` | main | `{opened, path}`: the person's choice in the chooser (the app must still cover the file); `always` remembers it |
+| `os_open_with_defaults` | `clear?` (an extension) | main | `{ext: appId}`, the remembered defaults, after forgetting `clear` |
+| `os_frame_open_file_take` | `id` | main | the paths handed to app `id` (`os_open_file_take`) |
+
 ## Events (emitted to all windows)
 
 | Event | Payload |
@@ -352,6 +390,7 @@ message): `bad_args`, `too_large`, `bad_app`, `io`. Settings (`store` in `os.jso
 | `os://armory-progress` | `{id, op, stage, bytes, total, percent, reason?, etaMs?}`: `op` is `install`, `update`, `rollback` or `remove`; `stage` is the step (`download`, `verify`, `unpack`, `place`, `prepare`, `init`, `stop`, `switch`, `start`, `done`, `mark`, `delete`, `forget`); `bytes`, `total` and `percent` (0-100) only while `stage` is `download`, else null; `reason` and `etaMs` only while `stage` is `prepare` (the update waits for the app: "<app> will update when <reason>") |
 | `os://app-updated` | `{id, from, to}` after an update applied (by `os_update_app`, or a pending one): the shell closes the app's view and opens it again on the new version |
 | `os://app-open` | the app id; the shell opens the view of that app inside its window |
+| `os://open-file` | `{id, path}` (OPEN-WITH-1): a file was handed to app `id`; the shell tells that app's frame only (`os_open_file`) |
 | `os://app-window-closed` | the app id |
 | `os://login-changed` | `true` |
 | `os://frame-login-url` | `{id, url}` (BOS-25) |

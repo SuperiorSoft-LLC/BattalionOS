@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OPEN-WITH-1 open with calls (os_open_with, os_open_file_take), the os_open_file event and app.json fileTypes; the @battalionos/app-api TS types are generated from this file",
+  "$defs": {
+    "OpenCall": { "enum": ["os_open_with", "os_open_file_take"] },
+    "OpenErrorCode": { "enum": ["bad_args", "no_such_app", "no_app", "bad_path", "leaves_root", "not_found", "not_a_file", "no_root", "io"] },
+    "OpenWithArgs": { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" }, "appId": { "type": "string" } } },
+    "OpenCandidate": { "type": "object", "required": ["id", "name", "label"], "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "label": { "type": "string" } } },
+    "OpenWithResult": { "type": "object", "required": ["opened", "path"], "properties": { "opened": { "oneOf": [{ "type": "string" }, { "type": "null" }] }, "path": { "type": "string" } } },
+    "OpenFileEvent": { "type": "object", "required": ["bos", "event", "path"], "properties": { "bos": { "const": 1 }, "event": { "const": "os_open_file" }, "path": { "type": "string" } } },
+    "FileType": {
+      "type": "object",
+      "required": ["label"],
+      "properties": {
+        "label": { "type": "string" },
+        "extensions": { "type": "array", "items": { "type": "string" } },
+        "mime": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

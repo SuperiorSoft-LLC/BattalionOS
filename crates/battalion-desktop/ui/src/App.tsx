@@ -9,6 +9,8 @@ import { Armory } from "./Armory";
 import { AppFrames } from "./AppFrames";
 import { Desktop } from "./Desktop";
 import { PhoneSettings } from "./PhoneSettings";
+import { OpenWithChooser } from "./OpenWithChooser";
+import type { ChooseOpenWith } from "./AppFrames";
 import { send, slotChannel } from "./slots";
 import { FirstRun } from "./FirstRun";
 import { errText, hostPlatform, taskbarGroupWindows, type ArmoryOp, type Os } from "./os";
@@ -151,10 +153,26 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
   const [slotLimit, setSlotLimit] = useState<{ inUse: number; max: number } | null>(null);
   // FS-API-1: desktop Settings show the OS root folder (read from the host when opened).
   const [filesRoot, setFilesRoot] = useState<string | null>(null);
+  // OPEN-WITH-1: the default app per file type, read when Settings open.
+  const [defaultApps, setDefaultApps] = useState<Record<string, string> | null>(null);
   const openDesktopSettings = useCallback(() => {
     setSettings(true);
     os.fsInfo().then((r) => setFilesRoot(r.root), (e) => setFilesRoot(`not available: ${errText(e)}`));
+    os.openWithDefaults?.().then(setDefaultApps, () => setDefaultApps({}));
   }, [os]);
+  const forgetDefault = useCallback((ext: string) => void os.openWithDefaults?.(ext).then(setDefaultApps, (e) => setNotice(`Could not forget the default app: ${errText(e)}`)), [os]);
+  // OPEN-WITH-1: the "Open with" chooser: one at a time; a new request cancels the one on screen.
+  const [chooser, setChooser] = useState<{ req: Parameters<ChooseOpenWith>[0]; done: (p: { appId: string; always: boolean } | null) => void } | null>(null);
+  const chooseOpenWith = useCallback<ChooseOpenWith>(
+    (req) =>
+      new Promise((resolve) =>
+        setChooser((prev) => {
+          prev?.done(null);
+          return { req, done: (p) => { setChooser(null); resolve(p); } };
+        }),
+      ),
+    [],
+  );
   const setInUse = useCallback((n: number) => { const c = slotChannel(); if (c) send(c, { op: "config", inUse: n }); }, []);
   const retry = useCallback(
     async (id: string) => {
@@ -285,14 +303,15 @@ export function App({ os, platform = hostPlatform }: { os: Os; platform?: () => 
         <RefusalBanner text={notice ?? (m.listError ? `Could not read the installed apps: ${m.listError}` : null)} onDismiss={() => setNotice(null)} />
       </div>
       <Desktop ids={icons} view={view} label={label} icon={icon} tapOpens={phone} badge={(id) => (id === ARMORY_ICON ? (armoryHasUpdate(m.installed, osInfo) ? "↑" : null) : m.installed.find((a) => a.id === id)?.badge ?? null)} onOpen={(id) => (id === ARMORY_ICON ? openArmory() : void open(id))}>
-        <AppFrames m={m} os={os} winChanged={loadWins} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
+        <AppFrames m={m} os={os} chooseOpenWith={chooseOpenWith} winChanged={loadWins} close={closeView} ended={endedView} onSlotLimit={setSlotLimit} minimize={minimize} retry={(id) => void retry(id)} notify={setNotice} />
         {!phone && <FloatWindows m={m} os={os} changed={loadWins} notify={setNotice} />}
         {!ready && <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</div>}
         {showFirstRun(m) && !armory && <FirstRun m={m} install={install} openArmory={() => setArmory(true)} dismiss={() => dispatch({ type: "dismiss-first-run" })} />}
         {armory && <Armory m={m} repos={os.localRepos ? { list: () => os.localRepos!(), add: (n) => os.addLocalRepo!(n), rename: (n, to) => os.renameLocalRepo!(n, to), remove: (n) => os.removeLocalRepo!(n), link: os.linkLocalRepo ? (n, p) => os.linkLocalRepo!(n, p) : undefined, changed: () => void loadCatalog() } : undefined} folder={os.installFromFolder ? { install: (req) => os.installFromFolder!(req), changed: () => void loadCatalog() } : undefined} osRow={{ info: osInfo, phase: osPhase, install: () => void runOsUpdate(os, setOsPhase, errText), dismiss: () => setOsPhase({ kind: "idle" }) }} a={{ install, update: (id) => op(id, "update"), updateNow, later, rollback: (id) => op(id, "rollback"), setChannel, remove: (id) => op(id, "remove"), dismiss: (id) => dispatch({ type: "op-dismissed", id }), open: (id) => void open(id), reload: () => void loadCatalog(), close: () => setArmory(false) }} />}
       </Desktop>
       <Taskbar items={barItems(m)} installedIds={ids} label={label} icon={icon} onOpen={(id) => void open(id)} onTask={task} onArmory={openArmory} onExit={exit} start={start} onStart={setStart} phone={phone} onSettings={phone ? (slotChannel() ? () => setSettings(true) : undefined) : openDesktopSettings} onWin={winOp} />
-      {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} phone={phone} filesRoot={phone ? undefined : filesRoot} />}
+      {settings && <PhoneSettings open={settings} onOpenChange={setSettings} limit={slotLimit} setInUse={setInUse} phone={phone} filesRoot={phone ? undefined : filesRoot} defaultApps={phone || !os.openWithDefaults ? undefined : defaultApps} forgetDefault={forgetDefault} />}
+      {chooser && <OpenWithChooser req={chooser.req} done={chooser.done} />}
     </div>
   );
 }

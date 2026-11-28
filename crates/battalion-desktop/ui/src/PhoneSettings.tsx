@@ -3,11 +3,30 @@
 // phone's process slots; opening one more closes the one used longest ago). The host owns the value (shared prefs `bos_slots`).
 // FS-API-1: on the desktop the same dialog shows the OS root folder (apps with `files.read` reach only what is under it; the
 // `fs.root` setting in os.json moves it).
-import { AppDialog, Field, ToggleGroup, ToggleGroupItem } from "../kit";
+// OPEN-WITH-1: on the desktop it also lists the default app per file type ("always use this app"), each with Forget.
+import { AppDialog, Button, Field, ToggleGroup, ToggleGroupItem } from "../kit";
 
-export function PhoneSettings({ open, onOpenChange, limit, setInUse, phone = true, filesRoot }: { open: boolean; onOpenChange: (open: boolean) => void; limit: { inUse: number; max: number } | null; setInUse: (n: number) => void; phone?: boolean; filesRoot?: string | null }) {
+export function PhoneSettings({ open, onOpenChange, limit, setInUse, phone = true, filesRoot, defaultApps, forgetDefault }: { open: boolean; onOpenChange: (open: boolean) => void; limit: { inUse: number; max: number } | null; setInUse: (n: number) => void; phone?: boolean; filesRoot?: string | null; defaultApps?: Record<string, string> | null; forgetDefault?: (ext: string) => void }) {
   return (
     <AppDialog open={open} onOpenChange={onOpenChange} title="Settings">
+      {defaultApps !== undefined && (
+        <Field id="default-apps" label="Default apps" hint="The app that opens each kind of file without asking. Forget one to be asked again.">
+          <div id="default-apps" className="flex flex-col gap-1" role="list">
+            {defaultApps === null ? (
+              <p className="text-sm text-muted-foreground" role="status">Reading…</p>
+            ) : Object.keys(defaultApps).length === 0 ? (
+              <p className="text-sm text-muted-foreground">None yet.</p>
+            ) : (
+              Object.entries(defaultApps).map(([ext, app]) => (
+                <div key={ext} role="listitem" className="flex items-center justify-between gap-2 text-sm">
+                  <span>.{ext}: {app}</span>
+                  <Button size="sm" variant="outline" onClick={() => forgetDefault?.(ext)}>Forget</Button>
+                </div>
+              ))
+            )}
+          </div>
+        </Field>
+      )}
       {filesRoot !== undefined && (
         <Field id="files-root" label="Files root folder" hint="Apps with the files permission reach only what is in this folder. Set fs.root in os.json to move it.">
           <p id="files-root" className="text-sm break-all" role="status">{filesRoot ?? "Reading…"}</p>

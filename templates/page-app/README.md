@@ -1,7 +1,8 @@
 # A BattalionOS page app (template)
 
 React + TypeScript + Vite and [`@battalionos/app-api`](../../docs/apps/app-api.md). The demo lists and edits files under the
-OS root (`files.read`, `files.write`) and remembers the last folder in the app's own store.
+OS root (`files.read`, `files.write`) and remembers the last folder in the app's own store. It declares `fileTypes` (text
+files), so another app can hand it a file ("open with"; `bos.onOpenFile`), and its "Open with…" button hands one on.
 
 ```
 pnpm install

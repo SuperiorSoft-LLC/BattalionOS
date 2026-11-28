@@ -156,3 +156,30 @@ fn an_app_is_a_library_exec_is_refused_with_a_clear_message() {
     v["cli"] = json!([{"name": "tool", "exec": "bin/tool.exe"}]);
     assert!(Manifest::parse(&v.to_string(), P, CONTRACT).is_ok());
 }
+
+/// OPEN-WITH-1: `fileTypes` loads, and each malformed entry is refused with its reason.
+#[test]
+fn file_types_validate() {
+    let mut v = good();
+    v["fileTypes"] = json!([{"label": "Text", "extensions": ["txt", "md"], "mime": ["text/plain", "text/*"]}, {"label": "Pictures", "mime": ["image/png"]}]);
+    let m = Manifest::parse(&v.to_string(), P, CONTRACT).unwrap();
+    assert_eq!(m.file_types.len(), 2);
+    assert_eq!(m.file_types[0].extensions, vec!["txt", "md"]);
+    assert!(Manifest::parse(&good().to_string(), P, CONTRACT).unwrap().file_types.is_empty());
+    // A newer field inside an entry is ignored like any unknown field.
+    let mut v = good();
+    v["fileTypes"] = json!([{"label": "Text", "extensions": ["txt"], "icon": "x.png"}]);
+    assert!(Manifest::parse(&v.to_string(), P, CONTRACT).is_ok());
+    for bad in [
+        json!([{"label": "", "extensions": ["txt"]}]),
+        json!([{"label": "Nothing"}]),
+        json!([{"label": "Dot", "extensions": [".txt"]}]),
+        json!([{"label": "Upper", "extensions": ["TXT"]}]),
+        json!([{"label": "Long", "extensions": ["a".repeat(17)]}]),
+        json!([{"label": "Mime", "mime": ["text"]}]),
+        json!([{"label": "Mime", "mime": ["Text/Plain"]}]),
+        json!([{"label": "Mime", "mime": ["*/*"]}]),
+    ] {
+        assert!(matches!(refuse(|v| v["fileTypes"] = bad.clone()), ManifestError::BadFileType(_)), "{bad}");
+    }
+}

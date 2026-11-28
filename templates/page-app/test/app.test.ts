@@ -12,4 +12,13 @@ describe("the demo's calls", () => {
     await bos.store.set("lastDir", "notes");
     expect(await bos.store.get("lastDir")).toBe("notes");
   });
+  it("receives a file handed to it (open with)", async () => {
+    const bos = connect({ backend: "local", local: { files: { "notes/a.txt": "a" } } });
+    const got: string[] = [];
+    bos.onOpenFile((p) => got.push(p));
+    await bos.openWith("notes/a.txt");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(got).toEqual(["notes/a.txt"]);
+    expect(await bos.fs.readText(got[0]!)).toBe("a");
+  });
 });

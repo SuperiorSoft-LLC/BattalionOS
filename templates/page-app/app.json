@@ -9,5 +9,6 @@
   "minOs": "0.1.0",
   "ui": { "entry": "ui/index.html", "window": { "width": 900, "height": 640 } },
   "state": { "schema": 1 },
-  "permissions": ["files.read", "files.write", "notifications"]
+  "permissions": ["files.read", "files.write", "notifications"],
+  "fileTypes": [{ "label": "Text file", "extensions": ["txt", "md", "log"], "mime": ["text/plain"] }]
 }
